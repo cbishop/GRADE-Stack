@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# Guard hook: refuse to commit anything under docs/internal/.
+# This is the "mechanism, not prose" enforcement of the public/private split —
+# .gitignore prevents accidental `git add .`; this catches forced/explicit adds
+# (e.g. `git add -f docs/internal/...`).
+#
+# Activate once after `git init`:
+#     git config core.hooksPath .githooks
+#
+set -euo pipefail
+
+# Staged paths (added/copied/modified/renamed), NUL-delimited for safety.
+staged="$(git diff --cached --name-only --diff-filter=ACMR -z | tr '\0' '\n')"
+
+violations="$(printf '%s\n' "$staged" | grep -E '^docs/internal/' || true)"
+
+if [[ -n "$violations" ]]; then
+  echo "✖ Commit blocked: files under docs/internal/ are internal-only and must never be committed to this public repo." >&2
+  echo "  Offending staged path(s):" >&2
+  printf '    %s\n' "$violations" >&2
+  echo "  Unstage them with:  git restore --staged docs/internal/" >&2
+  exit 1
+fi
+
+exit 0

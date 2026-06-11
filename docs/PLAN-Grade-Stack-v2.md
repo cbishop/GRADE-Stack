@@ -1,0 +1,384 @@
+# Build Plan — Grade Stack (Mid-Market Agentic AI Reliability & Governance Reference Stack)
+
+**Owner:** Clarke Bishop · **Status:** v2 execution plan · **Source of truth:** [`docs/PRD-Grade-Stack-v2.md`](./PRD-Grade-Stack-v2.md)
+
+This is the step-by-step build runbook that turns the PRD's phases into ordered, executable tasks. The PRD defines *what* and the *contract* (acceptance criteria); this plan defines *how* and *in what order*. Read them side-by-side — the section numbering here mirrors the PRD's phase spine.
+
+---
+
+## Changes from v1
+
+1. **LICENSE + OSS hygiene** (Apache-2.0 default, CONTRIBUTING.md, SECURITY.md) added to Phase 0 — the repo was going public with no license, i.e. not legally forkable.
+2. **Baseline CI moved to Phase 0** (typecheck, lint, test, build, secret scan). Phase 1B now *extends* CI with the eval gate instead of introducing CI bundled with its hardest problem.
+3. **Secret-scan mechanism corrected:** CI scan (gitleaks) is authoritative; PreToolUse and pre-commit hooks are fast feedback only — `core.hooksPath` is per-clone opt-in and binds nobody.
+4. **Gateway enforcement made structural (2C):** the agent loses all provider credentials; the gateway becomes the only model path. Acceptance now includes a failing direct-to-provider call.
+5. **Fork-PR eval strategy + committed-baseline + CI cost cap** specified in 1B (GitHub doesn't expose secrets to fork PRs; the v1 gate would have silently no-opped for external contributors).
+6. **Reproducibility restated as tolerance-based** (Bedrock has no seed; bit-identical runs are unachievable).
+7. **Judge-model portability required in 1A** so the 3D air gap isn't broken by a cloud LLM-as-judge dependency.
+8. **Slash commands** (`/eval-run`, `/scorecard`) scheduled in 1A/1C — named in the v1 PRD structure but never tasked.
+9. **Degraded mode** built once in 1B, reused for the 1B gate demo and the 1C honest-degradation test, kept as a permanent canary.
+10. **Ollama cost-per-success semantics** defined (tokens always; dollars default \$0 with optional amortized rate).
+11. **Build-time re-verification tasks** added for OWASP identifiers (3A) and EU AI Act dates (3C).
+12. **Repo naming decision** added to pre-flight (grade-stack vs reliability-stack vs other — it's the brand in the launch post; CLI stays `reliability`).
+
+---
+
+## How to use this plan
+
+- **Work one sub-phase at a time.** Each lettered sub-phase (0, 1A, 1B, …) is a ~2-week increment. Do **not** pull scope forward from a later phase.
+- **The acceptance criteria are the contract.** A sub-phase is "done" only when every checkbox is checked **and** the build-in-public artifact for that cycle exists in `/content/cycle-XX/`.
+- **Enforce with mechanisms, not prose.** Where the PRD says "must never," implement a hook, schema, or CI gate — never a `CLAUDE.md` instruction. This is a product design principle, not just a build convention.
+- **Record every deviation as an ADR** in `docs/decisions/`. No silent stack changes.
+- **Kickoff prompt per sub-phase** (adapt the bracket):
+  > *"Read `docs/PRD-Grade-Stack-v2.md`, `docs/PLAN-Grade-Stack-v2.md`, and `CLAUDE.md`. We are starting Phase [X.Y]. List the concrete tasks from the plan, propose a branch name, and implement only that sub-phase. Stop at its acceptance criteria."*
+
+---
+
+## Conventions & global rules (apply to every phase)
+
+**Stack (non-negotiable unless overridden by an ADR):**
+
+| Layer | Choice |
+|---|---|
+| Runtime / package manager | **Bun** only — no npm/yarn/pnpm mixing |
+| Language | **TypeScript**, `strict: true`, no implicit `any` |
+| CLI framework | **Commander** — single `reliability` binary, subcommands per capability |
+| Primary eval engine | **promptfoo** (config-as-code, CI-friendly) |
+| Tracing | **OpenTelemetry** (GenAI semantic conventions) |
+| Tool/integration layer | **MCP** (TypeScript SDK) |
+| Models — cloud | **Amazon Bedrock** (Claude) — production path |
+| Models — local | **Ollama** on M4 Mac Studio — dev/variant path |
+| Guardrails | provider-agnostic **LLM gateway**, server-side enforcement; sole model path from Phase 2C |
+| Agent pattern | **Planner / Executor / Validator** |
+| License | **Apache-2.0** default — ADR if different |
+
+> **Package-manager note:** This project mandates **Bun** (per PRD). That overrides the global default of pnpm — do not switch this project to pnpm.
+
+> **promptfoo-under-Bun risk note:** promptfoo targets Node. If it misbehaves under Bun, invoke the promptfoo CLI as a subprocess rather than re-opening the runtime decision. One line in an ADR if this fallback is taken.
+
+**Hard constraints (carry into every sub-phase):**
+- **Time budget:** ~32 hrs/week, sequenced — no parallel phases.
+- **OSS scope discipline:** repo stays narrow and opinionated. If maintenance burden grows, cut repo scope — never cut publishing cadence.
+- **Mid-market legibility:** every artifact must be explainable to a non-ML-platform team and a non-technical executive. If it can't be explained to a board, it's mis-scoped.
+- **No secrets in the repo.** Inject via env. Enforcement is layered: **CI secret scan = mechanism of record**; PreToolUse hook (stops Claude writing secrets) and git pre-commit hook (stops local commits) = fast feedback. Local hooks are per-clone opt-in and must never be the only line of defense.
+- **All model access flows through the provider abstraction** — agent, eval judges, everything. This single seam is what makes the 2C gateway insertion and the 3D air gap structural rather than retrofits.
+
+**Language escape hatch (only sanctioned path to non-TS code), in order of preference:**
+1. **Isolated scorer (preferred):** a specific named eval metric genuinely unavailable in promptfoo → one Python scorer behind a subprocess/HTTP/OTel boundary. A leaf, not a layer.
+2. **Clean-seam split (only if a whole layer earns it):** realistically only the eval/scoring package, behind a real protocol boundary. The MCP server stays TS regardless.
+- Any move under this section is an **ADR** in `docs/decisions/`. Default stays TS-only.
+
+**Cadence model:**
+- **Bi-weekly phase gate** — each sub-phase ends in a shippable, narratable deliverable.
+- **Two posts per sub-phase:** a mid-cycle ("working on / what surprised me") and an end-of-cycle ("shipped / here's the artifact"). Drafts in `content/cycle-XX/`.
+- **Posting split:** ~80% practice-in-public (LinkedIn narrative), ~15% technical artifact (repo/commits), ~5% transparency (phase-boundary retrospective).
+- **Definition of "narratable":** if you can't write the end-of-cycle post from the increment, the increment isn't done.
+
+**Commit hygiene:** standard commit messages, **no AI-tool attribution** (per global convention).
+
+**Global definition of done (every phase must clear all five):**
+1. Acceptance criteria for every sub-phase are checked.
+2. `bun run reliability` reflects the new capability and the full suite passes CI.
+3. The build-in-public artifact for each cycle exists in `/content` and has been (or is scheduled to be) posted.
+4. Any stack deviation is recorded as an ADR in `docs/decisions/`.
+5. Every "must never" is enforced by a mechanism (hook / schema / CI gate), not a comment.
+
+---
+
+## Pre-flight (one-time, before Phase 0 tasks)
+
+These unblock the hooks, CI, and eval-gate that later phases assume.
+
+- [ ] Confirm **Bun** is installed (`bun --version`); install if absent.
+- [ ] **`git init`** — the repo is not yet under version control, and the secret-scan hook, eval-gate, and GitHub Actions CI all assume git. (A `.gitignore` is already present — node_modules, `.env*`, build output, `docs/internal/`, `.DS_Store`.)
+- [ ] **Activate the repo's git hooks:** `git config core.hooksPath .githooks`. This turns on the tracked `pre-commit` guard that blocks committing anything under `docs/internal/` (the internal-only strategy docs) — belt-and-suspenders alongside `.gitignore`. **Remember:** this is per-clone and opt-in; the CI secret scan (Phase 0) is the real mechanism.
+- [ ] **Decide the public repo name** — `grade-stack`, `reliability-stack`, or other. This is the brand in the launch post; the PRD's target-structure root and README should match it. The CLI binary stays `reliability` regardless (intentional: product name ≠ command name — note this in the README so it reads as deliberate).
+- [ ] Decide the **GitHub remote** and confirm **public** visibility (PRD requires a public repo). Create it but keep the first push for the end of Phase 0.
+- [ ] **Pick the license** (default Apache-2.0; ADR if different) — must be committed before the repo goes public.
+- [ ] Confirm local model access: **Bedrock** credentials available via env (AWS profile / keys, region with Claude access) and **Ollama** running with at least one pulled model (e.g. `qwen3.5`, `deepseek-r1`, or `llama3.3`).
+- [ ] Decide the single **reference-agent task** to commit to for the whole build — recommended: *"triage an inbound support email and draft a structured response."* Everything downstream evaluates this one task.
+
+---
+
+## Phase 0 — Foundation & flag-planting (Weeks 1–2)
+
+**Objective:** Stand up the repo and publicly declare the point of view. Establish the spine before any feature. **Out of scope:** any evals, tracing, MCP, gateway, governance — resist all of it.
+
+**Branch:** `phase-0-foundation`
+
+**Tasks (ordered):**
+1. **Init Bun workspace + monorepo layout.** Create the target structure with README stubs in each package:
+   ```
+   packages/{cli,core,evals,mcp-server,gateway,scorecard}/
+   reference-agent/
+   governance/
+   content/cycle-00/
+   docs/decisions/
+   .github/workflows/
+   .claude/{commands,settings.json}
+   ```
+2. **Root config:** root `package.json` with Bun workspaces; **strict `tsconfig.json`** (`strict: true`, no implicit `any`); lint + format config (Biome or ESLint+Prettier — record the choice as an ADR if it deviates from any stated default). Add Bun scripts including `reliability` → CLI entrypoint.
+3. **OSS hygiene:** commit **LICENSE** (Apache-2.0 unless the pre-flight ADR says otherwise), a minimal **CONTRIBUTING.md** (how to run, how PRs are gated — note the fork-PR eval policy will land in 1B), and **SECURITY.md** (how to report a vulnerability).
+4. **Commander CLI entrypoint** in `packages/cli` so `bun run reliability --help` works and prints subcommand scaffolding.
+5. **Provider abstraction** in `packages/core`: a single interface through which **all** model calls flow — the reference agent now, eval judges in 1A, the gateway seam in 2C. **Bedrock** and **Ollama** implementations selectable via flag/env (e.g. `--provider bedrock|ollama` or `RELIABILITY_PROVIDER`). No reliability tooling — just model invocation.
+6. **Naive reference agent** in `reference-agent/`: implements the one chosen task end-to-end against **both** providers. Intentionally naive — this is the documented "before" state.
+7. **`CLAUDE.md`** at repo root: build conventions + the "mechanisms not prose" principle.
+8. **Secret-scan, all three layers:**
+   - **CI scan** (e.g. gitleaks action) in the baseline workflow — the mechanism of record.
+   - **Git pre-commit hook** extending the existing `.githooks/pre-commit` (which currently only blocks `docs/internal/`) with secret patterns — fast local feedback.
+   - **PreToolUse hook** in `.claude/settings.json` so Claude Code can't write secrets into tracked files.
+   - Verify the local hook **and** the CI scan each fire on a deliberately planted test secret.
+9. **`.claude/settings.json`:** also add the **placeholder eval-gate hook** (no-op now; wired for real in Phase 1B).
+10. **Baseline CI** (`.github/workflows/ci.yml`): install (with Bun setup), typecheck, lint, **`bun test` with at least one real unit test** (so the test scaffold isn't vacuous — e.g. a provider-abstraction unit test with a stubbed transport), build, secret scan. Green from a clean clone. Phase 1B extends this file; it does not create it.
+11. **README** with the POV statement, committed verbatim:
+    > *"I help mid-market companies ship AI agents that are reliable, observable, and governed — the enterprise-grade version, right-sized for a company without an ML platform team."*
+12. **Content — `content/cycle-00/`:** launch post — *"I'm building the open reference stack for getting mid-market AI agents to production, in public — here's the repo and why."* (plus the mid-cycle "what I'm setting up" post).
+13. Make the repo public; push; confirm CI is green on the public repo.
+
+**Acceptance criteria (PRD contract):**
+- [ ] `bun install && bun run reliability --help` works from a clean clone.
+- [ ] Reference agent completes its one task against **both** Bedrock and Ollama.
+- [ ] A planted test secret is blocked by the local hook **and** caught by the CI scan.
+- [ ] Baseline CI (typecheck, lint, test, build, secret scan) is green on the initial push.
+- [ ] LICENSE, CONTRIBUTING.md, SECURITY.md exist; repo is public; README states the POV.
+- [ ] **Artifact:** launch post in `content/cycle-00/`.
+
+---
+
+## Phase 1 — Eval/reliability harness MVP (Weeks 3–8)
+
+The highest-leverage phase — the foundation everything else builds on.
+
+### Phase 1A — Core eval harness (Weeks 3–4)
+
+**Objective:** Make the naive reference agent *measurable*. **Branch:** `phase-1a-eval-harness`
+
+**Tasks (ordered):**
+1. `packages/evals`: **promptfoo config-as-code** targeting the reference agent (via the CLI/core provider abstraction, not a forked code path). If promptfoo misbehaves under Bun, fall back to invoking its CLI as a subprocess (one-line ADR).
+2. **Starter suite — ≥10 cases** spanning the real input distribution, **including at least one refusal / empty / out-of-distribution case** (to surface mode-collapse-style failures) and cases structurally identical to production inputs.
+3. **Trace-level scoring:** each eval records per-step outcomes along the planner/executor/validator path, not just final pass/fail. (The agent is still naive here; capture whatever step structure exists, and design the schema so it survives the Phase 2A refactor.)
+4. **Judge-model portability:** any LLM-as-judge/grader metric calls through the provider abstraction and is demonstrably swappable to an Ollama judge. This is a hard 3D prerequisite — do not let a cloud-only judge creep in.
+5. **`reliability eval run`** subcommand: executes the suite, emits **structured JSON** results. Add the **`/eval-run` slash command** in `.claude/commands/`.
+6. **Reproducibility, tolerance-based:** pin determinism where the provider allows (temperature, top-p); define and document the **tolerance band** within which two consecutive runs' aggregate scores must agree, and report per-case flakiness. Document explicitly what is and isn't deterministic per provider (Bedrock has no seed parameter — bit-identical output is not the bar).
+7. **ADR checkpoint:** only if a named metric proves genuinely unavailable in promptfoo, record an ADR before reaching for the Python escape hatch. Otherwise stay TS-only.
+
+**Acceptance criteria:**
+- [ ] `reliability eval run` executes the suite and emits structured JSON results.
+- [ ] Suite includes ≥1 null/refusal case and cases structurally identical to production inputs.
+- [ ] Two consecutive runs agree within the documented tolerance band; per-case flakiness is reported.
+- [ ] At least one judge-based metric runs successfully with an Ollama judge.
+- [ ] **Artifact:** post — *"the cheapest reliability win is making your agent measurable — here's a 10-case harness."* (in `content/cycle-01/`).
+
+### Phase 1B — CI gating + cost-per-success (Weeks 5–6)
+
+**Objective:** Turn evals into an enforcement mechanism and introduce the executive-legible unit metric. **Branch:** `phase-1b-ci-gate-cost`
+
+**Tasks (ordered):**
+1. **Extend the Phase 0 GitHub Actions workflow** to run the eval suite.
+2. **Baseline mechanism (ADR):** commit a JSON baseline-results file on `main`; the gate compares each run against it **within the 1A tolerance band** (so nondeterminism doesn't flake the gate); the baseline is updated only by an explicit, reviewed re-baseline commit. Define the regression threshold.
+3. **Fork-PR strategy (ADR):** GitHub Actions does not expose repo secrets to fork PRs, so the Bedrock-backed gate can't run on them. Choose and record one:
+   - (a) **Recommended:** eval gate on same-repo PRs + pushes to `main`; fork PRs get lint/typecheck/test only, plus a maintainer-applied label that triggers the eval run after review;
+   - (b) a reduced local-model suite for forks (Ollama-in-CI is heavy — model download per run — so only if (a) proves unworkable);
+   - (c) maintainer-triggered `workflow_dispatch`.
+   Whichever is chosen: **a fork PR must not be mergeable ungated** (branch-protection required check).
+4. **CI cost cap:** reduced smoke suite on PRs, full suite on pushes to `main` (or nightly); a per-run budget/case cap so a misbehaving change can't burn unbounded Bedrock spend.
+5. **Wire the eval-gate for real** — it now **fails the build on regression** (programmatic enforcement, not advisory), comparing against the committed baseline.
+6. **Cost-per-success** as a first-class metric: token + dollar cost per *passing* outcome (not per call). Surface in JSON results **and** CLI output. Per-provider pricing in config; **Ollama semantics explicit** — token counts always reported, dollar figure defaults to \$0 with an optional amortized-hardware rate (feeds the 3D trade-off doc later).
+7. **`--max-turns` / loop-bounding** on the reference agent; the bound is **enforced**, not suggested.
+8. **Degraded mode:** add a flag (e.g. `--degraded` / `RELIABILITY_DEGRADED=1`) that deliberately worsens the agent. Use it now to demonstrate the gate blocking a regression PR; reuse it in 1C for the scorecard test; keep it permanently as a gate canary.
+
+**Acceptance criteria:**
+- [ ] A PR that degrades agent quality below threshold is **blocked by CI automatically** (demonstrated via degraded mode).
+- [ ] Baseline mechanism and fork-PR strategy are ADR'd and implemented; a fork PR cannot merge ungated.
+- [ ] `reliability eval run` reports cost-per-success per scenario, with defined semantics on both providers.
+- [ ] Runaway loops are bounded and the bound is enforced, not suggested.
+- [ ] **Artifact:** post — *"cost-per-success is the metric your board actually understands — why cost-per-call lies."* (in `content/cycle-02/`).
+
+### Phase 1C — AI Reliability Scorecard v1 (Weeks 7–8) · *the executive-facing deliverable*
+
+**Objective:** Translate eval results into a board-legible trust/risk readout. The single most executive-facing artifact. **Branch:** `phase-1c-scorecard`
+
+**Tasks (ordered):**
+1. `packages/scorecard`: generate a one-page **AI Reliability Scorecard** from eval results, with executive dimensions — **Reliability**, **Cost discipline**, **Observability coverage**, **Guardrail coverage**, **Governance readiness**. The last two are **stubbed** (clearly marked "not yet assessed") until Phases 2D/3.
+2. Each dimension gets a **plain-language rating + the evidence behind it** (traced to eval results — no unsupported scores).
+3. **Output:** Markdown **and** clean printable HTML; no jargon a CFO wouldn't understand.
+4. **`reliability scorecard`** subcommand. Add the **`/scorecard` slash command** in `.claude/commands/`.
+5. **Honest degradation:** run the scorecard against the agent in 1B's **degraded mode** and verify it produces a worse scorecard.
+
+**Acceptance criteria:**
+- [ ] Running the scorecard against the reference agent produces a one-page readout an executive could read in 3 minutes.
+- [ ] Every rating traces to underlying eval evidence (no unsupported scores).
+- [ ] Ratings degrade honestly (degraded mode → a worse scorecard).
+- [ ] **Artifact:** publish a sample scorecard + post — *"How a board can tell if its AI agent is trustworthy — without reading a single trace."* (the flagship public artifact; in `content/cycle-03/`).
+
+> **Phase 1 gate:** Do not proceed to Phase 2 until the scorecard is published. *If the executive narrative isn't landing after ~8 weeks of consistent posting, the framing is too technical — refine the scorecard/narrative for the executive reader before adding any architecture scope.*
+
+---
+
+## Phase 2 — Reference architecture + MCP integration (Weeks 9–16)
+
+**Objective:** Promote the naive agent into a credible, vendor-neutral reference architecture, and add the integration layer.
+
+### Phase 2A — Planner/Executor/Validator pattern (Weeks 9–10)
+
+**Branch:** `phase-2a-pev`
+1. Refactor the reference agent into an explicit **planner → executor → validator** structure in `packages/core`.
+2. The **validator uses structured output** (tool-use / schema-enforced via Zod→tool-schema), **not prompted JSON**. This is an enforcement mechanism — the schema is the contract.
+3. Document the pattern as a **reusable blueprint** in `docs/`.
+4. Verify the Phase 1A trace-level scoring still maps onto the now-explicit steps.
+
+**Acceptance:**
+- [ ] The pattern is documented as a reusable blueprint.
+- [ ] Eval scores **hold or improve** through the refactor (within the 1A tolerance band).
+- [ ] **Artifact:** post on the planner/executor/validator pattern as the mid-market default (`content/cycle-04/`).
+
+### Phase 2B — MCP integration layer (Weeks 11–12)
+
+**Branch:** `phase-2b-mcp`
+1. `packages/mcp-server`: expose **at least one tool and one resource**, correctly distinguished (model-controlled action vs. app-exposed data).
+2. The reference agent **consumes** the MCP server.
+3. Ensure **tool descriptions** (not names or prompt rules) drive selection.
+4. Document **transports**: stdio (local) and HTTP (remote).
+
+**Acceptance:**
+- [ ] Tool-vs-resource choice is defensible per the control model.
+- [ ] Tool descriptions drive selection; transports documented.
+- [ ] **Artifact:** post — *"the tool-vs-resource mistake every team makes with MCP."* (`content/cycle-05/`).
+
+### Phase 2C — LLM gateway / guardrails (Weeks 13–14)
+
+**Branch:** `phase-2c-gateway`
+1. `packages/gateway`: sits between agent and models, enforcing policy **server-side** — input/output filters, PII handling, allow/deny.
+2. **Credential isolation — the structural mechanism:** rewire the Phase 0 provider abstraction so the agent process targets **only the gateway endpoint** and holds **no Bedrock/Ollama credentials**; the gateway alone holds provider access. Without this, the gateway is routable-around in code — prose, not a mechanism.
+3. **Prove server-side enforcement two ways:**
+   - a guardrail violation is blocked at the gateway **even when the agent prompt is manipulated to bypass it** (behavioral proof);
+   - a direct-to-provider call from the agent process **fails for lack of credentials** (structural proof).
+
+**Acceptance:**
+- [ ] A guardrail violation is blocked at the gateway even under a bypass-attempt prompt.
+- [ ] The agent process holds no provider credentials; a direct-to-provider call from it fails.
+- [ ] **Artifact:** post on why guardrails belong in the gateway, not the prompt (`content/cycle-06/`).
+
+### Phase 2D — OpenTelemetry tracing (Weeks 15–16)
+
+**Branch:** `phase-2d-otel`
+1. Instrument the full path with **OTel GenAI semantic conventions**; export to an OTLP backend (Phoenix or similar) for viewing.
+2. The scorecard's **Observability coverage** dimension is now **computed from real trace coverage** (un-stub it).
+3. Verify a full run yields a **connected trace**: plan → tool calls → validation.
+
+**Acceptance:**
+- [ ] A full agent run produces a connected trace (plan → tool calls → validation).
+- [ ] Observability rating is evidence-backed.
+- [ ] **Artifact:** post on observability vs. evals — *"you can see failures or prevent them; you need both."* (`content/cycle-07/`).
+
+> **Phase 2 milestone:** Package the assessment flow (run evals → generate scorecard → review architecture/guardrail/observability gaps) as a documented, repeatable **"Production-Readiness Assessment"** workflow in `docs/`.
+
+---
+
+## Phase 3 — Governance & security overlay (Weeks 17–24)
+
+**Objective:** Add the compliance/governance layer and complete the scorecard's governance dimensions.
+
+### Phase 3A — OWASP Agentic Top 10 mapping (Weeks 17–18)
+
+**Branch:** `phase-3a-owasp`
+1. **Verify the current OWASP agentic taxonomy first** — the project's naming and item set have shifted over time (earlier OWASP agentic-threat work used T1–T15, not ASI01–ASI10). Map against the then-current published version and **cite it exactly** in the mapping.
+2. `governance/owasp/`: map each item of that taxonomy to a concrete check or guardrail in the stack — **machine-readable + human-readable**.
+3. The scorecard's **Guardrail coverage** dimension is now **computed against this mapping** (un-stub it).
+4. **No silent omissions:** each item is either covered (mechanism named) or explicitly flagged as a gap.
+
+**Acceptance:**
+- [ ] The mapping cites the exact OWASP version/identifiers in force at build time.
+- [ ] Each OWASP item is covered (with mechanism named) or explicitly flagged as a gap.
+- [ ] **Artifact:** post mapping the OWASP agentic threat list to a real mid-market stack (`content/cycle-08/`).
+
+### Phase 3B — NIST AI RMF mapping (Weeks 19–20)
+
+**Branch:** `phase-3b-nist`
+1. `governance/nist/`: map stack capabilities to the relevant NIST AI RMF functions (**Govern / Map / Measure / Manage**).
+2. Be **honest** about what the stack does and doesn't cover; frame for a **procurement reviewer**.
+
+**Acceptance:**
+- [ ] The mapping is honest about coverage gaps; framed for procurement.
+- [ ] **Artifact:** post — *"NIST AI RMF without the 100-page slog"* for mid-market (`content/cycle-09/`).
+
+### Phase 3C — EU AI Act deployer readout (Weeks 21–22)
+
+**Branch:** `phase-3c-eu-ai-act`
+1. **Re-verify every date, obligation, and penalty tier against the law as it stands at build time** (~Nov 2026) — the figures below were checked months earlier and the Digital Omnibus status will have moved. As checked at plan-writing time:
+   - **2 Aug 2026** → Article 50 transparency obligations for deployers.
+   - **2 Dec 2026** → synthetic-content watermarking / machine-readability (Art. 50(2)).
+   - **2 Dec 2027** → heaviest high-risk (Annex III) obligations incl. fundamental-rights impact assessments and most deployer duties — *deferred by the Digital Omnibus, which is agreed but takes legal effect only on Official Journal publication.*
+   - Penalty tiers: **€35M / 7%** = Article 5 prohibited practices; **€15M / 3%** = high-risk non-compliance. **Do not conflate.**
+2. `governance/eu-ai-act/`: produce a precise **deployer** readout. Get the framing exactly right (this is the credibility test). The readout must **distinguish what applies now from what's deferred**, and state the Omnibus's current legal status.
+3. The scorecard's **Governance readiness** dimension is now **computed from this module** (un-stub the last dimension).
+
+**Acceptance:**
+- [ ] Dates and penalties re-verified at build time; the readout distinguishes current vs. deferred obligations and states the Omnibus's legal status.
+- [ ] A mid-market CTO could act on the basics without a lawyer.
+- [ ] **Artifact:** post — *"What the EU AI Act actually requires of you in 2026 vs. 2027 (most advice gets this wrong)."* (`content/cycle-10/`).
+
+### Phase 3D — Sovereign / on-prem variant (Weeks 23–24)
+
+**Branch:** `phase-3d-sovereign`
+1. Document and demonstrate an **air-gapped variant** running the reference agent fully on **Ollama** (M4 Mac Studio), with the eval harness and scorecard intact. The 1A judge-portability requirement means no eval metric depends on a cloud judge; the 2C gateway runs locally in front of Ollama (credential isolation holds even air-gapped).
+2. **Prove zero cloud dependency:** the full pipeline (agent → evals → scorecard) runs with networking disabled.
+3. Document the cost/effort trade-off **honestly**, using the 1B Ollama cost semantics (token counts + optional amortized-hardware rate) — self-hosting carries materially more engineering effort and only pencils out above meaningful token volume; present as **directional, not a guarantee**.
+
+**Acceptance:**
+- [ ] The full pipeline runs with no cloud dependency.
+- [ ] The cost/effort trade-off is documented honestly (directional), with real numbers from the 1B cost config.
+- [ ] **Artifact:** post on the regulated/sovereign mid-market variant (`content/cycle-11/`).
+
+> **Phase 3 gate:** the full scorecard (all five dimensions) now produces an end-to-end, evidence-backed readout. This is the complete reference stack.
+
+---
+
+## Cross-cutting tracks (do not drop between phases)
+
+### Enforcement-mechanism register
+
+Maintain a running table in `docs/` (created in Phase 0 with its first entries) mapping every "must never" to the mechanism that enforces it. Target entries by the end of the build:
+
+| Rule | Mechanism | Introduced |
+|---|---|---|
+| No secrets in repo | **CI secret scan (authoritative)** + pre-commit & PreToolUse hooks (fast feedback) | Phase 0 |
+| No quality regression merged | Eval-gate vs. committed baseline (tolerance-banded) + required CI check | Phase 1B |
+| No ungated fork-PR merges | Branch protection + fork-PR eval policy | Phase 1B |
+| No runaway agent loops | `--max-turns` bound, enforced | Phase 1B |
+| Validator output must conform | Zod→tool-schema structured output | Phase 2A |
+| Guardrails can't be bypassed | Gateway is the sole model path; agent holds no provider credentials | Phase 2C |
+| No silent governance omissions | OWASP coverage check (covered-or-flagged) | Phase 3A |
+
+### ADR log (`docs/decisions/`)
+
+Record an ADR at any of these decision points: license choice if not Apache-2.0 (pre-flight); lint/format tooling choice (Phase 0); promptfoo-under-Bun subprocess fallback (1A); any Python escape-hatch use (1A onward); eval threshold/baseline strategy (1B); fork-PR eval strategy (1B); MCP transport decisions (2B); gateway policy model (2C); OTLP backend choice (2D). Default everywhere is the PRD's stated stack — ADR only on deviation.
+
+### Content cadence checklist (per cycle)
+
+For each `content/cycle-XX/`: a **mid-cycle** "working on / what surprised me" post and an **end-of-cycle** "shipped / here's the artifact" post. Maintain the ~80/15/5 split, and write a short **transparency retrospective** at each phase boundary (0→1, 1→2, 2→3).
+
+### Open items to confirm before external publication (from PRD)
+
+- Exact final SMC thresholds and adoption date once the Digital Omnibus is published in the Official Journal.
+- Whether any eval metric forces the language escape hatch — default stays TS-only (promptfoo); record an ADR after Phase 1A only if a named metric proves genuinely unavailable.
+- Public repo name (pre-flight) — it is the brand in the launch post.
+
+---
+
+## Verification (how to confirm each phase is real, not asserted)
+
+Run these from a clean clone at each phase boundary:
+
+- **Phase 0:** `bun install && bun run reliability --help`; run the reference agent against Bedrock and Ollama; attempt to commit a planted test secret → blocked by the local hook; push it on a branch → caught by the CI scan; baseline CI green; LICENSE present; repo is public with POV in README.
+- **Phase 1A:** `reliability eval run` → structured JSON with ≥10 cases incl. a refusal/OOD case; run twice → aggregate scores agree within the documented tolerance band; re-run one judge-based metric with an Ollama judge.
+- **Phase 1B:** open a PR with degraded mode on → CI blocks it; open a fork PR → it cannot merge ungated; `reliability eval run` output shows cost-per-success per scenario on both providers; confirm the loop bound triggers.
+- **Phase 1C:** `reliability scorecard` → one-page Markdown + HTML readout; degraded mode → scorecard ratings drop; every rating cites eval evidence.
+- **Phase 2A:** eval scores hold/improve post-refactor (within tolerance); validator output rejects a schema-violating response.
+- **Phase 2B:** agent selects the MCP tool from its description; tool and resource are distinct; stdio + HTTP transports both work.
+- **Phase 2C:** craft a prompt that tries to bypass a guardrail → still blocked at the gateway; strip gateway and call the provider directly from the agent process → fails (no credentials).
+- **Phase 2D:** a full run produces a connected trace in the OTLP backend; scorecard Observability rating is trace-derived.
+- **Phase 3A–C:** OWASP/NIST/EU mappings have no silent gaps and cite the versions/dates verified at build time; scorecard Guardrail coverage and Governance readiness are now computed, not stubbed.
+- **Phase 3D:** disable networking → full agent → evals → scorecard pipeline still completes on Ollama.
+
+**Final gate — Global Definition of Done:** all sub-phase criteria checked; `bun run reliability` reflects every capability and the full suite passes CI; every cycle's artifact exists in `/content`; every deviation has an ADR; every "must never" is enforced by a mechanism.

@@ -1,0 +1,17 @@
+# Dependencies / build output
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Secrets — never commit; inject via env
+.env
+.env.*
+!.env.example
+
+# Internal strategy / positioning — NEVER publish (public repo)
+docs/internal/
+
+# OS / editor
+.DS_Store
+*.log
