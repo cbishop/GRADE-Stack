@@ -89,14 +89,14 @@ This is the step-by-step build runbook that turns the PRD's phases into ordered,
 
 These unblock the hooks, CI, and eval-gate that later phases assume.
 
-- [ ] Confirm **Bun** is installed (`bun --version`); install if absent.
+- [x] Confirm **Bun** is installed — verified `bun 1.3.12` (`~/.bun/bin/bun`).
 - [x] **`git init`** — done; repo initialized on `main` (2026-06-11). (A `.gitignore` is already present — node_modules, `.env*`, build output, `docs/internal/`, `.DS_Store`.)
 - [x] **Activate the repo's git hooks:** done — `git config core.hooksPath .githooks` set, so the tracked `pre-commit` guard (blocks `docs/internal/`) is live in this clone. **Remember:** this is per-clone and opt-in; the CI secret scan (Phase 0) is the real mechanism.
 - [x] **Decide the public repo name** — chosen: **`GRADE-Stack`**. The CLI binary stays `reliability` regardless (intentional: product name ≠ command name — note this in the README so it reads as deliberate). *Follow-up: the PRD's target-structure root and README should match this name.*
 - [x] Decide the **GitHub remote** and confirm **public** visibility — done: `git@github.com:cbishop/GRADE-Stack` created **public** and pushed (initial commit `d7508d3`). ⚠️ **Deviation:** the plan said to create the remote but *hold the first push until the end of Phase 0*; the push happened now at the user's request. Phase 0 work continues on top of the public repo.
 - [x] **Pick the license** — **Apache-2.0** (the documented default, so no ADR needed). `LICENSE` + `NOTICE` committed at repo root; copyright holder is **Inbound Team, LLC dba Clarke Bishop Consulting** (https://clarkebishop.com). NOTICE-based attribution must propagate to forks per §4(d). Per-file SPDX headers + README license section/badge added.
-- [ ] Confirm local model access: **Bedrock** credentials available via env (AWS profile / keys, region with Claude access) and **Ollama** running with at least one pulled model (e.g. `qwen3.5`, `deepseek-r1`, or `llama3.3`).
-- [ ] Decide the single **reference-agent task** to commit to for the whole build — recommended: *"triage an inbound support email and draft a structured response."* Everything downstream evaluates this one task.
+- [x] Confirm local model access — verified. **Ollama** running with pulled models (`llama3.1:70b`, `deepseek-r1:32b`, `mistral`, `llama3.2`, `llama3.1`, `nomic-embed-text`). **Bedrock** reachable via the `default` AWS profile in **`us-east-1`**, Claude models available (`claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5`, …). ⚠️ No `AWS_REGION`/`AWS_PROFILE` in env — the provider abstraction must pass the region explicitly (default to `us-east-1`, which has Claude) and may rely on the `default` profile's shared credentials.
+- [x] Decide the single **reference-agent task** — chosen: **"triage an inbound support email and draft a structured response"** (the recommended default). Everything downstream evaluates this one task.
 
 ---
 
