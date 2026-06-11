@@ -1,0 +1,14 @@
+{
+  "name": "@grade-stack/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "reliability": "src/index.ts"
+  },
+  "dependencies": {
+    "@grade-stack/core": "workspace:*",
+    "commander": "15.0.0",
+    "reference-agent": "workspace:*"
+  }
+}
