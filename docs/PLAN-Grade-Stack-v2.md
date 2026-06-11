@@ -94,7 +94,7 @@ These unblock the hooks, CI, and eval-gate that later phases assume.
 - [x] **Activate the repo's git hooks:** done — `git config core.hooksPath .githooks` set, so the tracked `pre-commit` guard (blocks `docs/internal/`) is live in this clone. **Remember:** this is per-clone and opt-in; the CI secret scan (Phase 0) is the real mechanism.
 - [x] **Decide the public repo name** — chosen: **`GRADE-Stack`**. The CLI binary stays `reliability` regardless (intentional: product name ≠ command name — note this in the README so it reads as deliberate). *Follow-up: the PRD's target-structure root and README should match this name.*
 - [x] Decide the **GitHub remote** and confirm **public** visibility — done: `git@github.com:cbishop/GRADE-Stack` created **public** and pushed (initial commit `d7508d3`). ⚠️ **Deviation:** the plan said to create the remote but *hold the first push until the end of Phase 0*; the push happened now at the user's request. Phase 0 work continues on top of the public repo.
-- [ ] **Pick the license** (default Apache-2.0; ADR if different) — must be committed before the repo goes public.
+- [x] **Pick the license** — **Apache-2.0** (the documented default, so no ADR needed). `LICENSE` + `NOTICE` committed at repo root; copyright holder is **Inbound Team, LLC dba Clarke Bishop Consulting** (https://clarkebishop.com). NOTICE-based attribution must propagate to forks per §4(d). Per-file SPDX headers + README license section/badge added.
 - [ ] Confirm local model access: **Bedrock** credentials available via env (AWS profile / keys, region with Claude access) and **Ollama** running with at least one pulled model (e.g. `qwen3.5`, `deepseek-r1`, or `llama3.3`).
 - [ ] Decide the single **reference-agent task** to commit to for the whole build — recommended: *"triage an inbound support email and draft a structured response."* Everything downstream evaluates this one task.
 
@@ -133,7 +133,7 @@ These unblock the hooks, CI, and eval-gate that later phases assume.
 11. **README** with the POV statement, committed verbatim:
     > *"I help mid-market companies ship AI agents that are reliable, observable, and governed — the enterprise-grade version, right-sized for a company without an ML platform team."*
 12. **Content — `content/cycle-00/`:** launch post — *"I'm building the open reference stack for getting mid-market AI agents to production, in public — here's the repo and why."* (plus the mid-cycle "what I'm setting up" post).
-13. Make the repo public; push; confirm CI is green on the public repo.
+13. Make the repo public; push; confirm CI is green on the public repo. *(Note: the repo was already created public and pushed during pre-flight — `git@github.com:cbishop/GRADE-Stack`. Don't re-create it; this step now reduces to confirming CI is green on the public repo once the Phase 0 workflow exists.)*
 
 **Acceptance criteria (PRD contract):**
 - [ ] `bun install && bun run reliability --help` works from a clean clone.

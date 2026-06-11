@@ -80,7 +80,7 @@ This document is the source of truth for the build. Point Claude Code at it from
 ## Repository structure (target)
 
 ```
-<repo-name>/                   # public repo name decided in pre-flight (brand decision)
+GRADE-Stack/                   # public repo name (decided in pre-flight); CLI binary stays `reliability`
 ├── CLAUDE.md                  # build conventions + "use mechanisms not prose" rules
 ├── LICENSE                    # Apache-2.0 (default) — required before going public
 ├── CONTRIBUTING.md            # minimal: how to run, how PRs are gated
