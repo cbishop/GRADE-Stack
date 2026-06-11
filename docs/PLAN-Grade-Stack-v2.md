@@ -135,13 +135,15 @@ These unblock the hooks, CI, and eval-gate that later phases assume.
 12. **Content — `content/cycle-00/`:** launch post — *"I'm building the open reference stack for getting mid-market AI agents to production, in public — here's the repo and why."* (plus the mid-cycle "what I'm setting up" post).
 13. Make the repo public; push; confirm CI is green on the public repo. *(Note: the repo was already created public and pushed during pre-flight — `git@github.com:cbishop/GRADE-Stack`. Don't re-create it; this step now reduces to confirming CI is green on the public repo once the Phase 0 workflow exists.)*
 
-**Acceptance criteria (PRD contract):**
-- [ ] `bun install && bun run reliability --help` works from a clean clone.
-- [ ] Reference agent completes its one task against **both** Bedrock and Ollama.
-- [ ] A planted test secret is blocked by the local hook **and** caught by the CI scan.
-- [ ] Baseline CI (typecheck, lint, test, build, secret scan) is green on the initial push.
-- [ ] LICENSE, CONTRIBUTING.md, SECURITY.md exist; repo is public; README states the POV.
-- [ ] **Artifact:** launch post in `content/cycle-00/`.
+**Acceptance criteria (PRD contract):** ✅ **Phase 0 complete** — merged via PR #1 (`1682e41`), 2026-06-11.
+- [x] `bun install && bun run reliability --help` works from a clean clone.
+- [x] Reference agent completes its one task against **both** Bedrock and Ollama. *(Bedrock default is the `us.anthropic.claude-haiku-4-5-20251001-v1:0` inference profile in `us-east-1`; newer Claude models reject raw on-demand IDs.)*
+- [x] A planted test secret is blocked by the local hook **and** caught by the CI scan. *(Local pre-commit hook blocked it; CI gitleaks failed on scratch PR #2, since deleted.)*
+- [x] Baseline CI (typecheck, lint, test, build, secret scan) is green on the initial push. *(PR #1 — both jobs green.)*
+- [x] LICENSE, CONTRIBUTING.md, SECURITY.md exist; repo is public; README states the POV.
+- [x] **Artifact:** launch post in `content/cycle-00/` *(launch + mid-cycle setup drafts; marked "review before publishing").*
+
+**Decisions during Phase 0:** Biome for lint/format ([ADR 0001](decisions/0001-biome-for-lint-and-format.md)). AWS default region set to `us-east-1` (`~/.aws/config`).
 
 ---
 
