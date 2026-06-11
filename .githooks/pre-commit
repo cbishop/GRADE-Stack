@@ -3,16 +3,19 @@
 # Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 # SPDX-License-Identifier: Apache-2.0
 #
-# Guard hook: refuse to commit anything under docs/internal/.
-# This is the "mechanism, not prose" enforcement of the public/private split —
-# .gitignore prevents accidental `git add .`; this catches forced/explicit adds
-# (e.g. `git add -f docs/internal/...`).
+# Guard hook — two checks, both "mechanism, not prose":
+#   1. refuse to commit anything under docs/internal/ (public/private split);
+#   2. refuse to commit obvious secrets (fast local feedback).
+#
+# These are per-clone, opt-in fast feedback. The CI gitleaks scan
+# (.github/workflows/ci.yml) is the authoritative mechanism of record.
 #
 # Activate once after `git init`:
 #     git config core.hooksPath .githooks
 #
 set -euo pipefail
 
+# --- Check 1: internal-only docs ------------------------------------------------
 # Staged paths (added/copied/modified/renamed), NUL-delimited for safety.
 staged="$(git diff --cached --name-only --diff-filter=ACMR -z | tr '\0' '\n')"
 
@@ -23,6 +26,21 @@ if [[ -n "$violations" ]]; then
   echo "  Offending staged path(s):" >&2
   printf '    %s\n' "$violations" >&2
   echo "  Unstage them with:  git restore --staged docs/internal/" >&2
+  exit 1
+fi
+
+# --- Check 2: secret patterns in staged additions -------------------------------
+# High-signal patterns only, to keep false positives low. The CI gitleaks scan is
+# the real net; this just stops the obvious foot-guns before they leave the laptop.
+added="$(git diff --cached --diff-filter=ACMR -U0 | grep -E '^\+' | grep -vE '^\+\+\+' || true)"
+secret_re='AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[0-9A-Za-z]{36,}|xox[baprs]-[0-9A-Za-z-]{10,}|AIza[0-9A-Za-z_-]{35}'
+secret_hits="$(printf '%s\n' "$added" | grep -nE "$secret_re" || true)"
+
+if [[ -n "$secret_hits" ]]; then
+  echo "✖ Commit blocked: a staged change matches a secret pattern." >&2
+  printf '    %s\n' "$secret_hits" >&2
+  echo "  Inject secrets via environment variables; never commit them." >&2
+  echo "  (CI gitleaks will also catch this — this is just faster feedback.)" >&2
   exit 1
 fi
 

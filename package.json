@@ -1,0 +1,27 @@
+{
+  "name": "grade-stack",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The open reference stack for getting mid-market AI agents to production: reliable, observable, governed.",
+  "license": "Apache-2.0",
+  "author": "Inbound Team, LLC dba Clarke Bishop Consulting (https://clarkebishop.com)",
+  "workspaces": [
+    "packages/*",
+    "reference-agent"
+  ],
+  "scripts": {
+    "reliability": "bun packages/cli/src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome check .",
+    "build": "bun build packages/cli/src/index.ts --target bun --outdir dist",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.16",
+    "@types/bun": "1.3.14",
+    "typescript": "6.0.3"
+  }
+}
