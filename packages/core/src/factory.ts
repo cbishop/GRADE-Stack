@@ -3,6 +3,7 @@
 
 import { BedrockProvider } from "./providers/bedrock.ts";
 import { OllamaProvider } from "./providers/ollama.ts";
+import { StubProvider } from "./providers/stub.ts";
 import type { ModelProvider, ProviderName } from "./types.ts";
 
 const DEFAULT_PROVIDER: ProviderName = "ollama";
@@ -14,10 +15,10 @@ const DEFAULT_PROVIDER: ProviderName = "ollama";
  */
 export function resolveProviderName(explicit?: string): ProviderName {
   const raw = (explicit ?? process.env.RELIABILITY_PROVIDER ?? DEFAULT_PROVIDER).toLowerCase();
-  if (raw === "bedrock" || raw === "ollama") {
+  if (raw === "bedrock" || raw === "ollama" || raw === "stub") {
     return raw;
   }
-  throw new Error(`Unknown provider "${raw}". Expected "bedrock" or "ollama".`);
+  throw new Error(`Unknown provider "${raw}". Expected "bedrock", "ollama", or "stub".`);
 }
 
 /** Construct the selected provider. */
@@ -28,5 +29,7 @@ export function createProvider(name?: string): ModelProvider {
       return new BedrockProvider();
     case "ollama":
       return new OllamaProvider();
+    case "stub":
+      return new StubProvider();
   }
 }

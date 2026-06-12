@@ -38,11 +38,25 @@ SPDX header (see existing files).
 - **No secrets in the repo.** Inject via environment variables; never commit
   credentials. A local pre-commit hook and the CI scan both enforce this — activate
   the local hook with `git config core.hooksPath .githooks`.
-- An **eval gate** lands in Phase 1B: PRs that regress agent quality below
-  threshold will be blocked automatically. Because GitHub Actions does not expose
-  repo secrets to fork PRs, the eval gate runs on same-repo PRs and pushes to
-  `main`; **fork PRs** get lint/typecheck/test and a maintainer-applied label that
-  triggers the eval run after review. (Details ship with Phase 1B.)
+- **Eval gate (Phase 1B).** A PR that regresses agent quality below threshold is
+  blocked automatically. The gate runs `reliability eval gate` against a
+  deterministic, hermetic `stub` provider (no secrets, no spend — see
+  [ADR 0003](docs/decisions/0003-eval-gate-stub-provider-and-baseline.md)) and
+  compares against the committed `packages/evals/baseline.stub.json` within the
+  Phase 1A ±1-case tolerance band. PRs run a 6-case smoke subset; pushes to `main`
+  run the full suite.
+  - **Fork PRs** ([ADR 0004](docs/decisions/0004-fork-pr-eval-strategy.md)): the
+    `build` and `secret-scan` jobs always run, but the eval gate runs on a fork PR
+    only after a maintainer applies the **`eval-approved`** label. The eval gate is
+    a **required status check** (branch protection), so a fork PR cannot merge
+    ungated.
+  - To re-baseline after an intended quality change, regenerate and commit the
+    baseline in a reviewed commit:
+    `bun run reliability eval run --provider stub --out packages/evals/baseline.stub.json`.
+
+> **Maintainer setup (one-time):** in GitHub repo settings, mark **`eval-gate (stub)`**
+> (and the other CI jobs) as **required status checks** on `main`. This is what makes
+> "a fork PR cannot merge ungated" a mechanism rather than a guideline.
 
 ## Scope
 

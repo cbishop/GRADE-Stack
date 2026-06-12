@@ -4,6 +4,7 @@
 export { createProvider, resolveProviderName } from "./factory.ts";
 export { type BedrockOptions, BedrockProvider } from "./providers/bedrock.ts";
 export { type OllamaOptions, OllamaProvider } from "./providers/ollama.ts";
+export { type StubOptions, StubProvider } from "./providers/stub.ts";
 export type {
   ChatMessage,
   GenerateRequest,
