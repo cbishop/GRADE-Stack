@@ -164,12 +164,14 @@ The highest-leverage phase — the foundation everything else builds on.
 6. **Reproducibility, tolerance-based:** pin determinism where the provider allows (temperature, top-p); define and document the **tolerance band** within which two consecutive runs' aggregate scores must agree, and report per-case flakiness. Document explicitly what is and isn't deterministic per provider (Bedrock has no seed parameter — bit-identical output is not the bar).
 7. **ADR checkpoint:** only if a named metric proves genuinely unavailable in promptfoo, record an ADR before reaching for the Python escape hatch. Otherwise stay TS-only.
 
-**Acceptance criteria:**
-- [ ] `reliability eval run` executes the suite and emits structured JSON results.
-- [ ] Suite includes ≥1 null/refusal case and cases structurally identical to production inputs.
-- [ ] Two consecutive runs agree within the documented tolerance band; per-case flakiness is reported.
-- [ ] At least one judge-based metric runs successfully with an Ollama judge.
-- [ ] **Artifact:** post — *"the cheapest reliability win is making your agent measurable — here's a 10-case harness."* (in `content/cycle-01/`).
+**Acceptance criteria:** 🟢 **Phase 1A implemented** on branch `phase-1a-eval-harness` (2026-06-12); local gate green (typecheck, Biome, 11 tests, build). Pending PR/merge.
+- [x] `reliability eval run` executes the suite and emits structured JSON results.
+- [x] Suite includes ≥1 null/refusal case and cases structurally identical to production inputs. *(12 cases: empty-body, OOD spam, and a data-exfiltration refusal case; `billing-duplicate-charge` is the production `SAMPLE_EMAIL`.)*
+- [x] Two consecutive runs agree within the documented tolerance band; per-case flakiness is reported. *(Band = ±1 case; `--repeat 3` on Ollama → every case `stability=1.00`. Documented in `packages/evals/README.md`.)*
+- [x] At least one judge-based metric runs successfully with an Ollama judge. *(`validate:judge` llm-rubric runs through `@grade-stack/core` in `mode: judge`; full suite graded on Ollama.)*
+- [x] **Artifact:** post — *"the cheapest reliability win is making your agent measurable — here's a 10-case harness."* (in `content/cycle-01/`) — *mid-cycle + end-of-cycle drafts, "review before publishing."*
+
+**Decisions during Phase 1A:** promptfoo invoked as a subprocess with model access bridged to Bun/`core` ([ADR 0002](decisions/0002-promptfoo-subprocess-and-bun-bridge.md)). No Python escape hatch needed — suite stays TS-only. **Finding (left unfixed, by design):** the naive agent scores 12/12 on Ollama but 0/12 on Bedrock — Claude Haiku fences its JSON in ` ```json `; output extraction lands in Phase 2A.
 
 ### Phase 1B — CI gating + cost-per-success (Weeks 5–6)
 
