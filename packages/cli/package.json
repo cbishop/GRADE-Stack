@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@grade-stack/core": "workspace:*",
+    "@grade-stack/evals": "workspace:*",
     "commander": "15.0.0",
     "reference-agent": "workspace:*"
   }
