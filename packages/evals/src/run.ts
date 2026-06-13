@@ -5,7 +5,8 @@ import { spawn } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { resolveProviderName } from "@grade-stack/core";
+import { createProvider, resolveProviderName } from "@grade-stack/core";
+import { computeCost } from "./pricing.ts";
 import {
   type CaseResult,
   type EvalRunResult,
@@ -117,6 +118,7 @@ export function foldCase(id: string, rows: PromptfooRow[]): CaseResult {
 function normalize(
   output: PromptfooOutput,
   provider: string,
+  model: string,
   judgeProvider: string,
 ): Omit<EvalRunResult, "timestamp"> {
   const byCase = new Map<string, PromptfooRow[]>();
@@ -138,8 +140,11 @@ function normalize(
   const meanStability =
     cases.length === 0 ? 1 : cases.reduce((s, c) => s + c.stability, 0) / cases.length;
 
+  const usage = { inputTokens, outputTokens };
+
   return {
     provider,
+    model,
     judgeProvider,
     summary: {
       total: cases.length,
@@ -147,7 +152,8 @@ function normalize(
       failed: cases.length - passed,
       passRate: cases.length === 0 ? 0 : passed / cases.length,
       meanStability,
-      usage: { inputTokens, outputTokens },
+      usage,
+      cost: computeCost(provider, model, usage, passed),
     },
     cases,
   };
@@ -201,6 +207,9 @@ function spawnPromptfoo(outPath: string, opts: RunEvalOptions): Promise<void> {
 export async function runEvalSuite(opts: RunEvalOptions = {}): Promise<EvalRunResult> {
   const provider = resolveProviderName(opts.provider);
   const judgeProvider = resolveProviderName(opts.judgeProvider ?? opts.provider);
+  // Resolve the agent model id through the abstraction (no network at
+  // construction) so cost pricing has the exact model the run used.
+  const model = createProvider(provider).model;
   const outPath = join(tmpdir(), `grade-stack-eval-${process.pid}.json`);
 
   try {
@@ -214,7 +223,7 @@ export async function runEvalSuite(opts: RunEvalOptions = {}): Promise<EvalRunRe
       );
     }
     const parsed = JSON.parse(raw) as PromptfooOutput;
-    const normalized = normalize(parsed, provider, judgeProvider);
+    const normalized = normalize(parsed, provider, model, judgeProvider);
     return { ...normalized, timestamp: new Date().toISOString() };
   } finally {
     await rm(outPath, { force: true }).catch(() => {});

@@ -1,8 +1,9 @@
 # @grade-stack/evals
 
-The Phase 1A eval harness: it makes the naive reference agent **measurable**.
-A starter suite of 12 support-email triage cases runs through
-[promptfoo](https://promptfoo.dev), scores each case along the
+The eval harness: it makes the naive reference agent **measurable** (Phase 1A)
+and turns that measurement into an **enforcement gate + an executive-legible
+cost metric** (Phase 1B). A starter suite of 12 support-email triage cases runs
+through [promptfoo](https://promptfoo.dev), scores each case along the
 planner/executor/validator path, and emits structured JSON.
 
 ## Run it
@@ -22,6 +23,13 @@ bun run reliability eval run --provider bedrock --judge-provider ollama
 
 # Machine-readable results to stdout:
 bun run reliability eval run --provider ollama --json
+
+# The CI gate: run the suite and fail (exit 1) on a regression vs the baseline.
+# Defaults to the deterministic `stub` provider used in CI (no secrets, no spend):
+bun run reliability eval gate
+
+# See the gate block a regression (degraded mode collapses the agent to 0/12):
+RELIABILITY_DEGRADED=1 bun run reliability eval gate   # → FAIL, exit 1
 ```
 
 Or the `/eval-run` slash command in Claude Code.
@@ -96,14 +104,73 @@ would miss and measurement catches. Phase 1A only **measures**; output
 extraction and a schema-enforced validator arrive in Phase 2A — the agent is not
 patched to make cases pass here.
 
+## The eval gate (Phase 1B)
+
+`reliability eval gate` turns the suite into an enforcement mechanism: it runs
+the suite, compares against a **committed baseline within the ±1-case tolerance
+band**, and **exits non-zero on a regression** so CI blocks the PR.
+
+- **Deterministic by design.** The gate runs against the `stub` provider — a
+  hermetic, network-free, credential-free `ModelProvider` that returns canned
+  output and a passing judge verdict. It proves the *mechanism* blocks a
+  regression, reproducibly and for free. Real-model quality is measured locally
+  on Bedrock/Ollama (and surfaces in the cost numbers below). A real-Bedrock job
+  on `main` is added in Phase 2A. See
+  [ADR 0003](../../docs/decisions/0003-eval-gate-stub-provider-and-baseline.md).
+- **Baseline:** `baseline.stub.json`, a committed full `EvalRunResult`. Re-baseline
+  only via a reviewed commit:
+  `reliability eval run --provider stub --out packages/evals/baseline.stub.json`.
+- **Demonstration:** the agent's `--degraded` mode (`RELIABILITY_DEGRADED=1`)
+  drops the structured output contract, collapsing the suite to 0/12 — well below
+  the floor — so the gate fails. Degraded mode is retained as a permanent canary.
+- **Cost cap:** `--max-cost <usd>` fails a run whose total spend exceeds the cap
+  (\$0 for the stub; real for Bedrock later). PRs run a 6-case smoke subset
+  (`--first-n 6`); pushes to `main` run the full suite.
+- **Fork PRs:** the gate runs on same-repo PRs and `main`; fork PRs run it only
+  after a maintainer applies the `eval-approved` label, and the gate is a required
+  status check so a fork PR can't merge ungated. See
+  [ADR 0004](../../docs/decisions/0004-fork-pr-eval-strategy.md).
+
+## Cost-per-success (Phase 1B)
+
+Cost is counted per **passing** outcome, not per call — a cheap agent that fails
+is not cheap. `reliability eval run` reports it on every run:
+
+```
+cost-per-success: $0.00042  (1830 tokens/success)
+  total $0.00504 on bedrock/...claude-haiku-4-5... — list price
+```
+
+- **Token counts are always reported**, on every provider.
+- **Dollars** follow per-provider pricing (`src/pricing.ts`): Bedrock uses
+  published list prices (Haiku 4.5 \$1/\$5 per MTok, Sonnet 4.6 \$3/\$15,
+  verified 2026-06-12); **Ollama defaults to \$0**, with an optional amortized
+  hardware rate via `RELIABILITY_OLLAMA_USD_PER_MTOK` (feeds the Phase 3D
+  sovereign trade-off). The `stub` provider is \$0.
+- **Semantics on both providers:** cost-per-success is `null` (shown `n/a`) when
+  no case passes — it's undefined, not zero.
+
+## Loop bounding (Phase 1B)
+
+The reference agent runs inside an **enforced** turn bound (`--max-turns`,
+default 4; `RELIABILITY_MAX_TURNS`). The naive agent converges in one turn; the
+bound is structural so the Phase 2A planner/executor/validator loop cannot run
+away — exceeding it throws `MaxTurnsError` rather than looping. `--max-turns 0`
+fails before any model call, demonstrating the bound is enforced, not suggested.
+
 ## Layout
 
 ```
 promptfooconfig.yaml        the 12-case suite + phase-tagged assertions
 providers/agent-provider.js promptfoo custom provider (Node ESM) -> Bun bridge
+baseline.stub.json          committed stub baseline the gate compares against
 src/bridge.ts               Bun entrypoint; the one path to @grade-stack/core
 src/run.ts                  spawn promptfoo, normalize its JSON to our schema
-src/format.ts               human-readable CLI summary
+src/gate.ts                 tolerance-banded regression gate (pure)
+src/pricing.ts              per-provider pricing + cost-per-success
+src/format.ts               human-readable CLI summary + gate verdict
 src/types.ts                EvalRunResult / CaseResult / TraceStep schema
 src/run.test.ts             unit tests for the pure normalization logic
+src/gate.test.ts            gate regression + cost-cap + smoke-subset tests
+src/pricing.test.ts         pricing + cost-per-success tests
 ```

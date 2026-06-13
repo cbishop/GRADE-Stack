@@ -1,8 +1,12 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
-/** The model providers the stack can talk to. */
-export type ProviderName = "bedrock" | "ollama";
+/**
+ * The model providers the stack can talk to. `stub` is a deterministic,
+ * hermetic provider (no network, no credentials) used only by the CI eval gate
+ * — see ADR 0003. `bedrock`/`ollama` are the real model paths.
+ */
+export type ProviderName = "bedrock" | "ollama" | "stub";
 
 export type Role = "system" | "user" | "assistant";
 

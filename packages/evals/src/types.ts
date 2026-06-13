@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { TokenUsage } from "@grade-stack/core";
+import type { CostBreakdown } from "./pricing.ts";
 
 /**
  * The planner / executor / validator phases. The reference agent is naive in
@@ -62,6 +63,8 @@ export interface CaseResult {
 export interface EvalRunResult {
   /** Which model provider backed the agent under test. */
   provider: string;
+  /** The agent model id (used for cost pricing). */
+  model: string;
   /** Which model provider backed the LLM-as-judge metrics. */
   judgeProvider: string;
   /** ISO timestamp, stamped by the CLI after the run completes. */
@@ -78,4 +81,6 @@ export interface EvalSummary {
   /** Mean per-case stability across the suite (flakiness signal). */
   meanStability: number;
   usage: TokenUsage;
+  /** Cost-per-success and the dollar/token breakdown behind it (Phase 1B). */
+  cost: CostBreakdown;
 }

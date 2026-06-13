@@ -191,12 +191,14 @@ The highest-leverage phase — the foundation everything else builds on.
 7. **`--max-turns` / loop-bounding** on the reference agent; the bound is **enforced**, not suggested.
 8. **Degraded mode:** add a flag (e.g. `--degraded` / `RELIABILITY_DEGRADED=1`) that deliberately worsens the agent. Use it now to demonstrate the gate blocking a regression PR; reuse it in 1C for the scorecard test; keep it permanently as a gate canary.
 
-**Acceptance criteria:**
-- [ ] A PR that degrades agent quality below threshold is **blocked by CI automatically** (demonstrated via degraded mode).
-- [ ] Baseline mechanism and fork-PR strategy are ADR'd and implemented; a fork PR cannot merge ungated.
-- [ ] `reliability eval run` reports cost-per-success per scenario, with defined semantics on both providers.
-- [ ] Runaway loops are bounded and the bound is enforced, not suggested.
-- [ ] **Artifact:** post — *"cost-per-success is the metric your board actually understands — why cost-per-call lies."* (in `content/cycle-02/`).
+**Acceptance criteria:** 🟢 **Phase 1B implemented** on branch `phase-1b-ci-gate-cost` (2026-06-12); local gate green (typecheck, Biome, 35 tests, build). Pending PR/merge.
+- [x] A PR that degrades agent quality below threshold is **blocked by CI automatically** (demonstrated via degraded mode). *(`eval-gate` job in `ci.yml` runs `reliability eval gate` against the deterministic `stub` provider; verified locally — normal run PASS/exit 0, `RELIABILITY_DEGRADED=1` collapses the suite to 0/12 → REGRESSION → exit 1.)*
+- [x] Baseline mechanism and fork-PR strategy are ADR'd and implemented; a fork PR cannot merge ungated. *(Committed `baseline.stub.json` + tolerance-banded gate — [ADR 0003](decisions/0003-eval-gate-stub-provider-and-baseline.md); fork-PR `eval-approved` label guard in the workflow + required-check branch protection — [ADR 0004](decisions/0004-fork-pr-eval-strategy.md), documented in CONTRIBUTING.)*
+- [x] `reliability eval run` reports cost-per-success per scenario, with defined semantics on both providers. *(Cost-per-success in JSON + CLI; `src/pricing.ts` — Bedrock list price (Haiku 4.5 \$1/\$5, Sonnet 4.6 \$3/\$15 per MTok), Ollama tokens-always/\$0-default with optional amortized rate; `null` when no case passes.)*
+- [x] Runaway loops are bounded and the bound is enforced, not suggested. *(`--max-turns` / `RELIABILITY_MAX_TURNS`, default 4; the bounded loop throws `MaxTurnsError` rather than looping — `--max-turns 0` exits non-zero before any model call.)*
+- [x] **Artifact:** post — *"cost-per-success is the metric your board actually understands — why cost-per-call lies."* (in `content/cycle-02/`) — *mid-cycle + end-of-cycle drafts, "review before publishing."*
+
+**Decisions during Phase 1B:** CI eval gate runs against a deterministic, hermetic **stub** provider + committed baseline within the 1A tolerance band ([ADR 0003](decisions/0003-eval-gate-stub-provider-and-baseline.md)) — Bedrock is 0/12 until 2A and Ollama-in-CI is the plan's last resort, so the stub makes the gate deterministic, free, and fork-safe. Fork-PR strategy (a): same-repo/`main` gating + `eval-approved` label for forks + required-check branch protection ([ADR 0004](decisions/0004-fork-pr-eval-strategy.md)). **Deferred to Phase 2A:** add a real-Bedrock eval job on `main`/nightly once 2A fixes Bedrock JSON extraction, so CI also watches the production model path.
 
 ### Phase 1C — AI Reliability Scorecard v1 (Weeks 7–8) · *the executive-facing deliverable*
 
