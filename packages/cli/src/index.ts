@@ -12,6 +12,7 @@ import {
   formatRunResult,
   runEvalSuite,
 } from "@grade-stack/evals";
+import { buildScorecard, renderCli, renderHtml, renderMarkdown } from "@grade-stack/scorecard";
 import { Command } from "commander";
 import { runReferenceAgent, SAMPLE_EMAIL } from "reference-agent";
 
@@ -153,9 +154,69 @@ evalCmd
 
 program
   .command("scorecard")
-  .description("Generate the AI Reliability Scorecard (Phase 1C — not yet implemented)")
-  .action(() => {
-    console.log("`reliability scorecard` lands in Phase 1C.");
-  });
+  .description("Generate the one-page AI Reliability Scorecard from eval evidence")
+  .option("-p, --provider <provider>", "agent model provider: bedrock | ollama | stub")
+  .option("-J, --judge-provider <provider>", "LLM-as-judge provider (defaults to --provider)")
+  .option("-f, --from <file>", "build from an existing `eval run` results JSON instead of running")
+  .option("--degraded", "run the agent in degraded mode (demonstrates honest degradation)")
+  .option("--format <fmt>", "output format: md | html | both", "md")
+  .option("-o, --out <path>", "write to <path>.md / <path>.html instead of stdout")
+  .option("-j, --concurrency <n>", "max concurrent cases", "3")
+  .action(
+    async (opts: {
+      provider?: string;
+      judgeProvider?: string;
+      from?: string;
+      degraded?: boolean;
+      format: string;
+      out?: string;
+      concurrency: string;
+    }) => {
+      // Degraded mode flows to the agent via env (the eval bridge reads it), so
+      // setting it here propagates through the spawned eval run.
+      if (opts.degraded) {
+        process.env.RELIABILITY_DEGRADED = "1";
+      }
+
+      let result: EvalRunResult;
+      if (opts.from) {
+        try {
+          result = JSON.parse(await readFile(opts.from, "utf8")) as EvalRunResult;
+        } catch (err) {
+          console.error(
+            `Could not read results "${opts.from}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      } else {
+        result = await runEvalSuite({
+          provider: opts.provider,
+          judgeProvider: opts.judgeProvider,
+          concurrency: Number.parseInt(opts.concurrency, 10),
+        });
+      }
+
+      const card = buildScorecard(result, { degraded: opts.degraded });
+
+      const wantMd = opts.format === "md" || opts.format === "both";
+      const wantHtml = opts.format === "html" || opts.format === "both";
+
+      if (opts.out) {
+        if (wantMd) await Bun.write(`${opts.out}.md`, renderMarkdown(card));
+        if (wantHtml) await Bun.write(`${opts.out}.html`, renderHtml(card));
+        console.log(renderCli(card));
+        const written = [wantMd ? `${opts.out}.md` : null, wantHtml ? `${opts.out}.html` : null]
+          .filter(Boolean)
+          .join(", ");
+        console.log(`\nscorecard written to ${written}`);
+      } else if (wantHtml && !wantMd) {
+        console.log(renderHtml(card));
+      } else {
+        console.log(renderMarkdown(card));
+        if (wantHtml) console.log(renderHtml(card));
+      }
+    },
+  );
 
 await program.parseAsync();
