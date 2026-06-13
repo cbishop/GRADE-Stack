@@ -2,5 +2,13 @@
   "name": "@grade-stack/scorecard",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "main": "src/index.ts",
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@grade-stack/evals": "workspace:*"
+  }
 }

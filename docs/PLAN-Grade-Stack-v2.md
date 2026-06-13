@@ -211,11 +211,11 @@ The highest-leverage phase — the foundation everything else builds on.
 4. **`reliability scorecard`** subcommand. Add the **`/scorecard` slash command** in `.claude/commands/`.
 5. **Honest degradation:** run the scorecard against the agent in 1B's **degraded mode** and verify it produces a worse scorecard.
 
-**Acceptance criteria:**
-- [ ] Running the scorecard against the reference agent produces a one-page readout an executive could read in 3 minutes.
-- [ ] Every rating traces to underlying eval evidence (no unsupported scores).
-- [ ] Ratings degrade honestly (degraded mode → a worse scorecard).
-- [ ] **Artifact:** publish a sample scorecard + post — *"How a board can tell if its AI agent is trustworthy — without reading a single trace."* (the flagship public artifact; in `content/cycle-03/`).
+**Acceptance criteria:** 🟢 **Phase 1C implemented** on branch `phase-1c-scorecard` (2026-06-13); local gate green (typecheck, Biome, 55 tests, build).
+- [x] Running the scorecard against the reference agent produces a one-page readout an executive could read in 3 minutes. *(`reliability scorecard` → one-page Markdown + printable HTML; Overall verdict + 5 traffic-light dimensions + evidence; `packages/scorecard`.)*
+- [x] Every rating traces to underlying eval evidence (no unsupported scores). *(Reliability = pass rate + stability; Cost discipline = cost-per-success + waste fraction from real per-case usage; each rating carries its evidence bullets. The three not-yet-computed dimensions render "not yet assessed" and name their phase (2D/3A/3C) rather than asserting a score — test-enforced.)*
+- [x] Ratings degrade honestly (degraded mode → a worse scorecard). *(`scorecard --provider stub --degraded` collapses Overall 🟢 Strong → 🔴 Critical; unit test asserts a strictly-worse rollup and that the `degraded` flag is cosmetic-only, never an input to a rating.)*
+- [x] **Artifact:** publish a sample scorecard + post — *"How a board can tell if its AI agent is trustworthy — without reading a single trace."* *(in `content/cycle-03/`: `sample-scorecard.md` + `.html` (healthy) and `sample-scorecard-degraded.md`; mid-cycle + end-of-cycle drafts, "review before publishing".)*
 
 > **Phase 1 gate:** Do not proceed to Phase 2 until the scorecard is published. *If the executive narrative isn't landing after ~8 weeks of consistent posting, the framing is too technical — refine the scorecard/narrative for the executive reader before adding any architecture scope.*
 
