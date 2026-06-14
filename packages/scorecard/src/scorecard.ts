@@ -1,6 +1,14 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module scorecard/scorecard
+ *
+ * Builds the AI Reliability Scorecard from a single eval run — mapping eval
+ * evidence to executive dimensions (Reliability and Cost discipline computed in
+ * Phase 1C; the rest honestly stubbed). Pure: no clock, no I/O.
+ */
+
 import { type CaseResult, type EvalRunResult, priceFor } from "@grade-stack/evals";
 import type { Dimension, Rating, Scorecard } from "./types.ts";
 import { RATING_RANK } from "./types.ts";

@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module evals/pricing.test
+ *
+ * Tests for provider pricing and cost-per-success — Bedrock list prices, the
+ * Ollama free/amortized basis, and the per-passing-case division.
+ */
+
 import { afterEach, describe, expect, test } from "bun:test";
 import { computeCost, priceFor } from "./pricing.ts";
 

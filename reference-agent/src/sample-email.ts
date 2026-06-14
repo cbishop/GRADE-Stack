@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module reference-agent/sample-email
+ *
+ * The SupportEmail shape and a representative inbound email, used as the default
+ * triage input across the CLI, the eval suite, and demos.
+ */
+
 export interface SupportEmail {
   from: string;
   subject: string;

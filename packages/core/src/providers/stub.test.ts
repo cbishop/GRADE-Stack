@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module core/providers/stub.test
+ *
+ * Tests for the stub provider — deterministic triage output, the full JSON
+ * contract and enums, the suite's category classifications, and judge mode.
+ */
+
 import { describe, expect, test } from "bun:test";
 import type { GenerateRequest } from "../types.ts";
 import { StubProvider } from "./stub.ts";

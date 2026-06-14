@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module evals/run.test
+ *
+ * Tests for folding promptfoo output — phase-trace construction and the
+ * collapse of repeated runs into a per-case stability score.
+ */
+
 import { describe, expect, test } from "bun:test";
 import { buildTrace, foldCase, type PromptfooComponent, type PromptfooRow } from "./run.ts";
 

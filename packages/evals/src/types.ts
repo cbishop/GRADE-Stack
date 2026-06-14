@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module evals/types
+ *
+ * The eval result schema — planner/executor/validator phases, per-case traces,
+ * and the run summary — shaped now to survive the Phase 2A agent refactor.
+ */
+
 import type { TokenUsage } from "@grade-stack/core";
 import type { CostBreakdown } from "./pricing.ts";
 

@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module core/providers/ollama.test
+ *
+ * Tests for the Ollama provider over a stubbed transport — content/token
+ * mapping, system-message handling, error paths — plus provider-name resolution.
+ */
+
 import { describe, expect, test } from "bun:test";
 import { resolveProviderName } from "../factory.ts";
 import { OllamaProvider } from "./ollama.ts";

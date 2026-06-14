@@ -76,7 +76,7 @@ This is the step-by-step build runbook that turns the PRD's phases into ordered,
 
 **Source-file conventions (every `.ts` file):**
 - **SPDX header** — the two-line `Copyright … Clarke Bishop Consulting` + `SPDX-License-Identifier: Apache-2.0` block at the very top (shebang first where present).
-- **File-level documentation block** — immediately after the SPDX header, a TSDoc `/** … */` block opening with `@module <name>` that states the module's responsibility in one or two plain sentences (what it owns, and what it deliberately does not). This is the per-file "what am I looking at" section; exported symbols keep their own TSDoc.
+- **File-level documentation block** — the file's lead TSDoc `/** … */` block (immediately after the SPDX header, or, when the file already opens with a lead block, as that block's first tag) opens with `@module <name>` and states the module's responsibility in one or two plain sentences (what it owns, and what it deliberately does not). This is the per-file "what am I looking at" section; exported symbols keep their own TSDoc.
 - This is a convention for **new files from now on**; the existing files are back-filled and the rule is made enforcing in **Phase 1D** (below) — per "mechanisms, not prose," the rule lands with the check that keeps it true, not as a standalone note.
 
 **Commit hygiene:** standard commit messages, **no AI-tool attribution** (per global convention).
@@ -231,11 +231,11 @@ The highest-leverage phase — the foundation everything else builds on.
 2. Add the **enforcing mechanism**: a check that fails when a `.ts` file lacks the SPDX header or the `@module` block. Prefer a Biome lint rule if one expresses it; otherwise a small repo script wired into `bun run check` and CI. The check is the deliverable — the back-fill without it would decay.
 3. Register the new mechanism in the **Enforcement-mechanism register** (below).
 
-**Acceptance criteria:** ⚪ **not started.**
-- [ ] Every `.ts` file under `packages/*` and `reference-agent` has an `@module` documentation block. *(no feature code changes — comments + the check only.)*
-- [ ] CI (and local `bun run check`) **fails** on a TS file missing its SPDX header or `@module` block — demonstrated by a deliberately-stripped file in the PR description, then restored.
-- [ ] Local gate green (typecheck, Biome, test, build); the new check is part of it.
-- [ ] No scope pulled from a feature phase; diff is documentation + the enforcing check only.
+**Acceptance criteria:** 🟢 **Phase 1D implemented** on branch `phase-1d-file-docs` (2026-06-14); local gate green (typecheck, Biome, 55 tests, build).
+- [x] Every `.ts` file under `packages/*` and `reference-agent` has an `@module` documentation block. *(29 files; `scripts/check-file-docs.ts` confirms all 29 carry both the SPDX header and an `@module` block. Four files that already opened with a lead doc block got `@module` folded in; the rest got a new lead block after the header.)*
+- [x] CI (and local `bun run check`) **fails** on a TS file missing its SPDX header or `@module` block — demonstrated by a deliberately-stripped file. *(`check:file-docs` exits 1 naming the offending file; folded into `bun run check`, which CI runs as "Lint + format check".)*
+- [x] Local gate green (typecheck, Biome, test, build); the new check is part of it. *(`check` now runs `biome check . && bun run check:file-docs`.)*
+- [x] No scope pulled from a feature phase; diff is documentation + the enforcing check only. *(29 header comment blocks, one new script, `package.json` script wiring, plan updates — no feature code changed.)*
 
 ---
 

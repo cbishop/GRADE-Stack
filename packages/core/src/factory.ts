@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module core/factory
+ *
+ * Provider resolution and construction — maps a name (explicit → env → default)
+ * to a concrete ModelProvider. The single place a provider is selected.
+ */
+
 import { BedrockProvider } from "./providers/bedrock.ts";
 import { OllamaProvider } from "./providers/ollama.ts";
 import { StubProvider } from "./providers/stub.ts";

@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module scorecard/scorecard.test
+ *
+ * Tests for buildScorecard — dimension structure, honest stubbing, purity, the
+ * reliability/cost bands, the worst-wins rollup, and honest degradation.
+ */
+
 import { describe, expect, test } from "bun:test";
 import { type CaseResult, computeCost, type EvalRunResult } from "@grade-stack/evals";
 import { buildScorecard } from "./scorecard.ts";

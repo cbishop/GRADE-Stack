@@ -2,6 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
+ * @module scorecard/types
+ *
+ * The scorecard's data model — the board-legible Rating scale, the per-dimension
+ * and whole-card shapes, and the rating rank/label tables.
+ */
+
+/**
  * Plain-language ratings. Deliberately a short, board-legible scale — a CFO can
  * read "At risk" without a glossary. `not-assessed` is honest about dimensions
  * that no eval evidence supports yet (they land in later phases).

@@ -1,6 +1,15 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module reference-agent/agent
+ *
+ * The naive Phase 0 reference agent: a single, unvalidated model call that
+ * triages one support email — the deliberate "before" state later phases
+ * measure and improve. Wrapped in an enforced turn bound and a degraded-mode
+ * canary (Phase 1B); no planner/validator loop yet (that arrives in Phase 2A).
+ */
+
 import type { GenerateResult, ModelProvider, TokenUsage } from "@grade-stack/core";
 import type { SupportEmail } from "./sample-email.ts";
 

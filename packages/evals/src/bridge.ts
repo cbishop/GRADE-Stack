@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
+ * @module evals/bridge
+ *
  * The Bun-side bridge that the promptfoo custom provider shells out to. This is
  * the *only* path from the eval harness to a model, and it goes through the
  * `@grade-stack/core` provider abstraction — so promptfoo (which runs on Node)
