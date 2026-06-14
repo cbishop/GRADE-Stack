@@ -4,6 +4,8 @@
 import type { EvalRunResult } from "./types.ts";
 
 /**
+ * @module evals/gate
+ *
  * The eval gate (Phase 1B): turn the suite into an enforcement mechanism. A run
  * is compared against a committed baseline **within the 1A tolerance band**, so
  * nondeterminism doesn't flake the gate while a real regression still fails it.

@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module evals/gate.test
+ *
+ * Tests for the eval gate — regression banding within the 1A tolerance, the
+ * cost cap, and extraction of the comparable baseline slice.
+ */
+
 import { describe, expect, test } from "bun:test";
 import { baselineFromResult, evaluateGate, type GateBaseline } from "./gate.ts";
 import type { EvalRunResult } from "./types.ts";

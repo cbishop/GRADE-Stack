@@ -74,6 +74,11 @@ This is the step-by-step build runbook that turns the PRD's phases into ordered,
 - **Posting split:** ~80% practice-in-public (LinkedIn narrative), ~15% technical artifact (repo/commits), ~5% transparency (phase-boundary retrospective).
 - **Definition of "narratable":** if you can't write the end-of-cycle post from the increment, the increment isn't done.
 
+**Source-file conventions (every `.ts` file):**
+- **SPDX header** — the two-line `Copyright … Clarke Bishop Consulting` + `SPDX-License-Identifier: Apache-2.0` block at the very top (shebang first where present).
+- **File-level documentation block** — the file's lead TSDoc `/** … */` block (immediately after the SPDX header, or, when the file already opens with a lead block, as that block's first tag) opens with `@module <name>` and states the module's responsibility in one or two plain sentences (what it owns, and what it deliberately does not). This is the per-file "what am I looking at" section; exported symbols keep their own TSDoc.
+- This is a convention for **new files from now on**; the existing files are back-filled and the rule is made enforcing in **Phase 1D** (below) — per "mechanisms, not prose," the rule lands with the check that keeps it true, not as a standalone note.
+
 **Commit hygiene:** standard commit messages, **no AI-tool attribution** (per global convention).
 
 **Global definition of done (every phase must clear all five):**
@@ -217,7 +222,24 @@ The highest-leverage phase — the foundation everything else builds on.
 - [x] Ratings degrade honestly (degraded mode → a worse scorecard). *(`scorecard --provider stub --degraded` collapses Overall 🟢 Strong → 🔴 Critical; unit test asserts a strictly-worse rollup and that the `degraded` flag is cosmetic-only, never an input to a rating.)*
 - [x] **Artifact:** publish a sample scorecard + post — *"How a board can tell if its AI agent is trustworthy — without reading a single trace."* *(in `content/cycle-03/`: `sample-scorecard.md` + `.html` (healthy) and `sample-scorecard-degraded.md`; mid-cycle + end-of-cycle drafts, "review before publishing".)*
 
-> **Phase 1 gate:** Do not proceed to Phase 2 until the scorecard is published. *If the executive narrative isn't landing after ~8 weeks of consistent posting, the framing is too technical — refine the scorecard/narrative for the executive reader before adding any architecture scope.*
+### Phase 1D — Source-file documentation back-fill (OSS hygiene, ~½ week)
+
+**Objective:** Make every `.ts` file self-describing, and make that property *enforced* rather than aspirational. Cross-cutting cleanup that belongs to no feature phase — kept as its own branch so no feature PR carries the sweeping diff. **Branch:** `phase-1d-file-docs`
+
+**Tasks (ordered):**
+1. Add a file-level `@module` documentation block (per the **Source-file conventions** above) to each of the existing TS files (29 at time of writing, across `packages/*` and `reference-agent`). One sentence of intent per file; do not pad.
+2. Add the **enforcing mechanism**: a check that fails when a `.ts` file lacks the SPDX header or the `@module` block. Prefer a Biome lint rule if one expresses it; otherwise a small repo script wired into `bun run check` and CI. The check is the deliverable — the back-fill without it would decay.
+3. Register the new mechanism in the **Enforcement-mechanism register** (below).
+
+**Acceptance criteria:** 🟢 **Phase 1D implemented** on branch `phase-1d-file-docs` (2026-06-14); local gate green (typecheck, Biome, 55 tests, build).
+- [x] Every `.ts` file under `packages/*` and `reference-agent` has an `@module` documentation block. *(29 files; `scripts/check-file-docs.ts` confirms all 29 carry both the SPDX header and an `@module` block. Four files that already opened with a lead doc block got `@module` folded in; the rest got a new lead block after the header.)*
+- [x] CI (and local `bun run check`) **fails** on a TS file missing its SPDX header or `@module` block — demonstrated by a deliberately-stripped file. *(`check:file-docs` exits 1 naming the offending file; folded into `bun run check`, which CI runs as "Lint + format check".)*
+- [x] Local gate green (typecheck, Biome, test, build); the new check is part of it. *(`check` now runs `biome check . && bun run check:file-docs`.)*
+- [x] No scope pulled from a feature phase; diff is documentation + the enforcing check only. *(29 header comment blocks, one new script, `package.json` script wiring, plan updates — no feature code changed.)*
+
+---
+
+> **Phase 1 gate:** Do not proceed to Phase 2 until the scorecard is published. *If the executive narrative isn't landing after ~8 weeks of consistent posting, the framing is too technical — refine the scorecard/narrative for the executive reader before adding any architecture scope.* *(Phase 1D is OSS hygiene and may run in parallel with the publication wait — it does not block the gate.)*
 
 ---
 
@@ -355,6 +377,7 @@ Maintain a running table in `docs/` (created in Phase 0 with its first entries) 
 | Validator output must conform | Zod→tool-schema structured output | Phase 2A |
 | Guardrails can't be bypassed | Gateway is the sole model path; agent holds no provider credentials | Phase 2C |
 | No silent governance omissions | OWASP coverage check (covered-or-flagged) | Phase 3A |
+| Every TS file documented | File-header check (SPDX + `@module`) in `bun run check` + CI | Phase 1D |
 
 ### ADR log (`docs/decisions/`)
 

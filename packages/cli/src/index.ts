@@ -2,6 +2,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module cli
+ *
+ * The `reliability` command-line entry point (Commander) — wires the agent,
+ * eval run, eval gate, and scorecard subcommands to the GRADE-Stack packages.
+ */
+
 import { readFile } from "node:fs/promises";
 import { createProvider } from "@grade-stack/core";
 import {

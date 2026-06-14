@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module scorecard/render.test
+ *
+ * Tests for the scorecard renderers — Markdown structure and the degraded
+ * banner, self-contained printable HTML with escaping, and the CLI summary.
+ */
+
 import { describe, expect, test } from "bun:test";
 import { renderCli, renderHtml, renderMarkdown } from "./render.ts";
 import type { Scorecard } from "./types.ts";

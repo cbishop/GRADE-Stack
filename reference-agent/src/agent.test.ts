@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module reference-agent/agent.test
+ *
+ * Tests for the reference agent — the enforced turn bound and the degraded-mode
+ * regression — run hermetically against a canned provider.
+ */
+
 import { describe, expect, test } from "bun:test";
 import type { GenerateRequest, GenerateResult, ModelProvider } from "@grade-stack/core";
 import { MaxTurnsError, runReferenceAgent } from "./agent.ts";

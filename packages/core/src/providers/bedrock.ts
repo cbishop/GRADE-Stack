@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module core/providers/bedrock
+ *
+ * The cloud model provider backed by Amazon Bedrock (Anthropic Messages API) —
+ * the production model path.
+ */
+
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import type { GenerateRequest, GenerateResult, ModelProvider } from "../types.ts";
 

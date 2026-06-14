@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome lint .",
     "format": "biome format --write .",
-    "check": "biome check .",
+    "check": "biome check . && bun run check:file-docs",
+    "check:file-docs": "bun run scripts/check-file-docs.ts",
     "build": "bun build packages/cli/src/index.ts --target bun --outdir dist",
     "test": "bun test"
   },

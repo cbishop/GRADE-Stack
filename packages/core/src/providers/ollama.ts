@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module core/providers/ollama
+ *
+ * The local model provider backed by the Ollama REST API (`/api/chat`) — the
+ * dev/variant model path on the M4 Mac Studio.
+ */
+
 import type { ChatMessage, GenerateRequest, GenerateResult, ModelProvider } from "../types.ts";
 
 export interface OllamaOptions {

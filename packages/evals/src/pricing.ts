@@ -4,6 +4,8 @@
 import type { TokenUsage } from "@grade-stack/core";
 
 /**
+ * @module evals/pricing
+ *
  * Cost-per-success: the executive-legible unit metric (Phase 1B). Cost is
  * counted per *passing* outcome, not per call — a cheap agent that fails is not
  * cheap. Token counts are always reported; the dollar figure follows the

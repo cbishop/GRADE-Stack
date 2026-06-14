@@ -2,6 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
+ * @module core/types
+ *
+ * The provider abstraction's core contracts — the provider-agnostic
+ * GenerateRequest/Result, token usage, and the ModelProvider interface that
+ * every model call in the stack flows through.
+ */
+
+/**
  * The model providers the stack can talk to. `stub` is a deterministic,
  * hermetic provider (no network, no credentials) used only by the CI eval gate
  * — see ADR 0003. `bedrock`/`ollama` are the real model paths.

@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module evals
+ *
+ * Public surface of the evals package — the suite runner, the regression gate,
+ * cost-per-success pricing, the CLI formatters, and the result types.
+ */
+
 export { formatGateVerdict, formatRunResult } from "./format.ts";
 export {
   baselineFromResult,

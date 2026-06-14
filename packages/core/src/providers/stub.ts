@@ -4,6 +4,8 @@
 import type { GenerateRequest, GenerateResult, ModelProvider } from "../types.ts";
 
 /**
+ * @module core/providers/stub
+ *
  * A deterministic, hermetic model provider — no network, no credentials, no
  * cost. It exists for **one** purpose: backing the CI eval gate so a regression
  * is caught programmatically and reproducibly (ADR 0003). It is NOT a model and

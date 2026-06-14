@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module scorecard/render
+ *
+ * Renderers for the scorecard — one-page Markdown, a self-contained printable
+ * HTML page, and a one-line-per-dimension CLI summary.
+ */
+
 import type { Dimension, Rating, Scorecard } from "./types.ts";
 import { RATING_LABEL } from "./types.ts";
 

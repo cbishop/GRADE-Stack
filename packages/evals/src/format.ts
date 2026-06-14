@@ -1,6 +1,13 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module evals/format
+ *
+ * Human-readable CLI rendering of eval runs and gate verdicts — the phase
+ * trace, the pass/stability summary, and the one-line cost-per-success readout.
+ */
+
 import type { GateVerdict } from "./gate.ts";
 import type { CostBreakdown } from "./pricing.ts";
 import type { CaseResult, EvalRunResult, TraceStep } from "./types.ts";

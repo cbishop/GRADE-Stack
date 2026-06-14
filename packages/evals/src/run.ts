@@ -1,6 +1,14 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+ * @module evals/run
+ *
+ * Runs the eval suite by spawning promptfoo against the provider bridge, then
+ * normalizes its raw output into a structured EvalRunResult — folding repeats
+ * into per-case stability and computing cost-per-success.
+ */
+
 import { spawn } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
