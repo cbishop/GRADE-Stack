@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Reliability Scorecard — Support-email triage</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #1f2328; margin: 0; padding: 2rem; max-width: 820px; margin-inline: auto;
+    }
+    h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+    h3 { font-size: 1.05rem; margin: 0 0 .35rem; display: flex; align-items: center; gap: .5rem; }
+    .meta { color: #57606a; font-size: .85rem; margin: 0 0 1.25rem; }
+    .meta b { color: #1f2328; font-weight: 600; }
+    .overall { padding: 1rem 1.25rem; border: 1px solid #d0d7de; border-radius: 8px; margin-bottom: 1.5rem; background: #f6f8fa; }
+    .overall h2 { margin: 0 0 .35rem; font-size: 1.15rem; display: flex; align-items: center; gap: .6rem; }
+    .overall p { margin: 0; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+    th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #d0d7de; vertical-align: top; }
+    th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: #57606a; }
+    .chip { display: inline-block; color: #fff; font-size: .78rem; font-weight: 600; padding: .12rem .5rem; border-radius: 999px; white-space: nowrap; }
+    .dim { padding: .75rem 0; border-top: 1px solid #eaeef2; }
+    .dim .headline { margin: 0 0 .4rem; }
+    .dim ul { margin: 0; padding-left: 1.2rem; color: #424a53; }
+    .dim li { margin: .15rem 0; }
+    .section--muted { opacity: .7; }
+    .banner { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: .5rem .75rem; font-size: .9rem; }
+    footer { margin-top: 1.5rem; color: #57606a; font-size: .8rem; border-top: 1px solid #eaeef2; padding-top: .75rem; }
+    @media print { body { padding: 0; } .overall { background: #f6f8fa !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .chip { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>AI Reliability Scorecard</h1>
+    <p class="meta">
+      <b>Agent:</b> Support-email triage &nbsp;·&nbsp;
+      <b>Model:</b> stub / stub-deterministic-v1 &nbsp;·&nbsp;
+      <b>Generated:</b> 2026-06-12T19:47:15.943Z<br />
+      <b>Coverage:</b> 2 of 5 dimensions assessed today; the rest are computed in later phases.
+    </p>
+    <div class="overall">
+      <h2>Overall: <span class="chip" style="background:#1a7f37">Strong</span></h2>
+      <p>On the evidence available today, the agent looks production-ready.</p>
+    </div>
+    <table>
+      <thead><tr><th>Dimension</th><th>Rating</th><th>Summary</th></tr></thead>
+      <tbody>
+        <tr><td>Reliability</td><td><span class="chip" style="background:#1a7f37">Strong</span></td><td>The agent handles its task dependably across the test suite.</td></tr>
+        <tr><td>Cost discipline</td><td><span class="chip" style="background:#1a7f37">Strong</span></td><td>Almost every dollar spent produces a usable result.</td></tr>
+        <tr><td>Observability coverage</td><td><span class="chip" style="background:#6e7781">Not yet assessed</span></td><td>Not yet assessed — this dimension is computed in Phase 2D.</td></tr>
+        <tr><td>Guardrail coverage</td><td><span class="chip" style="background:#6e7781">Not yet assessed</span></td><td>Not yet assessed — this dimension is computed in Phase 3A.</td></tr>
+        <tr><td>Governance readiness</td><td><span class="chip" style="background:#6e7781">Not yet assessed</span></td><td>Not yet assessed — this dimension is computed in Phase 3C.</td></tr>
+      </tbody>
+    </table>
+    <section class="dim">
+      <h3>Reliability <span class="chip" style="background:#1a7f37">Strong</span></h3>
+      <p class="headline">The agent handles its task dependably across the test suite.</p>
+      <ul>
+      <li>12 of 12 test cases passed (100%).</li>
+      <li>Run-to-run stability 1.00 (1.00 = identical results each run).</li>
+      </ul>
+    </section>
+    <section class="dim">
+      <h3>Cost discipline <span class="chip" style="background:#1a7f37">Strong</span></h3>
+      <p class="headline">Almost every dollar spent produces a usable result.</p>
+      <ul>
+      <li>Cost per successful outcome: 262 tokens ($0 list cost).</li>
+      <li>Total run cost $0 on stub/stub-deterministic-v1 — no per-token cost (self-hosted); the spend signal here is token volume.</li>
+      <li>0% of spend produced no passing result.</li>
+      </ul>
+    </section>
+    <section class="dim section--muted">
+      <h3>Observability coverage <span class="chip" style="background:#6e7781">Not yet assessed</span></h3>
+      <p class="headline">Not yet assessed — this dimension is computed in Phase 2D.</p>
+      <ul>
+      <li>Will be computed from real OpenTelemetry trace coverage (Phase 2D). No score is asserted until then.</li>
+      </ul>
+    </section>
+    <section class="dim section--muted">
+      <h3>Guardrail coverage <span class="chip" style="background:#6e7781">Not yet assessed</span></h3>
+      <p class="headline">Not yet assessed — this dimension is computed in Phase 3A.</p>
+      <ul>
+      <li>Will be computed from the OWASP Agentic Top 10 mapping (Phase 3A). No score is asserted until then.</li>
+      </ul>
+    </section>
+    <section class="dim section--muted">
+      <h3>Governance readiness <span class="chip" style="background:#6e7781">Not yet assessed</span></h3>
+      <p class="headline">Not yet assessed — this dimension is computed in Phase 3C.</p>
+      <ul>
+      <li>Will be computed from the EU AI Act deployer module (Phase 3C). No score is asserted until then.</li>
+      </ul>
+    </section>
+    <footer>Every rating is computed from the eval suite — no score is asserted without the evidence shown beneath it.</footer>
+  </main>
+</body>
+</html>

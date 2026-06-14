@@ -19,6 +19,7 @@
       "dependencies": {
         "@grade-stack/core": "workspace:*",
         "@grade-stack/evals": "workspace:*",
+        "@grade-stack/scorecard": "workspace:*",
         "commander": "15.0.0",
         "reference-agent": "workspace:*",
       },
@@ -52,6 +53,9 @@
     "packages/scorecard": {
       "name": "@grade-stack/scorecard",
       "version": "0.0.0",
+      "dependencies": {
+        "@grade-stack/evals": "workspace:*",
+      },
     },
     "reference-agent": {
       "name": "reference-agent",
