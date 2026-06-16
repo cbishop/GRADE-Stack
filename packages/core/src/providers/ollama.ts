@@ -23,7 +23,7 @@ interface OllamaChatResponse {
   eval_count?: number;
 }
 
-const DEFAULT_MODEL = "llama3.1";
+const DEFAULT_MODEL = "gemma4:12b-mlx";
 const DEFAULT_HOST = "http://localhost:11434";
 
 function toOllamaMessages(request: GenerateRequest): ChatMessage[] {
