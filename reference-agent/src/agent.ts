@@ -23,6 +23,12 @@ import type {
   Validator,
 } from "@grade-stack/core";
 import { DEFAULT_MAX_TURNS, runPEV, zodValidator } from "@grade-stack/core";
+import {
+  connectSupportTools,
+  type Grounding,
+  groundTriage,
+  type SupportToolsClient,
+} from "./mcp.ts";
 import type { SupportEmail } from "./sample-email.ts";
 import { type Triage, TriageSchema } from "./triage-schema.ts";
 
@@ -48,6 +54,12 @@ export interface TriageResult {
   turns: number;
   /** Whether degraded mode deliberately worsened the output. */
   degraded: boolean;
+  /**
+   * The MCP grounding the agent consumed (policy resource + selected tool), or
+   * `undefined` when run without MCP. Present so the trace and demos can show
+   * which tool the model selected from descriptions alone (Phase 2B).
+   */
+  grounding?: Grounding;
 }
 
 export interface RunAgentOptions {
@@ -63,6 +75,14 @@ export interface RunAgentOptions {
    * Kept permanently as a gate canary (Phase 1B).
    */
   degraded?: boolean;
+  /**
+   * Consume the MCP server (Phase 2B) before planning: read the triage-policy
+   * resource and let the model select a tool from descriptions to ground the
+   * triage. `true` spawns the server over stdio; pass a {@link SupportToolsClient}
+   * to reuse an existing connection (or a different transport). Defaults to
+   * RELIABILITY_MCP, then off — so the deterministic eval baseline is untouched.
+   */
+  mcp?: boolean | SupportToolsClient;
 }
 
 function resolveMaxTurns(explicit?: number): number {
@@ -79,6 +99,16 @@ function resolveDegraded(explicit?: boolean): boolean {
   if (explicit !== undefined) return explicit;
   const v = process.env.RELIABILITY_DEGRADED?.toLowerCase();
   return v === "1" || v === "true";
+}
+
+function resolveMcp(explicit?: boolean | SupportToolsClient): boolean | SupportToolsClient {
+  if (explicit !== undefined) return explicit;
+  const v = process.env.RELIABILITY_MCP?.toLowerCase();
+  return v === "1" || v === "true";
+}
+
+function taskFromEmail(email: SupportEmail): string {
+  return [`From: ${email.from}`, `Subject: ${email.subject}`, "", email.body].join("\n");
 }
 
 /**
@@ -128,8 +158,14 @@ interface TriagePlan {
  * folds the validator's issues back in as explicit repair instructions. It makes
  * no model call — planning is deterministic, so turns == executor calls.
  */
-function makeTriagePlanner(jsonSchema: Record<string, unknown>): Planner<SupportEmail, TriagePlan> {
-  const system = `${BASE_SYSTEM_PROMPT}\n${JSON.stringify(jsonSchema, null, 2)}`;
+function makeTriagePlanner(
+  jsonSchema: Record<string, unknown>,
+  grounding?: Grounding,
+): Planner<SupportEmail, TriagePlan> {
+  const schemaBlock = `${BASE_SYSTEM_PROMPT}\n${JSON.stringify(jsonSchema, null, 2)}`;
+  // MCP grounding (policy resource + selected-tool facts) is prepended as context
+  // the planner can use, but it never relaxes the schema the validator enforces.
+  const system = grounding ? `${grounding.context}\n\n${schemaBlock}` : schemaBlock;
   return {
     plan(email: SupportEmail, feedback: PlanFeedback): TriagePlan {
       let user = renderUserPrompt(email);
@@ -175,9 +211,27 @@ export async function runReferenceAgent(
 ): Promise<TriageResult> {
   const maxTurns = resolveMaxTurns(opts.maxTurns);
   const degraded = resolveDegraded(opts.degraded);
+  const mcp = resolveMcp(opts.mcp);
+
+  // ── MCP grounding (opt-in, Phase 2B) ──────────────────────────────────────
+  // Consume the MCP server before planning: read the policy resource and let the
+  // model pick a tool from descriptions. A connection we open here we also close;
+  // a caller-supplied client is left open for the caller to manage.
+  let grounding: Grounding | undefined;
+  if (mcp) {
+    // A connection we open here we also close; a caller-supplied client is left
+    // open for the caller to manage.
+    const ownedClient = typeof mcp === "object" ? undefined : await connectSupportTools();
+    const client = ownedClient ?? (mcp as SupportToolsClient);
+    try {
+      grounding = await groundTriage(provider, client, taskFromEmail(email));
+    } finally {
+      if (ownedClient) await ownedClient.close();
+    }
+  }
 
   const validator: Validator<Triage> = zodValidator(TriageSchema);
-  const planner = makeTriagePlanner(validator.jsonSchema);
+  const planner = makeTriagePlanner(validator.jsonSchema, grounding);
   const executor = makeTriageExecutor(provider);
 
   const result = await runPEV(email, planner, executor, validator, { maxTurns });
@@ -191,5 +245,6 @@ export async function runReferenceAgent(
     model: result.model,
     turns: result.turns,
     degraded,
+    grounding,
   };
 }
