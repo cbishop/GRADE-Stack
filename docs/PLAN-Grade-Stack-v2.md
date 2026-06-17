@@ -270,10 +270,12 @@ The highest-leverage phase — the foundation everything else builds on.
 3. Ensure **tool descriptions** (not names or prompt rules) drive selection.
 4. Document **transports**: stdio (local) and HTTP (remote).
 
-**Acceptance:**
-- [ ] Tool-vs-resource choice is defensible per the control model.
-- [ ] Tool descriptions drive selection; transports documented.
-- [ ] **Artifact:** post — *"the tool-vs-resource mistake every team makes with MCP."* (`content/cycle-05/`).
+**Acceptance:** 🟢 **Phase 2B implemented** on branch `phase-2b-mcp` (2026-06-17); local gate green (typecheck, Biome, 79 tests, build); CI eval gate still 12/12 (MCP is opt-in, baseline untouched).
+- [x] Tool-vs-resource choice is defensible per the control model. *(`packages/mcp-server`: `policy://support/triage` is an app-controlled **resource** (stable reference data, no args, no action); `lookup_account` + `search_help_articles` are model-controlled **tools** (actions the agent decides to invoke). In-memory test asserts the policy is exposed as a resource and **not** as a tool. Rationale in `packages/mcp-server/README.md` + [ADR 0006](decisions/0006-mcp-tool-resource-and-name-blind-selection.md).)*
+- [x] Tool descriptions drive selection; transports documented. *(**Name-blind selection** — `buildSelectionPrompt` shows the model each tool's description + arg schema but **never its name**; a unit test asserts no tool name leaks into the prompt, and a swap test shows swapping only the two descriptions swaps the selected tool. Live: `reliability mcp demo -p ollama` routes a billing task → `lookup_account` and a password task → `search_help_articles`. Transports — **stdio** (agent spawns `bun <SERVER_BIN>`) and **streamable HTTP** (`Bun.serve`, stateless) — both exercised by a real MCP client and documented in the package README.)*
+- [x] **Artifact:** post — *"the tool-vs-resource mistake every team makes with MCP."* *(`content/cycle-05/`: mid-cycle + end-of-cycle drafts, "review before publishing".)*
+
+**Decisions during Phase 2B:** tool-vs-resource resolved by the **control model** (model-controlled action vs. app-supplied data), and tool selection done **name-blind over the text-only provider seam** — no provider-native tool-use, keeping the 2C/3D seam narrow per ADR 0005 ([ADR 0006](decisions/0006-mcp-tool-resource-and-name-blind-selection.md)). **End-to-end evidence:** with MCP on (`agent run --mcp -p ollama`), the agent selects `lookup_account` from its description, reads the real duplicate-charge invoices (`INV-20418`/`INV-20419`), and cites those exact IDs in the draft reply at the policy-mandated `urgent` priority — grounded, not hallucinated. MCP consumption is **opt-in** (`--mcp` / `RELIABILITY_MCP=1`), default off, so the deterministic stub baseline and CI eval gate are unchanged by 2B.
 
 ### Phase 2C — LLM gateway / guardrails (Weeks 13–14)
 
@@ -377,6 +379,7 @@ Maintain a running table in `docs/` (created in Phase 0 with its first entries) 
 | No ungated fork-PR merges | Branch protection + fork-PR eval policy | Phase 1B |
 | No runaway agent loops | `--max-turns` bound, enforced | Phase 1B |
 | Validator output must conform | Zod schema-parse — extract + `safeParse`, reject + re-plan (`zodValidator`) | Phase 2A |
+| Tool selection can't route by name/prompt-rule | Name-blind selection prompt (descriptions + arg schema only; name withheld) | Phase 2B |
 | Guardrails can't be bypassed | Gateway is the sole model path; agent holds no provider credentials | Phase 2C |
 | No silent governance omissions | OWASP coverage check (covered-or-flagged) | Phase 3A |
 | Every TS file documented | File-header check (SPDX + `@module`) in `bun run check` + CI | Phase 1D |

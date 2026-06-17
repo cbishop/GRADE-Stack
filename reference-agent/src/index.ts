@@ -16,6 +16,17 @@ export {
   runReferenceAgent,
   type TriageResult,
 } from "./agent.ts";
+export {
+  buildSelectionPrompt,
+  connectSupportTools,
+  type Grounding,
+  groundTriage,
+  parseSelection,
+  type RemoteTool,
+  type SupportToolsClient,
+  selectTool,
+  type ToolSelection,
+} from "./mcp.ts";
 export { SAMPLE_EMAIL, type SupportEmail } from "./sample-email.ts";
 export {
   CATEGORIES,

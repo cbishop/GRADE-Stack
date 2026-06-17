@@ -19,9 +19,10 @@ import {
   formatRunResult,
   runEvalSuite,
 } from "@grade-stack/evals";
+import { serveHttp, serveStdio } from "@grade-stack/mcp-server";
 import { buildScorecard, renderCli, renderHtml, renderMarkdown } from "@grade-stack/scorecard";
 import { Command } from "commander";
-import { runReferenceAgent, SAMPLE_EMAIL } from "reference-agent";
+import { connectSupportTools, runReferenceAgent, SAMPLE_EMAIL, selectTool } from "reference-agent";
 
 const program = new Command();
 
@@ -38,17 +39,69 @@ agent
   .option("-p, --provider <provider>", "model provider: bedrock | ollama | stub")
   .option("-m, --max-turns <n>", "enforced upper bound on model turns")
   .option("--degraded", "deliberately worsen the agent (gate canary)")
-  .action(async (opts: { provider?: string; maxTurns?: string; degraded?: boolean }) => {
+  .option("--mcp", "consume the MCP server: read the policy resource + select a tool (Phase 2B)")
+  .action(
+    async (opts: { provider?: string; maxTurns?: string; degraded?: boolean; mcp?: boolean }) => {
+      const provider = createProvider(opts.provider);
+      const result = await runReferenceAgent(provider, SAMPLE_EMAIL, {
+        maxTurns: opts.maxTurns === undefined ? undefined : Number.parseInt(opts.maxTurns, 10),
+        degraded: opts.degraded,
+        mcp: opts.mcp,
+      });
+      console.log(`provider: ${result.provider} (${result.model})`);
+      console.log(`turns:    ${result.turns}${result.degraded ? "   [DEGRADED]" : ""}`);
+      console.log(`tokens:   in=${result.usage.inputTokens} out=${result.usage.outputTokens}`);
+      if (result.grounding) {
+        const sel = result.grounding.selection;
+        console.log(
+          `mcp:      policy resource loaded; tool selected: ${sel ? sel.tool : "(none)"}`,
+        );
+      }
+      console.log("---");
+      console.log(result.raw);
+    },
+  );
+
+const mcp = program.command("mcp").description("Run and inspect the support MCP server (Phase 2B)");
+
+mcp
+  .command("serve")
+  .description("Run the support MCP server (stdio by default; --http for remote)")
+  .option("--http", "serve over streamable HTTP instead of stdio")
+  .option("--port <n>", "HTTP port", "3333")
+  .action(async (opts: { http?: boolean; port: string }) => {
+    if (opts.http) {
+      const handle = serveHttp({ port: Number.parseInt(opts.port, 10) });
+      console.error(`support MCP server listening at ${handle.url}`);
+    } else {
+      await serveStdio();
+    }
+  });
+
+mcp
+  .command("demo")
+  .description("Show description-driven tool selection: spawn the server, route two tasks")
+  .option("-p, --provider <provider>", "model provider: bedrock | ollama | stub")
+  .action(async (opts: { provider?: string }) => {
     const provider = createProvider(opts.provider);
-    const result = await runReferenceAgent(provider, SAMPLE_EMAIL, {
-      maxTurns: opts.maxTurns === undefined ? undefined : Number.parseInt(opts.maxTurns, 10),
-      degraded: opts.degraded,
-    });
-    console.log(`provider: ${result.provider} (${result.model})`);
-    console.log(`turns:    ${result.turns}${result.degraded ? "   [DEGRADED]" : ""}`);
-    console.log(`tokens:   in=${result.usage.inputTokens} out=${result.usage.outputTokens}`);
-    console.log("---");
-    console.log(result.raw);
+    const client = await connectSupportTools();
+    try {
+      const tools = await client.listTools();
+      console.log(`provider: ${provider.name} (${provider.model})`);
+      console.log(`tools discovered: ${tools.map((t) => t.name).join(", ")}`);
+      console.log("(the model is shown descriptions only — never these names)\n");
+      const tasks = [
+        "A customer says they were charged twice and wants a refund — what should we check?",
+        "A customer forgot their password and asks how to reset it.",
+      ];
+      for (const task of tasks) {
+        const sel = await selectTool(provider, tools, task);
+        console.log(`task: ${task}`);
+        console.log(`  → selected: ${sel ? sel.tool : "(none)"}\n`);
+      }
+    } finally {
+      await client.close();
+    }
   });
 
 const evalCmd = program.command("eval").description("Run the reliability eval suite");

@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@grade-stack/core": "workspace:*",
+    "@grade-stack/mcp-server": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.4.3"
   }
 }
