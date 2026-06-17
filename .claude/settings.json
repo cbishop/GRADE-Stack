@@ -1,4 +1,16 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(bun run typecheck)",
+      "Bash(bun run check)",
+      "Bash(bun run check:file-docs)",
+      "Bash(bun run lint)",
+      "Bash(bun run build)",
+      "Bash(bun run test)",
+      "Bash(bun test)",
+      "mcp__claude-in-chrome__get_page_text"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
