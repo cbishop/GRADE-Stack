@@ -10,7 +10,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { createProvider } from "@grade-stack/core";
+import { createDirectProvider, createProvider } from "@grade-stack/core";
 import {
   baselineFromResult,
   type EvalRunResult,
@@ -19,6 +19,7 @@ import {
   formatRunResult,
   runEvalSuite,
 } from "@grade-stack/evals";
+import { ISOLATION_PROBE_BIN, isolatedAgentEnv, serveGateway } from "@grade-stack/gateway";
 import { serveHttp, serveStdio } from "@grade-stack/mcp-server";
 import { buildScorecard, renderCli, renderHtml, renderMarkdown } from "@grade-stack/scorecard";
 import { Command } from "commander";
@@ -101,6 +102,81 @@ mcp
       }
     } finally {
       await client.close();
+    }
+  });
+
+const gateway = program
+  .command("gateway")
+  .description("Run the LLM gateway and prove server-side guardrails (Phase 2C)");
+
+gateway
+  .command("serve")
+  .description("Run the credential-holding gateway; the agent talks to it instead of a provider")
+  .option("-p, --provider <provider>", "backing model provider: bedrock | ollama | stub")
+  .option("--port <n>", "HTTP port", "8787")
+  .action((opts: { provider?: string; port: string }) => {
+    const backing = opts.provider;
+    const handle = serveGateway({
+      port: Number.parseInt(opts.port, 10),
+      ...(backing ? { resolveProvider: () => createDirectProvider(backing) } : {}),
+    });
+    console.error(`gateway listening at ${handle.url}`);
+    console.error(`set RELIABILITY_GATEWAY_URL=${handle.url} in the agent process`);
+  });
+
+gateway
+  .command("demo")
+  .description("Spawn a credential-isolated agent vs the gateway; prove both enforcement halves")
+  .option(
+    "-p, --provider <provider>",
+    "gateway's backing provider: stub | bedrock | ollama",
+    "stub",
+  )
+  .action(async (opts: { provider: string }) => {
+    // The gateway (this process) holds the credentials; it backs every request
+    // with the chosen provider regardless of the target the agent names.
+    const handle = serveGateway({ resolveProvider: () => createDirectProvider(opts.provider) });
+    try {
+      const env = isolatedAgentEnv(process.env, handle.url);
+      console.log(`gateway up at ${handle.url} (backing provider: ${opts.provider})`);
+      console.log("spawning a credential-isolated agent process (AWS creds stripped)...\n");
+
+      const proc = Bun.spawn(["bun", ISOLATION_PROBE_BIN], { env, stdout: "pipe", stderr: "pipe" });
+      const [out, err] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+      const code = await proc.exited;
+
+      const line = out.trim().split("\n").pop() ?? "{}";
+      let report: Record<string, unknown> = {};
+      try {
+        report = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        console.error("could not parse probe report:\n", out, err);
+        process.exitCode = 1;
+        return;
+      }
+
+      const tick = (ok: unknown) => (ok ? "✓" : "✗");
+      console.log("Behavioral proof (guardrails enforced server-side):");
+      console.log(`  ${tick(report.gatewayCallOk)} benign request round-trips through the gateway`);
+      console.log(
+        `  ${tick(report.bypassBlocked)} bypass-attempt prompt blocked at the gateway` +
+          (report.bypassPolicy ? ` (policy: ${report.bypassPolicy})` : ""),
+      );
+      console.log("\nStructural proof (agent process holds no credentials):");
+      console.log(`  ${tick(report.directFactoryRefused)} factory refuses a direct provider here`);
+      console.log(
+        `  ${tick(report.directProviderFailed)} raw provider call fails (no credentials)`,
+      );
+      if (Array.isArray(report.notes) && report.notes.length > 0) {
+        console.log(`\nnotes: ${(report.notes as string[]).join("; ")}`);
+      }
+      console.log(`\nprobe exit code: ${code} (0 = every proof held)`);
+      process.exitCode = code;
+    } finally {
+      await handle.stop();
     }
   });
 

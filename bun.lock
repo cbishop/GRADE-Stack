@@ -19,6 +19,7 @@
       "dependencies": {
         "@grade-stack/core": "workspace:*",
         "@grade-stack/evals": "workspace:*",
+        "@grade-stack/gateway": "workspace:*",
         "@grade-stack/mcp-server": "workspace:*",
         "@grade-stack/scorecard": "workspace:*",
         "commander": "15.0.0",
@@ -47,6 +48,12 @@
     "packages/gateway": {
       "name": "@grade-stack/gateway",
       "version": "0.0.0",
+      "bin": {
+        "grade-stack-gateway": "src/bin.ts",
+      },
+      "dependencies": {
+        "@grade-stack/core": "workspace:*",
+      },
     },
     "packages/mcp-server": {
       "name": "@grade-stack/mcp-server",

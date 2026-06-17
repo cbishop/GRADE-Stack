@@ -5,11 +5,22 @@
  * @module core
  *
  * Public surface of @grade-stack/core — the ModelProvider abstraction, its
- * Bedrock/Ollama/stub implementations, and the provider factory. Every model
- * call in the stack goes through this package.
+ * Bedrock/Ollama/stub implementations, the provider factory, and the
+ * credential-free gateway client + wire contract (Phase 2C). Every model call in
+ * the stack goes through this package.
  */
 
-export { createProvider, resolveProviderName } from "./factory.ts";
+export {
+  type CreateProviderOptions,
+  createDirectProvider,
+  createProvider,
+  GATEWAY_TOGGLE_ENV,
+  GATEWAY_URL_ENV,
+  gatewayUrl,
+  isAgentSandbox,
+  resolveProviderName,
+  SANDBOX_ENV,
+} from "./factory.ts";
 export {
   type AgentPhase,
   type AgentStep,
@@ -28,6 +39,15 @@ export {
   zodValidator,
 } from "./pev.ts";
 export { type BedrockOptions, BedrockProvider } from "./providers/bedrock.ts";
+export {
+  GATEWAY_GENERATE_PATH,
+  type GatewayGenerateBody,
+  type GatewayGenerateResponse,
+  GatewayProvider,
+  type GatewayProviderOptions,
+  type GatewayViolation,
+  GuardrailError,
+} from "./providers/gateway.ts";
 export { type OllamaOptions, OllamaProvider } from "./providers/ollama.ts";
 export { type StubOptions, StubProvider } from "./providers/stub.ts";
 export type {
