@@ -255,10 +255,12 @@ The highest-leverage phase — the foundation everything else builds on.
 3. Document the pattern as a **reusable blueprint** in `docs/`.
 4. Verify the Phase 1A trace-level scoring still maps onto the now-explicit steps.
 
-**Acceptance:**
-- [ ] The pattern is documented as a reusable blueprint.
-- [ ] Eval scores **hold or improve** through the refactor (within the 1A tolerance band).
-- [ ] **Artifact:** post on the planner/executor/validator pattern as the mid-market default (`content/cycle-04/`).
+**Acceptance:** 🟢 **Phase 2A implemented** on branch `phase-2a-pev` (2026-06-17); local gate green (typecheck, Biome, 69 tests, build).
+- [x] The pattern is documented as a reusable blueprint. *(`docs/blueprint-planner-executor-validator.md`: the generic loop, the schema-as-contract mechanism, a "reuse it for another task" recipe, and the 1A→2A trace mapping. Generic machinery lives in `@grade-stack/core` (`src/pev.ts`: `runPEV`, `zodValidator`, `extractJsonObject`, `MaxTurnsError`); task wiring in `reference-agent/src/agent.ts`.)*
+- [x] Eval scores **hold or improve** through the refactor (within the 1A tolerance band). *(Controlled, same-model before/after: **stub held 12/12 → 12/12** (CI gate green); **Bedrock improved 0/12 → 11/12** — the validator's fence-stripping extraction fixed the deferred 1A finding. Ollama is now 10/12 on the smaller `gemma4:12b-mlx` default that replaced `llama3.1:70b` post-1A (PR #7), so it is not a clean refactor comparison — the deterministic stub and the same-model Bedrock run are the controlled before/after evidence. Both Ollama misses are `validate:judge` (LLM-rubric) failures — the smaller model over-promising in the draft reply — not schema/extraction, which the validator handled cleanly.)*
+- [x] **Artifact:** post on the planner/executor/validator pattern as the mid-market default (`content/cycle-04/`). *(mid-cycle + end-of-cycle drafts, "review before publishing".)*
+
+**Decisions during Phase 2A:** structured output enforced by a **Zod schema-parse** (extract-then-`safeParse`, reject + re-plan) rather than provider-native tool-use, keeping the text-only model seam narrow for 2C/3D ([ADR 0005](decisions/0005-validator-structured-output-via-zod-schema-parse.md)). The validator's fence-stripping extraction (`extractJsonObject`) is the Phase 1A finding's deferred fix and is what moved Bedrock from 0/12 to 11/12. The PEV turn bound subsumes the 1B `MaxTurnsError`/`--max-turns` mechanism, which moved into `@grade-stack/core` (re-exported from `reference-agent` for compatibility).
 
 ### Phase 2B — MCP integration layer (Weeks 11–12)
 
@@ -374,7 +376,7 @@ Maintain a running table in `docs/` (created in Phase 0 with its first entries) 
 | No quality regression merged | Eval-gate vs. committed baseline (tolerance-banded) + required CI check | Phase 1B |
 | No ungated fork-PR merges | Branch protection + fork-PR eval policy | Phase 1B |
 | No runaway agent loops | `--max-turns` bound, enforced | Phase 1B |
-| Validator output must conform | Zod→tool-schema structured output | Phase 2A |
+| Validator output must conform | Zod schema-parse — extract + `safeParse`, reject + re-plan (`zodValidator`) | Phase 2A |
 | Guardrails can't be bypassed | Gateway is the sole model path; agent holds no provider credentials | Phase 2C |
 | No silent governance omissions | OWASP coverage check (covered-or-flagged) | Phase 3A |
 | Every TS file documented | File-header check (SPDX + `@module`) in `bun run check` + CI | Phase 1D |

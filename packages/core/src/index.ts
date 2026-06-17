@@ -10,6 +10,23 @@
  */
 
 export { createProvider, resolveProviderName } from "./factory.ts";
+export {
+  type AgentPhase,
+  type AgentStep,
+  DEFAULT_MAX_TURNS,
+  type Executor,
+  extractJsonObject,
+  MaxTurnsError,
+  type PEVResult,
+  type PlanFeedback,
+  type Planner,
+  type RunPEVOptions,
+  runPEV,
+  type StepStatus,
+  type ValidationResult,
+  type Validator,
+  zodValidator,
+} from "./pev.ts";
 export { type BedrockOptions, BedrockProvider } from "./providers/bedrock.ts";
 export { type OllamaOptions, OllamaProvider } from "./providers/ollama.ts";
 export { type StubOptions, StubProvider } from "./providers/stub.ts";

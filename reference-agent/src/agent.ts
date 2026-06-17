@@ -4,18 +4,43 @@
 /**
  * @module reference-agent/agent
  *
- * The naive Phase 0 reference agent: a single, unvalidated model call that
- * triages one support email — the deliberate "before" state later phases
- * measure and improve. Wrapped in an enforced turn bound and a degraded-mode
- * canary (Phase 1B); no planner/validator loop yet (that arrives in Phase 2A).
+ * The reference agent: triages one support email through the explicit
+ * Planner → Executor → Validator loop from `@grade-stack/core` (Phase 2A). The
+ * planner shapes the prompt (and re-plans from validator feedback), the executor
+ * makes the one model call, and the validator enforces the {@link TriageSchema}
+ * contract. The whole loop is turn-bounded and carries a degraded-mode canary
+ * (Phase 1B). Task-specific wiring lives here; the reusable loop lives in core.
  */
 
-import type { GenerateResult, ModelProvider, TokenUsage } from "@grade-stack/core";
+import type {
+  AgentStep,
+  Executor,
+  GenerateResult,
+  ModelProvider,
+  PlanFeedback,
+  Planner,
+  TokenUsage,
+  Validator,
+} from "@grade-stack/core";
+import { DEFAULT_MAX_TURNS, runPEV, zodValidator } from "@grade-stack/core";
 import type { SupportEmail } from "./sample-email.ts";
+import { type Triage, TriageSchema } from "./triage-schema.ts";
+
+// Re-exported so existing consumers keep importing the turn bound from here even
+// though the mechanism now lives in core with the PEV loop it guards.
+export { type AgentStep, DEFAULT_MAX_TURNS, MaxTurnsError } from "@grade-stack/core";
 
 export interface TriageResult {
-  /** The model's raw, unvalidated output. Parsing/validation is intentionally absent. */
+  /**
+   * The agent's output as a JSON string. In normal mode this is the canonical
+   * serialization of the schema-valid {@link Triage}; in degraded mode it is
+   * the deliberately-corrupted output (the gate canary).
+   */
   raw: string;
+  /** The schema-valid triage the validator accepted (pre-degradation). */
+  triage: Triage;
+  /** The planner/executor/validator trace (plan → execute → validate ×turns). */
+  steps: AgentStep[];
   usage: TokenUsage;
   provider: string;
   model: string;
@@ -25,16 +50,11 @@ export interface TriageResult {
   degraded: boolean;
 }
 
-/** Default upper bound on model turns. A naive single-call agent uses 1; the
- * bound exists so the Phase 2A planner/executor/validator loop can't run away. */
-export const DEFAULT_MAX_TURNS = 4;
-
 export interface RunAgentOptions {
   /**
    * Hard upper bound on model turns. **Enforced**, not suggested: if the agent
-   * fails to converge within this many turns it throws {@link MaxTurnsError}
-   * rather than looping. Defaults to RELIABILITY_MAX_TURNS, then
-   * {@link DEFAULT_MAX_TURNS}.
+   * fails to converge within this many turns it throws `MaxTurnsError` rather
+   * than looping. Defaults to RELIABILITY_MAX_TURNS, then DEFAULT_MAX_TURNS.
    */
   maxTurns?: number;
   /**
@@ -43,14 +63,6 @@ export interface RunAgentOptions {
    * Kept permanently as a gate canary (Phase 1B).
    */
   degraded?: boolean;
-}
-
-/** Thrown when the reference agent hits its turn bound without converging. */
-export class MaxTurnsError extends Error {
-  constructor(readonly maxTurns: number) {
-    super(`Reference agent exceeded its turn bound of ${maxTurns} without converging.`);
-    this.name = "MaxTurnsError";
-  }
 }
 
 function resolveMaxTurns(explicit?: number): number {
@@ -73,7 +85,9 @@ function resolveDegraded(explicit?: boolean): boolean {
  * Degraded mode: strip the structured contract from the agent's output. This is
  * a real, provider-independent quality regression — the validator's field/enum
  * checks and the judge no longer pass — used to demonstrate the eval gate
- * blocking a bad PR and retained as a permanent canary.
+ * blocking a bad PR and retained as a permanent canary. Applied to the output
+ * *after* the agent has converged, so degradation is a deliberate sabotage of a
+ * known-good result, never an input to any rating.
  */
 function degrade(text: string): string {
   try {
@@ -86,15 +100,11 @@ function degrade(text: string): string {
   }
 }
 
-const SYSTEM_PROMPT = [
+const BASE_SYSTEM_PROMPT = [
   "You are a customer-support triage assistant.",
-  "Given one inbound support email, return a single JSON object with exactly these fields:",
-  '  "category"     — one of: billing, technical, account, other',
-  '  "priority"     — one of: low, medium, high, urgent',
-  '  "sentiment"    — one of: positive, neutral, negative',
-  '  "summary"      — one sentence describing the issue',
-  '  "draft_reply"  — a short, professional reply to the customer',
-  "Respond with only the JSON object and nothing else.",
+  "Given one inbound support email, classify it and draft a reply.",
+  "Respond with a single JSON object — and nothing else, no Markdown fences —",
+  "that conforms exactly to this JSON Schema:",
 ].join("\n");
 
 function renderUserPrompt(email: SupportEmail): string {
@@ -108,15 +118,55 @@ function renderUserPrompt(email: SupportEmail): string {
   ].join("\n");
 }
 
+interface TriagePlan {
+  system: string;
+  user: string;
+}
+
 /**
- * The naive Phase 0 reference agent: one model call, no validation, no retries,
- * no tools. This is the deliberate "before" state that later phases measure and
- * improve. It runs identically against any {@link ModelProvider}.
- *
- * The single call is wrapped in a **bounded** turn loop. The naive agent
- * converges in one turn; the bound exists so the Phase 2A planner/executor/
- * validator loop is structurally prevented from running away — exceed it and
- * the agent throws {@link MaxTurnsError} (Phase 1B: enforced, not suggested).
+ * The planner: shapes the prompt around the schema contract and, on a re-plan,
+ * folds the validator's issues back in as explicit repair instructions. It makes
+ * no model call — planning is deterministic, so turns == executor calls.
+ */
+function makeTriagePlanner(jsonSchema: Record<string, unknown>): Planner<SupportEmail, TriagePlan> {
+  const system = `${BASE_SYSTEM_PROMPT}\n${JSON.stringify(jsonSchema, null, 2)}`;
+  return {
+    plan(email: SupportEmail, feedback: PlanFeedback): TriagePlan {
+      let user = renderUserPrompt(email);
+      if (feedback.priorIssues.length > 0) {
+        user += [
+          "",
+          "",
+          "Your previous response was rejected by the schema validator for:",
+          ...feedback.priorIssues.map((i) => `  - ${i}`),
+          "Return a corrected JSON object that fixes every issue above.",
+        ].join("\n");
+      }
+      return { system, user };
+    },
+  };
+}
+
+/** The executor: turns a plan into the single bounded model call. */
+function makeTriageExecutor(provider: ModelProvider): Executor<TriagePlan> {
+  return {
+    execute(plan: TriagePlan): Promise<GenerateResult> {
+      return provider.generate({
+        system: plan.system,
+        messages: [{ role: "user", content: plan.user }],
+        maxTokens: 800,
+        temperature: 0,
+      });
+    },
+  };
+}
+
+/**
+ * The reference agent: triage one support email through the explicit
+ * Planner → Executor → Validator loop. The validator enforces
+ * {@link TriageSchema} — output that doesn't conform is rejected and the agent
+ * re-plans with that feedback, up to the enforced turn bound. Runs identically
+ * against any {@link ModelProvider}; the loop and its bound live in core.
  */
 export async function runReferenceAgent(
   provider: ModelProvider,
@@ -126,35 +176,20 @@ export async function runReferenceAgent(
   const maxTurns = resolveMaxTurns(opts.maxTurns);
   const degraded = resolveDegraded(opts.degraded);
 
-  let turns = 0;
-  let result: GenerateResult | undefined;
-  let converged = false;
+  const validator: Validator<Triage> = zodValidator(TriageSchema);
+  const planner = makeTriagePlanner(validator.jsonSchema);
+  const executor = makeTriageExecutor(provider);
 
-  while (turns < maxTurns) {
-    turns += 1;
-    result = await provider.generate({
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: renderUserPrompt(email) }],
-      maxTokens: 800,
-      temperature: 0,
-    });
-    // The naive agent has no planner/validator loop yet, so one turn always
-    // converges. Phase 2A replaces this with a real loop that may re-plan.
-    converged = true;
-    break;
-  }
-
-  if (!converged || result === undefined) {
-    // The bound was reached before the agent produced a usable result.
-    throw new MaxTurnsError(maxTurns);
-  }
+  const result = await runPEV(email, planner, executor, validator, { maxTurns });
 
   return {
     raw: degraded ? degrade(result.text) : result.text,
+    triage: result.value,
+    steps: result.steps,
     usage: result.usage,
     provider: result.provider,
     model: result.model,
-    turns,
+    turns: result.turns,
     degraded,
   };
 }
