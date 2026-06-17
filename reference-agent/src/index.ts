@@ -9,6 +9,7 @@
  */
 
 export {
+  type AgentStep,
   DEFAULT_MAX_TURNS,
   MaxTurnsError,
   type RunAgentOptions,
@@ -16,3 +17,10 @@ export {
   type TriageResult,
 } from "./agent.ts";
 export { SAMPLE_EMAIL, type SupportEmail } from "./sample-email.ts";
+export {
+  CATEGORIES,
+  PRIORITIES,
+  SENTIMENTS,
+  type Triage,
+  TriageSchema,
+} from "./triage-schema.ts";

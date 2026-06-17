@@ -29,6 +29,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@aws-sdk/client-bedrock-runtime": "3.1066.0",
+        "zod": "^4.4.3",
       },
     },
     "packages/evals": {
@@ -62,6 +63,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@grade-stack/core": "workspace:*",
+        "zod": "^4.4.3",
       },
     },
   },

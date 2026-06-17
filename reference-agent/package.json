@@ -9,6 +9,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@grade-stack/core": "workspace:*"
+    "@grade-stack/core": "workspace:*",
+    "zod": "^4.4.3"
   }
 }
