@@ -9,6 +9,7 @@
   "dependencies": {
     "@grade-stack/core": "workspace:*",
     "@grade-stack/evals": "workspace:*",
+    "@grade-stack/gateway": "workspace:*",
     "@grade-stack/mcp-server": "workspace:*",
     "@grade-stack/scorecard": "workspace:*",
     "commander": "15.0.0",

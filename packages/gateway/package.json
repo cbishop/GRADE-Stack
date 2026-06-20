@@ -2,5 +2,16 @@
   "name": "@grade-stack/gateway",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "main": "src/index.ts",
+  "module": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "grade-stack-gateway": "src/bin.ts"
+  },
+  "dependencies": {
+    "@grade-stack/core": "workspace:*"
+  }
 }
