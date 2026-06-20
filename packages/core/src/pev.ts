@@ -19,6 +19,7 @@
  */
 
 import { z } from "zod";
+import { PHASE_ATTR, withSpan } from "./tracing.ts";
 import type { GenerateResult, ProviderName, TokenUsage } from "./types.ts";
 
 /** The three explicit phases every PEV step is attributed to. */
@@ -137,7 +138,11 @@ export async function runPEV<I, P, T>(
 
   for (let attempt = 1; attempt <= opts.maxTurns; attempt += 1) {
     // ── plan ────────────────────────────────────────────────────────────────
-    const plan = planner.plan(input, { attempt, priorIssues });
+    const plan = await withSpan(
+      "agent.plan",
+      { attributes: { [PHASE_ATTR]: "plan", "grade_stack.attempt": attempt } },
+      () => planner.plan(input, { attempt, priorIssues }),
+    );
     steps.push({
       phase: "plan",
       status: "ok",
@@ -149,7 +154,12 @@ export async function runPEV<I, P, T>(
     });
 
     // ── execute ──────────────────────────────────────────────────────────────
-    const out = await executor.execute(plan);
+    // The model call inside the executor nests a GenAI `chat` span under this one.
+    const out = await withSpan(
+      "agent.execute",
+      { attributes: { [PHASE_ATTR]: "execute", "grade_stack.attempt": attempt } },
+      () => executor.execute(plan),
+    );
     usage.inputTokens += out.usage.inputTokens;
     usage.outputTokens += out.usage.outputTokens;
     steps.push({
@@ -160,7 +170,15 @@ export async function runPEV<I, P, T>(
     });
 
     // ── validate ─────────────────────────────────────────────────────────────
-    const result = validator.validate(out.text);
+    const result = await withSpan(
+      "agent.validate",
+      { attributes: { [PHASE_ATTR]: "validate", "grade_stack.attempt": attempt } },
+      (span) => {
+        const r = validator.validate(out.text);
+        span.setAttribute("grade_stack.valid", r.ok);
+        return r;
+      },
+    );
     if (result.ok) {
       steps.push({
         phase: "validate",

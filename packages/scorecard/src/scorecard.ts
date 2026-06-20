@@ -6,9 +6,11 @@
  *
  * Builds the AI Reliability Scorecard from a single eval run — mapping eval
  * evidence to executive dimensions (Reliability and Cost discipline computed in
- * Phase 1C; the rest honestly stubbed). Pure: no clock, no I/O.
+ * Phase 1C; Observability from real trace coverage in Phase 2D when measured;
+ * Guardrail/Governance still stubbed until Phase 3). Pure: no clock, no I/O.
  */
 
+import type { TraceCoverage } from "@grade-stack/core";
 import { type CaseResult, type EvalRunResult, priceFor } from "@grade-stack/evals";
 import type { Dimension, Rating, Scorecard } from "./types.ts";
 import { RATING_RANK } from "./types.ts";
@@ -28,6 +30,12 @@ export interface ScorecardOptions {
    * a flaky pass is not a dependable pass. Default 0.9 (the 1A flakiness signal).
    */
   stabilityFloor?: number;
+  /**
+   * Real trace coverage from a measured agent run (Phase 2D). When provided, the
+   * Observability dimension is computed from it; when omitted it stays honestly
+   * stubbed. The CLI measures this with a hermetic in-memory trace probe.
+   */
+  observability?: TraceCoverage;
 }
 
 const DEFAULT_AGENT_TASK = "Support-email triage";
@@ -175,6 +183,58 @@ function costDimension(result: EvalRunResult): Dimension {
   };
 }
 
+/**
+ * Observability coverage — can a team *see* what the agent did? Computed from
+ * real trace coverage (Phase 2D): a connected plan → model → validation trace
+ * with every phase captured is strong; a fragmented or partial trace is not.
+ * Tool-call spans are emitted when MCP grounding runs, so they are not required
+ * of this core-path probe and never penalize the rating.
+ */
+function observabilityDimension(coverage: TraceCoverage): Dimension {
+  let rating: Exclude<Rating, "not-assessed">;
+  if (coverage.totalSpans === 0) {
+    rating = "critical";
+  } else if (!coverage.connected) {
+    rating = "at-risk";
+  } else if (coverage.phaseCoverage >= 1 && coverage.modelCallSpans >= 1) {
+    rating = "strong";
+  } else if (coverage.phaseCoverage >= 2 / 3) {
+    rating = "adequate";
+  } else {
+    rating = "at-risk";
+  }
+
+  const headline =
+    rating === "strong"
+      ? "Every step the agent takes is captured as one connected, inspectable trace."
+      : rating === "adequate"
+        ? "Most of the agent's path is traced, but some steps aren't yet visible."
+        : rating === "at-risk"
+          ? "Traces exist but don't connect into one picture of a run — hard to debug."
+          : "The agent emits no traces — its behavior can't be observed after the fact.";
+
+  const phases = coverage.observedPhases.length > 0 ? coverage.observedPhases.join(" → ") : "none";
+  const evidence = [
+    coverage.connected
+      ? `A full run produces one connected trace: ${coverage.totalSpans} spans, single root, single trace id.`
+      : `Trace is not connected: ${coverage.rootSpans} root span(s) across ${coverage.distinctTraces} trace(s) — steps don't link into one run.`,
+    `Agent phases captured as spans: ${phases} (${coverage.observedPhases.length}/3).`,
+    `Model calls traced with GenAI semantic conventions: ${coverage.modelCallSpans}.`,
+  ];
+  if (coverage.missingPhases.length > 0) {
+    evidence.push(`Phases not traced: ${coverage.missingPhases.join(", ")}.`);
+  }
+
+  return {
+    key: "observability",
+    title: "Observability coverage",
+    rating,
+    headline,
+    evidence,
+    assessed: true,
+  };
+}
+
 /** A not-yet-assessed dimension, honest about which phase computes it. */
 function stubDimension(
   key: string,
@@ -223,9 +283,10 @@ function overallVerdict(dimensions: Dimension[]): Scorecard["overall"] {
 /**
  * Build a one-page AI Reliability Scorecard from a single eval run. Pure: no
  * clock, no I/O — the timestamp is carried from the eval result so the same
- * input always yields the same scorecard. Only Reliability and Cost discipline
- * are computed in Phase 1C; the remaining three are honestly stubbed until the
- * phases that produce their evidence.
+ * input always yields the same scorecard. Reliability and Cost discipline are
+ * computed in Phase 1C; Observability from trace coverage in Phase 2D when
+ * `opts.observability` is supplied; Guardrail/Governance stay stubbed until
+ * Phase 3.
  */
 export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions = {}): Scorecard {
   const stabilityFloor = opts.stabilityFloor ?? DEFAULT_STABILITY_FLOOR;
@@ -233,12 +294,14 @@ export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions = {
   const dimensions: Dimension[] = [
     reliabilityDimension(result, stabilityFloor),
     costDimension(result),
-    stubDimension(
-      "observability",
-      "Observability coverage",
-      "Phase 2D",
-      "real OpenTelemetry trace coverage",
-    ),
+    opts.observability
+      ? observabilityDimension(opts.observability)
+      : stubDimension(
+          "observability",
+          "Observability coverage",
+          "Phase 2D",
+          "real OpenTelemetry trace coverage",
+        ),
     stubDimension(
       "guardrails",
       "Guardrail coverage",

@@ -15,7 +15,13 @@
  * introduced (keeps the 2C gateway / 3D air-gap seam narrow — see ADR 0006).
  */
 
-import { extractJsonObject, type ModelProvider } from "@grade-stack/core";
+import {
+  extractJsonObject,
+  GENAI,
+  type ModelProvider,
+  SpanKind,
+  withSpan,
+} from "@grade-stack/core";
 import { SERVER_BIN, TRIAGE_POLICY_URI } from "@grade-stack/mcp-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -181,20 +187,35 @@ export async function groundTriage(
   client: SupportToolsClient,
   task: string,
 ): Promise<Grounding> {
-  const policy = await client.readTriagePolicy();
-  const tools = await client.listTools();
-  const selection = await selectTool(provider, tools, task);
+  // One span for the whole grounding step; the tool-selection model call nests a
+  // GenAI `chat` span under it, and the chosen tool call nests an `execute_tool`
+  // span — so MCP shows up in the connected trace (Phase 2D).
+  return withSpan("mcp.ground", { kind: SpanKind.INTERNAL }, async () => {
+    const policy = await client.readTriagePolicy();
+    const tools = await client.listTools();
+    const selection = await selectTool(provider, tools, task);
 
-  let toolResult: unknown;
-  const parts = ["## Triage policy (reference data)", policy];
-  if (selection) {
-    toolResult = await client.callTool(selection.tool, selection.arguments);
-    parts.push(
-      "",
-      `## Account/help lookup (tool: ${selection.tool})`,
-      "Use these facts; do not invent account details:",
-      JSON.stringify(toolResult),
-    );
-  }
-  return { policy, selection, toolResult, context: parts.join("\n") };
+    let toolResult: unknown;
+    const parts = ["## Triage policy (reference data)", policy];
+    if (selection) {
+      toolResult = await withSpan(
+        `execute_tool ${selection.tool}`,
+        {
+          kind: SpanKind.INTERNAL,
+          attributes: {
+            [GENAI.operationName]: "execute_tool",
+            [GENAI.toolName]: selection.tool,
+          },
+        },
+        () => client.callTool(selection.tool, selection.arguments),
+      );
+      parts.push(
+        "",
+        `## Account/help lookup (tool: ${selection.tool})`,
+        "Use these facts; do not invent account details:",
+        JSON.stringify(toolResult),
+      );
+    }
+    return { policy, selection, toolResult, context: parts.join("\n") };
+  });
 }

@@ -10,7 +10,14 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { createDirectProvider, createProvider } from "@grade-stack/core";
+import {
+  createDirectProvider,
+  createProvider,
+  formatSpanTree,
+  initTracing,
+  StubProvider,
+  withInMemoryTracing,
+} from "@grade-stack/core";
 import {
   baselineFromResult,
   type EvalRunResult,
@@ -41,25 +48,64 @@ agent
   .option("-m, --max-turns <n>", "enforced upper bound on model turns")
   .option("--degraded", "deliberately worsen the agent (gate canary)")
   .option("--mcp", "consume the MCP server: read the policy resource + select a tool (Phase 2B)")
+  .option("--trace", "capture the run's OpenTelemetry trace in-memory and print the span tree")
   .action(
-    async (opts: { provider?: string; maxTurns?: string; degraded?: boolean; mcp?: boolean }) => {
+    async (opts: {
+      provider?: string;
+      maxTurns?: string;
+      degraded?: boolean;
+      mcp?: boolean;
+      trace?: boolean;
+    }) => {
       const provider = createProvider(opts.provider);
-      const result = await runReferenceAgent(provider, SAMPLE_EMAIL, {
+      const runOpts = {
         maxTurns: opts.maxTurns === undefined ? undefined : Number.parseInt(opts.maxTurns, 10),
         degraded: opts.degraded,
         mcp: opts.mcp,
-      });
-      console.log(`provider: ${result.provider} (${result.model})`);
-      console.log(`turns:    ${result.turns}${result.degraded ? "   [DEGRADED]" : ""}`);
-      console.log(`tokens:   in=${result.usage.inputTokens} out=${result.usage.outputTokens}`);
-      if (result.grounding) {
-        const sel = result.grounding.selection;
-        console.log(
-          `mcp:      policy resource loaded; tool selected: ${sel ? sel.tool : "(none)"}`,
+      };
+      const printResult = (result: Awaited<ReturnType<typeof runReferenceAgent>>): void => {
+        console.log(`provider: ${result.provider} (${result.model})`);
+        console.log(`turns:    ${result.turns}${result.degraded ? "   [DEGRADED]" : ""}`);
+        console.log(`tokens:   in=${result.usage.inputTokens} out=${result.usage.outputTokens}`);
+        if (result.grounding) {
+          const sel = result.grounding.selection;
+          console.log(
+            `mcp:      policy resource loaded; tool selected: ${sel ? sel.tool : "(none)"}`,
+          );
+        }
+        console.log("---");
+        console.log(result.raw);
+      };
+
+      if (opts.trace) {
+        // Hermetic, network-free trace capture — proves a connected trace
+        // (plan → tool calls → validation) without needing a backend running.
+        const { result, spans, coverage } = await withInMemoryTracing(() =>
+          runReferenceAgent(provider, SAMPLE_EMAIL, runOpts),
         );
+        printResult(result);
+        console.log("\n--- trace ---");
+        console.log(formatSpanTree(spans));
+        console.log(
+          `\nconnected: ${coverage.connected} | spans: ${coverage.totalSpans} | ` +
+            `phases: ${coverage.observedPhases.join("→")} | model calls: ${coverage.modelCallSpans} | ` +
+            `tool calls: ${coverage.toolCallSpans}`,
+        );
+        return;
       }
-      console.log("---");
-      console.log(result.raw);
+
+      // Otherwise export to an OTLP backend when opted in (RELIABILITY_OTEL=1 or
+      // OTEL_EXPORTER_OTLP_ENDPOINT); a no-op otherwise (off by default).
+      const tracing = await initTracing();
+      try {
+        const result = await runReferenceAgent(provider, SAMPLE_EMAIL, runOpts);
+        printResult(result);
+        if (tracing.enabled) {
+          console.log(`\ntrace exported via OTLP to ${tracing.endpoint}`);
+        }
+      } finally {
+        await tracing.shutdown();
+      }
     },
   );
 
@@ -333,7 +379,15 @@ program
         });
       }
 
-      const card = buildScorecard(result, { degraded: opts.degraded });
+      // Measure observability coverage with a hermetic, network-free trace probe.
+      // Trace coverage is a property of the instrumented agent path, not of which
+      // model answers, so the deterministic stub is sufficient and keeps the
+      // scorecard runnable offline (incl. with `--from`).
+      const { coverage } = await withInMemoryTracing(() =>
+        runReferenceAgent(new StubProvider(), SAMPLE_EMAIL, {}),
+      );
+
+      const card = buildScorecard(result, { degraded: opts.degraded, observability: coverage });
 
       const wantMd = opts.format === "md" || opts.format === "both";
       const wantHtml = opts.format === "html" || opts.format === "both";

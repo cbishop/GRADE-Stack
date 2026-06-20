@@ -22,7 +22,15 @@ import type {
   TokenUsage,
   Validator,
 } from "@grade-stack/core";
-import { DEFAULT_MAX_TURNS, runPEV, zodValidator } from "@grade-stack/core";
+import {
+  DEFAULT_MAX_TURNS,
+  GENAI,
+  runPEV,
+  SpanKind,
+  traceProvider,
+  withSpan,
+  zodValidator,
+} from "@grade-stack/core";
 import {
   connectSupportTools,
   type Grounding,
@@ -213,38 +221,58 @@ export async function runReferenceAgent(
   const degraded = resolveDegraded(opts.degraded);
   const mcp = resolveMcp(opts.mcp);
 
-  // ── MCP grounding (opt-in, Phase 2B) ──────────────────────────────────────
-  // Consume the MCP server before planning: read the policy resource and let the
-  // model pick a tool from descriptions. A connection we open here we also close;
-  // a caller-supplied client is left open for the caller to manage.
-  let grounding: Grounding | undefined;
-  if (mcp) {
-    // A connection we open here we also close; a caller-supplied client is left
-    // open for the caller to manage.
-    const ownedClient = typeof mcp === "object" ? undefined : await connectSupportTools();
-    const client = ownedClient ?? (mcp as SupportToolsClient);
-    try {
-      grounding = await groundTriage(provider, client, taskFromEmail(email));
-    } finally {
-      if (ownedClient) await ownedClient.close();
-    }
-  }
+  // Every model call (tool selection + the PEV executor) flows through this
+  // wrapper, so each one emits a GenAI `chat` span under the right parent. It is
+  // transparent and a no-op when tracing is off (Phase 2D).
+  const tracedProvider = traceProvider(provider);
 
-  const validator: Validator<Triage> = zodValidator(TriageSchema);
-  const planner = makeTriagePlanner(validator.jsonSchema, grounding);
-  const executor = makeTriageExecutor(provider);
+  // The root span: the whole run hangs off it, giving one connected trace
+  // (plan → tool calls → validation). No-op when tracing is inactive.
+  return withSpan(
+    "agent.run",
+    {
+      kind: SpanKind.INTERNAL,
+      attributes: { [GENAI.operationName]: "invoke_agent", [GENAI.agentName]: "reference-agent" },
+    },
+    async (span) => {
+      // ── MCP grounding (opt-in, Phase 2B) ──────────────────────────────────
+      // Consume the MCP server before planning: read the policy resource and let
+      // the model pick a tool from descriptions. A connection we open here we
+      // also close; a caller-supplied client is left open for the caller.
+      let grounding: Grounding | undefined;
+      if (mcp) {
+        const ownedClient = typeof mcp === "object" ? undefined : await connectSupportTools();
+        const client = ownedClient ?? (mcp as SupportToolsClient);
+        try {
+          grounding = await groundTriage(tracedProvider, client, taskFromEmail(email));
+        } finally {
+          if (ownedClient) await ownedClient.close();
+        }
+      }
 
-  const result = await runPEV(email, planner, executor, validator, { maxTurns });
+      const validator: Validator<Triage> = zodValidator(TriageSchema);
+      const planner = makeTriagePlanner(validator.jsonSchema, grounding);
+      const executor = makeTriageExecutor(tracedProvider);
 
-  return {
-    raw: degraded ? degrade(result.text) : result.text,
-    triage: result.value,
-    steps: result.steps,
-    usage: result.usage,
-    provider: result.provider,
-    model: result.model,
-    turns: result.turns,
-    degraded,
-    grounding,
-  };
+      const result = await runPEV(email, planner, executor, validator, { maxTurns });
+
+      span.setAttributes({
+        [GENAI.system]: result.provider,
+        [GENAI.responseModel]: result.model,
+        "grade_stack.turns": result.turns,
+      });
+
+      return {
+        raw: degraded ? degrade(result.text) : result.text,
+        triage: result.value,
+        steps: result.steps,
+        usage: result.usage,
+        provider: result.provider,
+        model: result.model,
+        turns: result.turns,
+        degraded,
+        grounding,
+      };
+    },
+  );
 }
