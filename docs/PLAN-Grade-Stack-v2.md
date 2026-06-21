@@ -300,12 +300,14 @@ The highest-leverage phase — the foundation everything else builds on.
 2. The scorecard's **Observability coverage** dimension is now **computed from real trace coverage** (un-stub it).
 3. Verify a full run yields a **connected trace**: plan → tool calls → validation.
 
-**Acceptance:**
-- [ ] A full agent run produces a connected trace (plan → tool calls → validation).
-- [ ] Observability rating is evidence-backed.
-- [ ] **Artifact:** post on observability vs. evals — *"you can see failures or prevent them; you need both."* (`content/cycle-07/`).
+**Acceptance:** 🟢 **Phase 2D implemented** on branch `phase-2d-otel` (2026-06-20); local gate green (typecheck, Biome, 130 tests, build); CI eval gate still 12/12, exit 0 (tracing is no-op when off, baseline untouched).
+- [x] A full agent run produces a connected trace (plan → tool calls → validation). *(`@grade-stack/core` `src/tracing.ts` instruments the path with OTel **GenAI semantic conventions**; `runReferenceAgent` opens a root `agent.run` span, the PEV loop emits `agent.plan`/`agent.execute`/`agent.validate`, the provider wrapper emits a `chat` span per model call, and MCP grounding emits `mcp.ground` + `execute_tool`. Verified live: `agent run -p ollama --mcp --trace` → 8 spans, 1 root, 1 trace id, phases plan→execute→validate, 1 tool call; test-enforced in `reference-agent/src/trace.test.ts`.)*
+- [x] Observability rating is evidence-backed. *(Scorecard `observability` dimension un-stubbed — computed from real `TraceCoverage` (connectedness + plan/execute/validate span coverage), measured hermetically via `withInMemoryTracing` over a deterministic `stub` run so the card stays offline-runnable. `scorecard -p stub` → 🟢 Strong with span-count/phase evidence; bands + degraded-independence covered in `packages/scorecard/src/scorecard.test.ts`.)*
+- [x] **Artifact:** post on observability vs. evals — *"you can see failures or prevent them; you need both."* (`content/cycle-07/`). *(mid-cycle + end-of-cycle drafts, "review before publishing".)*
 
-> **Phase 2 milestone:** Package the assessment flow (run evals → generate scorecard → review architecture/guardrail/observability gaps) as a documented, repeatable **"Production-Readiness Assessment"** workflow in `docs/`.
+**Decisions during Phase 2D:** tracing is **vendor-neutral** (OTel GenAI semconv) with **Phoenix as the local default** and **Braintrust/any OTLP backend documented as a one-env-var swap**; **export is opt-in, off by default** (`RELIABILITY_OTEL` / `OTEL_EXPORTER_OTLP_ENDPOINT`) so the deterministic CI gate and the 3D air-gapped run are untouched by construction; **observability coverage is measured in-memory** (network-free, provider-independent) separately from the export path ([ADR 0008](decisions/0008-otel-tracing-vendor-neutral-with-phoenix-default.md)). Tracing/viewing how-to in [`docs/observability-tracing.md`](observability-tracing.md). **Carried into 3D:** the same instrumentation runs air-gapped; with export off there is no cloud dependency.
+
+> **Phase 2 milestone:** ✅ Package the assessment flow (run evals → generate scorecard → review architecture/guardrail/observability gaps) as a documented, repeatable **"Production-Readiness Assessment"** workflow in `docs/`. *(Delivered: [`docs/production-readiness-assessment.md`](production-readiness-assessment.md) — the end-to-end runbook, honest about the two scorecard dimensions still stubbed until Phase 3A/3C.)*
 
 ---
 
@@ -385,6 +387,7 @@ Maintain a running table in `docs/` (created in Phase 0 with its first entries) 
 | Guardrails can't be bypassed | Gateway is the sole model path; agent holds no provider credentials | Phase 2C |
 | No silent governance omissions | OWASP coverage check (covered-or-flagged) | Phase 3A |
 | Every TS file documented | File-header check (SPDX + `@module`) in `bun run check` + CI | Phase 1D |
+| Tracing can't flake CI or break the air gap | OTLP export off by default — no tracer registered unless opted in (`RELIABILITY_OTEL`/endpoint) | Phase 2D |
 
 ### ADR log (`docs/decisions/`)
 

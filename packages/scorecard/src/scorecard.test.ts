@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import type { TraceCoverage } from "@grade-stack/core";
 import { type CaseResult, computeCost, type EvalRunResult } from "@grade-stack/evals";
 import { buildScorecard } from "./scorecard.ts";
 import type { Dimension, Scorecard } from "./types.ts";
@@ -199,5 +200,93 @@ describe("honest degradation (acceptance criterion)", () => {
       without.dimensions.map((d) => d.rating),
     );
     expect(withFlag.overall.rating).toBe(without.overall.rating);
+  });
+});
+
+/** A trace-coverage fixture; defaults describe a healthy connected full-path trace. */
+function cov(p: Partial<TraceCoverage> = {}): TraceCoverage {
+  return {
+    totalSpans: p.totalSpans ?? 5,
+    rootSpans: p.rootSpans ?? 1,
+    distinctTraces: p.distinctTraces ?? 1,
+    connected: p.connected ?? true,
+    observedPhases: p.observedPhases ?? ["plan", "execute", "validate"],
+    missingPhases: p.missingPhases ?? [],
+    phaseCoverage: p.phaseCoverage ?? 1,
+    modelCallSpans: p.modelCallSpans ?? 1,
+    toolCallSpans: p.toolCallSpans ?? 0,
+  };
+}
+
+describe("Observability dimension (Phase 2D)", () => {
+  test("stays a not-assessed stub when no coverage is supplied", () => {
+    const d = dim(buildScorecard(makeResult(12, 12)), "observability");
+    expect(d.assessed).toBe(false);
+    expect(d.rating).toBe("not-assessed");
+  });
+
+  test("a connected full-path trace earns Strong, traced to span evidence", () => {
+    const card = buildScorecard(makeResult(12, 12), { observability: cov() });
+    const d = dim(card, "observability");
+    expect(d.assessed).toBe(true);
+    expect(d.rating).toBe("strong");
+    expect(d.evidence.join(" ")).toContain("connected trace");
+    expect(card.meta.assessedCount).toBe(3);
+  });
+
+  test("bands track coverage: fragmented → At risk, no spans → Critical", () => {
+    expect(
+      dim(
+        buildScorecard(makeResult(12, 12), {
+          observability: cov({ connected: false, rootSpans: 2, distinctTraces: 2 }),
+        }),
+        "observability",
+      ).rating,
+    ).toBe("at-risk");
+
+    expect(
+      dim(
+        buildScorecard(makeResult(12, 12), {
+          observability: cov({
+            totalSpans: 0,
+            rootSpans: 0,
+            connected: false,
+            observedPhases: [],
+            missingPhases: ["plan", "execute", "validate"],
+            phaseCoverage: 0,
+            modelCallSpans: 0,
+          }),
+        }),
+        "observability",
+      ).rating,
+    ).toBe("critical");
+  });
+
+  test("partial phase coverage on a connected trace is Adequate, not Strong", () => {
+    const d = dim(
+      buildScorecard(makeResult(12, 12), {
+        observability: cov({
+          observedPhases: ["plan", "execute"],
+          missingPhases: ["validate"],
+          phaseCoverage: 2 / 3,
+        }),
+      }),
+      "observability",
+    );
+    expect(d.rating).toBe("adequate");
+    expect(d.evidence.join(" ")).toContain("validate");
+  });
+
+  test("observability is independent of degraded mode (the path is still traced)", () => {
+    const healthy = dim(
+      buildScorecard(makeResult(12, 12), { observability: cov() }),
+      "observability",
+    );
+    const degraded = dim(
+      buildScorecard(makeResult(0, 12), { degraded: true, observability: cov() }),
+      "observability",
+    );
+    expect(healthy.rating).toBe("strong");
+    expect(degraded.rating).toBe("strong");
   });
 });

@@ -50,6 +50,25 @@ export {
 } from "./providers/gateway.ts";
 export { type OllamaOptions, OllamaProvider } from "./providers/ollama.ts";
 export { type StubOptions, StubProvider } from "./providers/stub.ts";
+export {
+  type CapturedSpan,
+  formatSpanTree,
+  GENAI,
+  genAiSystem,
+  getTracer,
+  initTracing,
+  isTracingEnabled,
+  OTEL_ENABLE_ENV,
+  PHASE_ATTR,
+  SpanKind,
+  summarizeTraceCoverage,
+  type TraceCoverage,
+  type TracingHandle,
+  traceProvider,
+  type WithSpanOptions,
+  withInMemoryTracing,
+  withSpan,
+} from "./tracing.ts";
 export type {
   ChatMessage,
   GenerateRequest,
