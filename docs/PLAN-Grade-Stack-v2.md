@@ -307,7 +307,7 @@ The highest-leverage phase — the foundation everything else builds on.
 
 **Decisions during Phase 2D:** tracing is **vendor-neutral** (OTel GenAI semconv) with **Phoenix as the local default** and **Braintrust/any OTLP backend documented as a one-env-var swap**; **export is opt-in, off by default** (`RELIABILITY_OTEL` / `OTEL_EXPORTER_OTLP_ENDPOINT`) so the deterministic CI gate and the 3D air-gapped run are untouched by construction; **observability coverage is measured in-memory** (network-free, provider-independent) separately from the export path ([ADR 0008](decisions/0008-otel-tracing-vendor-neutral-with-phoenix-default.md)). Tracing/viewing how-to in [`docs/observability-tracing.md`](observability-tracing.md). **Carried into 3D:** the same instrumentation runs air-gapped; with export off there is no cloud dependency.
 
-> **Phase 2 milestone:** Package the assessment flow (run evals → generate scorecard → review architecture/guardrail/observability gaps) as a documented, repeatable **"Production-Readiness Assessment"** workflow in `docs/`.
+> **Phase 2 milestone:** ✅ Package the assessment flow (run evals → generate scorecard → review architecture/guardrail/observability gaps) as a documented, repeatable **"Production-Readiness Assessment"** workflow in `docs/`. *(Delivered: [`docs/production-readiness-assessment.md`](production-readiness-assessment.md) — the end-to-end runbook, honest about the two scorecard dimensions still stubbed until Phase 3A/3C.)*
 
 ---
 
