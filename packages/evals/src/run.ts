@@ -197,6 +197,10 @@ function spawnPromptfoo(outPath: string, opts: RunEvalOptions): Promise<void> {
         ...process.env,
         EVAL_AGENT_PROVIDER: provider,
         EVAL_JUDGE_PROVIDER: judgeProvider,
+        // Silence promptfoo's "a newer version is available" startup banner: the
+        // version is pinned in package.json, so the nag is noise in our output.
+        // (promptfoo already self-disables this under CI; this covers local runs.)
+        PROMPTFOO_DISABLE_UPDATE: "true",
       },
     });
     child.on("error", reject);

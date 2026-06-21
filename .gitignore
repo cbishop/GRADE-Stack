@@ -12,6 +12,13 @@ build/
 # Internal strategy / positioning — NEVER publish (public repo)
 docs/internal/
 
+# Generated assessment artifacts (reproducible output of the Production-Readiness
+# Assessment runbook — see docs/production-readiness-assessment.md). Never commit
+# a local run's output; the committed samples live under content/cycle-03/.
+/eval-results.json
+/scorecard.md
+/scorecard.html
+
 # OS / editor
 .DS_Store
 *.log
