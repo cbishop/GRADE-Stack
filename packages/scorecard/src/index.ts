@@ -8,6 +8,15 @@
  * CLI renderers, and the scorecard types.
  */
 
+export {
+  type CoverageStatus,
+  computeGuardrailCoverage,
+  type GuardrailCoverage,
+  OWASP_ASI_IDS,
+  type OwaspItem,
+  type OwaspMapping,
+  parseOwaspMapping,
+} from "./owasp.ts";
 export { renderCli, renderHtml, renderMarkdown } from "./render.ts";
 export { buildScorecard, type ScorecardOptions } from "./scorecard.ts";
 export {

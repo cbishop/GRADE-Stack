@@ -28,7 +28,14 @@ import {
 } from "@grade-stack/evals";
 import { ISOLATION_PROBE_BIN, isolatedAgentEnv, serveGateway } from "@grade-stack/gateway";
 import { serveHttp, serveStdio } from "@grade-stack/mcp-server";
-import { buildScorecard, renderCli, renderHtml, renderMarkdown } from "@grade-stack/scorecard";
+import {
+  buildScorecard,
+  computeGuardrailCoverage,
+  parseOwaspMapping,
+  renderCli,
+  renderHtml,
+  renderMarkdown,
+} from "@grade-stack/scorecard";
 import { Command } from "commander";
 import { connectSupportTools, runReferenceAgent, SAMPLE_EMAIL, selectTool } from "reference-agent";
 
@@ -38,6 +45,18 @@ program
   .name("reliability")
   .description("GRADE-Stack CLI — reliability tooling for mid-market AI agents")
   .version("0.0.0");
+
+/** Committed OWASP Agentic Top 10 → stack mapping (Phase 3A), resolved by path. */
+const OWASP_MAPPING_URL = new URL(
+  "../../../governance/owasp/owasp-agentic-top10-2026.json",
+  import.meta.url,
+);
+
+/** Load + validate the committed OWASP mapping and reduce it to guardrail coverage. */
+async function loadGuardrailCoverage() {
+  const raw = await Bun.file(OWASP_MAPPING_URL).json();
+  return computeGuardrailCoverage(parseOwaspMapping(raw));
+}
 
 const agent = program.command("agent").description("Run and inspect the reference agent");
 
@@ -387,7 +406,15 @@ program
         runReferenceAgent(new StubProvider(), SAMPLE_EMAIL, {}),
       );
 
-      const card = buildScorecard(result, { degraded: opts.degraded, observability: coverage });
+      // Guardrail coverage is derived from the committed OWASP mapping (Phase 3A) —
+      // a property of the stack's mechanisms, independent of which model answered.
+      const guardrails = await loadGuardrailCoverage();
+
+      const card = buildScorecard(result, {
+        degraded: opts.degraded,
+        observability: coverage,
+        guardrails,
+      });
 
       const wantMd = opts.format === "md" || opts.format === "both";
       const wantHtml = opts.format === "html" || opts.format === "both";
