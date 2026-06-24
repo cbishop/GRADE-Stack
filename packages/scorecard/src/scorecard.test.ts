@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import type { TraceCoverage } from "@grade-stack/core";
 import { type CaseResult, computeCost, type EvalRunResult } from "@grade-stack/evals";
+import type { GuardrailCoverage } from "./owasp.ts";
 import { buildScorecard } from "./scorecard.ts";
 import type { Dimension, Scorecard } from "./types.ts";
 import { RATING_RANK } from "./types.ts";
@@ -288,5 +289,74 @@ describe("Observability dimension (Phase 2D)", () => {
     );
     expect(healthy.rating).toBe("strong");
     expect(degraded.rating).toBe("strong");
+  });
+});
+
+/** A guardrail-coverage fixture; defaults describe near-complete OWASP coverage. */
+function guard(p: Partial<GuardrailCoverage> = {}): GuardrailCoverage {
+  return {
+    taxonomy: p.taxonomy ?? "OWASP Top 10 for Agentic Applications",
+    version: p.version ?? "2026",
+    publishedAt: p.publishedAt ?? "2025-12-09",
+    sourceUrl: p.sourceUrl ?? "https://genai.owasp.org/",
+    total: p.total ?? 10,
+    covered: p.covered ?? 9,
+    partial: p.partial ?? 1,
+    gaps: p.gaps ?? 0,
+    score: p.score ?? 0.95,
+    gapIds: p.gapIds ?? [],
+    partialIds: p.partialIds ?? ["ASI09:2026"],
+  };
+}
+
+describe("Guardrail dimension (Phase 3A)", () => {
+  test("stays a not-assessed stub when no coverage is supplied", () => {
+    const d = dim(buildScorecard(makeResult(12, 12)), "guardrails");
+    expect(d.assessed).toBe(false);
+    expect(d.rating).toBe("not-assessed");
+  });
+
+  test("bands track the weighted OWASP coverage score", () => {
+    const rating = (score: number) =>
+      dim(buildScorecard(makeResult(12, 12), { guardrails: guard({ score }) }), "guardrails")
+        .rating;
+    expect(rating(0.95)).toBe("strong");
+    expect(rating(0.8)).toBe("adequate");
+    expect(rating(0.5)).toBe("at-risk");
+    expect(rating(0.3)).toBe("critical");
+  });
+
+  test("cites the OWASP edition and names every flagged gap in the evidence", () => {
+    const card = buildScorecard(makeResult(12, 12), {
+      guardrails: guard({
+        score: 0.5,
+        covered: 2,
+        partial: 6,
+        gaps: 2,
+        gapIds: ["ASI06:2026", "ASI07:2026"],
+        partialIds: ["ASI01:2026"],
+      }),
+    });
+    const d = dim(card, "guardrails");
+    expect(d.assessed).toBe(true);
+    expect(d.rating).toBe("at-risk");
+    const text = d.evidence.join(" ");
+    expect(text).toContain("2026");
+    expect(text).toContain("ASI06:2026");
+    expect(text).toContain("ASI07:2026");
+    // Lighting up guardrails alongside observability brings the count to four.
+    expect(
+      buildScorecard(makeResult(12, 12), { guardrails: guard(), observability: cov() }).meta
+        .assessedCount,
+    ).toBe(4);
+  });
+
+  test("guardrail coverage is independent of degraded mode (it rates the stack, not the run)", () => {
+    const healthy = dim(buildScorecard(makeResult(12, 12), { guardrails: guard() }), "guardrails");
+    const degraded = dim(
+      buildScorecard(makeResult(0, 12), { degraded: true, guardrails: guard() }),
+      "guardrails",
+    );
+    expect(healthy.rating).toBe(degraded.rating);
   });
 });

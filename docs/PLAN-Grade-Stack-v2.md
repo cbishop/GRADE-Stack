@@ -323,10 +323,14 @@ The highest-leverage phase — the foundation everything else builds on.
 3. The scorecard's **Guardrail coverage** dimension is now **computed against this mapping** (un-stub it).
 4. **No silent omissions:** each item is either covered (mechanism named) or explicitly flagged as a gap.
 
-**Acceptance:**
-- [ ] The mapping cites the exact OWASP version/identifiers in force at build time.
-- [ ] Each OWASP item is covered (with mechanism named) or explicitly flagged as a gap.
-- [ ] **Artifact:** post mapping the OWASP agentic threat list to a real mid-market stack (`content/cycle-08/`).
+**Acceptance:** 🟢 **Phase 3A implemented** on branch `phase-3a-owasp` (2026-06-23); local gate green (typecheck, Biome + checks, tests, build).
+- [x] The mapping cites the exact OWASP version/identifiers in force at build time. *(Re-verified 2026-06-23 against genai.owasp.org: **OWASP Top 10 for Agentic Applications**, edition **2026**, published **2025-12-09**, scheme **`ASI01:2026`–`ASI10:2026`** — not the older `T1`–`T15`. Citation lives in `governance/owasp/owasp-agentic-top10-2026.json` metadata + `README.md` and is carried onto the scorecard evidence. [ADR 0009](decisions/0009-owasp-agentic-top10-mapping-and-guardrail-coverage.md).)*
+- [x] Each OWASP item is covered (with mechanism named) or explicitly flagged as a gap. *(All 10 classified — **2 covered, 6 partial, 2 gaps** — each covered/partial naming a real shipped mechanism (gateway injection denial, credential isolation, name-blind selection, Zod validator, turn bound, secret scan, eval-gate/canary, traces) and each partial/gap stating its residual gap. Machine-readable JSON + human-readable README. **Enforced**, not asserted: `scripts/check-owasp-coverage.ts` (in `bun run check` + CI) fails on any missing/duplicate id, unmechanism'd coverage, unstated gap, or README drift.)*
+- [x] **Artifact:** post mapping the OWASP agentic threat list to a real mid-market stack (`content/cycle-08/`). *(mid-cycle + end-of-cycle drafts + sample scorecard showing the now-computed Guardrail dimension; "review before publishing".)*
+
+**Also delivered (task 3):** the scorecard's **Guardrail coverage** dimension is **un-stubbed** — computed from the committed mapping (`covered=1.0`/`partial=0.5`/`gap=0.0`, banded), evidence names the counts + every flagged gap + the OWASP edition, and the rating is **independent of the run/degraded mode** (it rates the stack's mechanisms). With it live, the reference stack's overall scorecard honestly drops Strong → **At risk** (weighted coverage 0.5).
+
+**Decisions during Phase 3A:** OWASP taxonomy pinned to the **2026 `ASI` edition** (re-verified at build time); single JSON source of truth + prose README kept in lock-step by a CI check; pure scorecard logic in `@grade-stack/scorecard` (no new `governance` package pulled forward); guardrail coverage scored by transparent weighted bands with gaps named — never inflated ([ADR 0009](decisions/0009-owasp-agentic-top10-mapping-and-guardrail-coverage.md)).
 
 ### Phase 3B — NIST AI RMF mapping (Weeks 19–20)
 
@@ -385,7 +389,7 @@ Maintain a running table in `docs/` (created in Phase 0 with its first entries) 
 | Validator output must conform | Zod schema-parse — extract + `safeParse`, reject + re-plan (`zodValidator`) | Phase 2A |
 | Tool selection can't route by name/prompt-rule | Name-blind selection prompt (descriptions + arg schema only; name withheld) | Phase 2B |
 | Guardrails can't be bypassed | Gateway is the sole model path; agent holds no provider credentials | Phase 2C |
-| No silent governance omissions | OWASP coverage check (covered-or-flagged) | Phase 3A |
+| No silent governance omissions | `scripts/check-owasp-coverage.ts` (covered-or-flagged; Zod completeness + README drift) in `bun run check` + CI | Phase 3A |
 | Every TS file documented | File-header check (SPDX + `@module`) in `bun run check` + CI | Phase 1D |
 | Tracing can't flake CI or break the air gap | OTLP export off by default — no tracer registered unless opted in (`RELIABILITY_OTEL`/endpoint) | Phase 2D |
 

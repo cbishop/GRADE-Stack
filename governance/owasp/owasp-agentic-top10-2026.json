@@ -1,0 +1,202 @@
+{
+  "taxonomy": "OWASP Top 10 for Agentic Applications",
+  "version": "2026",
+  "identifierScheme": "ASI01:2026 – ASI10:2026",
+  "publishedAt": "2025-12-09",
+  "retrievedAt": "2026-06-23",
+  "sourceUrl": "https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/",
+  "scope": "The GRADE-Stack reference agent: a single-agent planner→executor→validator that triages an inbound support email and drafts a structured reply, fronted by the LLM gateway, over a text-only provider seam.",
+  "statusLegend": {
+    "covered": "A named, shipped mechanism addresses this threat for the reference architecture; residual limits (if any) are stated.",
+    "partial": "A named mechanism reduces this threat but leaves a stated residual gap a deployment must close.",
+    "gap": "The reference architecture has no mechanism for this threat — explicitly flagged, never silently assumed safe."
+  },
+  "scoreWeights": { "covered": 1.0, "partial": 0.5, "gap": 0.0 },
+  "items": [
+    {
+      "id": "ASI01:2026",
+      "title": "Agent Goal Hijack",
+      "summary": "Attackers manipulate the agent's goals, plans, or decision paths through direct or indirect instruction injection, redirecting it to unintended objectives.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "Gateway server-side prompt-injection / override denial",
+          "ref": "packages/gateway/src/policy.ts (applyInputPolicy, INJECTION_PATTERNS); ADR 0007",
+          "note": "Override/jailbreak attempts are refused at the gateway regardless of the agent's own system prompt — proven in Phase 2C (the bypass prompt is blocked even when the agent is told to comply)."
+        },
+        {
+          "name": "Gateway is the sole model path",
+          "ref": "ADR 0007 (credential isolation)",
+          "note": "The agent holds no provider credentials, so injected instructions cannot route around the guardrail to reach a model directly."
+        }
+      ],
+      "residualGap": "Injection detection is heuristic (pattern-based); a novel obfuscated injection can evade it. This is defense-in-depth, not a guarantee — pair with least-privilege tool scoping for high-risk deployments."
+    },
+    {
+      "id": "ASI02:2026",
+      "title": "Tool Misuse & Exploitation",
+      "summary": "Agents misuse or abuse legitimate tools through unsafe composition, recursion, or excessive execution, causing harmful side effects despite valid permissions.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "Name-blind tool selection",
+          "ref": "packages/mcp-server (buildSelectionPrompt); ADR 0006",
+          "note": "The model selects tools from descriptions + arg schemas only — never names or prompt rules — so a tool cannot be steered by naming or prompt-side coercion."
+        },
+        {
+          "name": "MCP tool-vs-resource control model",
+          "ref": "packages/mcp-server; ADR 0006",
+          "note": "Model-controlled actions (tools) are separated from app-controlled data (resources), so reference data cannot be invoked as an action."
+        },
+        {
+          "name": "Enforced turn bound",
+          "ref": "@grade-stack/core (pev.ts, MaxTurnsError); --max-turns",
+          "note": "Caps runaway tool-invocation loops; the bound throws rather than loops."
+        }
+      ],
+      "residualGap": "The reference tools are read-only lookups; the stack has no per-tool authorization or side-effect sandbox. A deployment adding mutating tools must add least-privilege scoping and rate limits."
+    },
+    {
+      "id": "ASI03:2026",
+      "title": "Agent Identity & Privilege Abuse",
+      "summary": "Delegated authority, ambiguous agent identity, or trust assumptions lead to unauthorized actions, impersonation, or exploitation of cross-agent trust.",
+      "status": "covered",
+      "mechanisms": [
+        {
+          "name": "Structural credential isolation",
+          "ref": "packages/gateway/src/sandbox.ts; ADR 0007",
+          "note": "The agent process holds zero provider credentials (sandbox factory + stripped env + dead-ended IMDS/credential files); the gateway alone is credentialed. Verified in Phase 2C — a direct-to-provider call from the agent process fails for lack of credentials."
+        }
+      ],
+      "residualGap": "Complete for the single-agent reference architecture (the agent has no privileges to escalate). Multi-agent deployments with delegated identity must add per-agent identity and authority scoping — see ASI07."
+    },
+    {
+      "id": "ASI04:2026",
+      "title": "Agentic Supply Chain Compromise",
+      "summary": "External agents, tools, schemas, or prompts that the agent dynamically trusts or imports become compromised — including schema manipulation and tool-description deception.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "CI secret scan (gitleaks) + pre-commit + PreToolUse hooks",
+          "ref": ".github/workflows/ci.yml; .githooks/pre-commit; .claude/settings.json",
+          "note": "Stops credentials entering the repo/supply chain; CI scan is the mechanism of record."
+        },
+        {
+          "name": "Pinned dependencies (committed Bun lockfile)",
+          "ref": "bun.lock",
+          "note": "Dependency versions are pinned and reviewed, reducing drift-based compromise."
+        },
+        {
+          "name": "Name-blind selection resists tool-description deception",
+          "ref": "ADR 0006",
+          "note": "Selection is by description + schema; a deceptive tool name cannot bias routing."
+        }
+      ],
+      "residualGap": "No automated software-composition / vulnerability scanning of dependencies, and no signature/provenance verification of MCP tools or schemas imported at runtime. A production deployment should add SCA and signed-tool verification."
+    },
+    {
+      "id": "ASI05:2026",
+      "title": "Unexpected Code Execution",
+      "summary": "Agent-generated or agent-triggered code executes without sufficient validation or isolation, enabling unauthorized code execution or command injection.",
+      "status": "covered",
+      "mechanisms": [
+        {
+          "name": "No code-execution surface (structural)",
+          "ref": "reference-agent/src/agent.ts; @grade-stack/core (pev.ts)",
+          "note": "The reference agent never executes model-generated code — no eval, no shell, no code-exec tool. Model output is consumed only as structured text."
+        },
+        {
+          "name": "Validator Zod schema-parse, not prompted execution",
+          "ref": "@grade-stack/core (zodValidator); ADR 0005",
+          "note": "Output is extracted and safeParse'd against a schema and rejected on mismatch — it is never interpreted as code."
+        }
+      ],
+      "residualGap": "The attack surface is structurally absent for the reference agent. Any deployment that adds a code-execution or shell tool must add sandboxing/isolation before this remains covered."
+    },
+    {
+      "id": "ASI06:2026",
+      "title": "Memory & Context Poisoning",
+      "summary": "Injection or leakage into agent memory or contextual state corrupts future reasoning or actions through long-term memory poisoning or state manipulation.",
+      "status": "gap",
+      "mechanisms": [
+        {
+          "name": "Gateway input scanning (partial mitigation)",
+          "ref": "packages/gateway/src/policy.ts (applyInputPolicy)",
+          "note": "In-flight injected content is scanned, but this does not validate a persistent memory store."
+        }
+      ],
+      "residualGap": "Flagged as a gap: the reference agent is stateless per run and has no long-term memory subsystem, so there is no memory provenance/validation mechanism. Any deployment that adds persistent memory or RAG state must add write-provenance, integrity checks, and context isolation — this stack does not provide them."
+    },
+    {
+      "id": "ASI07:2026",
+      "title": "Insecure Inter-Agent Communication",
+      "summary": "Manipulation of messages exchanged between agents, planners, and executors through interception, injection, or spoofing of agent-to-agent communication.",
+      "status": "gap",
+      "mechanisms": [
+        {
+          "name": "Single controlled network seam (agent → gateway over HTTP)",
+          "ref": "packages/gateway; ADR 0007",
+          "note": "The only network boundary is the agent-to-gateway call, which is a controlled, policy-enforced channel — but this is not multi-agent (A2A) messaging."
+        }
+      ],
+      "residualGap": "Flagged as a gap: the reference stack is single-agent (planner/executor/validator are in-process phases, not networked agents), so there is no inter-agent channel and therefore no A2A authentication, encryption, or message-integrity mechanism. Any multi-agent deployment must add authenticated, integrity-protected inter-agent messaging."
+    },
+    {
+      "id": "ASI08:2026",
+      "title": "Cascading Agent Failures",
+      "summary": "Small agent failures propagate through connected systems — tool-chain errors, resource-exhaustion cascades — causing large-scale impact.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "Enforced turn bound + gateway token/model caps",
+          "ref": "@grade-stack/core (MaxTurnsError); packages/gateway/src/policy.ts (token-cap, model-allowlist)",
+          "note": "Bounds runaway loops and per-request resource consumption, limiting blast radius."
+        },
+        {
+          "name": "Eval gate + permanent degraded-mode canary",
+          "ref": ".github/workflows/ci.yml (eval-gate); ADR 0003/0004",
+          "note": "A quality collapse is caught before merge against a committed baseline; degraded mode is a permanent canary."
+        }
+      ],
+      "residualGap": "Single-agent topology limits cascade scope, but there are no circuit-breakers/bulkheads for a multi-component deployment. Distributed deployments must add failure isolation and backpressure."
+    },
+    {
+      "id": "ASI09:2026",
+      "title": "Human-Agent Trust Exploitation",
+      "summary": "Exploiting human over-reliance on agents through misleading explanations, authority misrepresentation, or unwarranted certainty in recommendations.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "AI Reliability Scorecard (evidence-backed, honest degradation)",
+          "ref": "packages/scorecard",
+          "note": "Board-legible ratings assert no score without traced eval evidence and degrade honestly — directly countering over-trust and authority misrepresentation about the agent's reliability."
+        },
+        {
+          "name": "Validator + portable LLM-as-judge metric",
+          "ref": "@grade-stack/core (zodValidator); packages/evals (validate:judge)",
+          "note": "Guards against an over-promising draft reply — the Phase 2A finding caught a smaller model over-promising, which the judge metric flags."
+        }
+      ],
+      "residualGap": "The agent's own output does not surface calibrated uncertainty/confidence to the end user. A deployment relied on for consequential decisions should add explicit uncertainty disclosure and human-in-the-loop confirmation."
+    },
+    {
+      "id": "ASI10:2026",
+      "title": "Rogue Agents",
+      "summary": "Agents act beyond intended objectives due to goal drift, collusion, reward hacking, or emergent behavior exceeding designed autonomy boundaries.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "Enforced turn bound + sole-path gateway",
+          "ref": "@grade-stack/core (MaxTurnsError); ADR 0007",
+          "note": "The agent cannot act outside the bounded, gateway-guarded channel — autonomy is capped by construction."
+        },
+        {
+          "name": "Eval-gate baseline + degraded canary + OTel traces",
+          "ref": ".github/workflows/ci.yml; ADR 0003; ADR 0008 (tracing.ts)",
+          "note": "Behavioral drift is detected against a committed baseline and made inspectable as connected traces (Phase 2D)."
+        }
+      ],
+      "residualGap": "Detection is offline (CI/eval-time) and post-hoc (traces); there is no runtime anomaly detector or kill-switch for emergent behavior in production. High-autonomy deployments should add runtime behavioral monitoring."
+    }
+  ]
+}

@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@grade-stack/core": "workspace:*",
-    "@grade-stack/evals": "workspace:*"
+    "@grade-stack/evals": "workspace:*",
+    "zod": "^4.4.3"
   }
 }

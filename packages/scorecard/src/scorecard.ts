@@ -7,11 +7,13 @@
  * Builds the AI Reliability Scorecard from a single eval run — mapping eval
  * evidence to executive dimensions (Reliability and Cost discipline computed in
  * Phase 1C; Observability from real trace coverage in Phase 2D when measured;
- * Guardrail/Governance still stubbed until Phase 3). Pure: no clock, no I/O.
+ * Guardrail coverage from the OWASP Agentic Top 10 mapping in Phase 3A when
+ * supplied; Governance still stubbed until Phase 3C). Pure: no clock, no I/O.
  */
 
 import type { TraceCoverage } from "@grade-stack/core";
 import { type CaseResult, type EvalRunResult, priceFor } from "@grade-stack/evals";
+import type { GuardrailCoverage } from "./owasp.ts";
 import type { Dimension, Rating, Scorecard } from "./types.ts";
 import { RATING_RANK } from "./types.ts";
 
@@ -36,6 +38,15 @@ export interface ScorecardOptions {
    * stubbed. The CLI measures this with a hermetic in-memory trace probe.
    */
   observability?: TraceCoverage;
+  /**
+   * Guardrail coverage against the OWASP Agentic Top 10 (Phase 3A). When
+   * provided, the Guardrail-coverage dimension is computed from it; when omitted
+   * it stays honestly stubbed. The CLI derives this from the committed
+   * `governance/owasp` mapping. Unlike Reliability/Cost/Observability it is a
+   * property of the *stack's mechanisms*, not of the run — so it is independent
+   * of degraded mode.
+   */
+  guardrails?: GuardrailCoverage;
 }
 
 const DEFAULT_AGENT_TASK = "Support-email triage";
@@ -235,6 +246,57 @@ function observabilityDimension(coverage: TraceCoverage): Dimension {
   };
 }
 
+/** Map a weighted OWASP coverage score in [0,1] to a guardrail band. */
+function guardrailBand(score: number): Exclude<Rating, "not-assessed"> {
+  if (score >= 0.9) return "strong";
+  if (score >= 0.7) return "adequate";
+  if (score >= 0.5) return "at-risk";
+  return "critical";
+}
+
+/**
+ * Guardrail coverage — how much of the OWASP Agentic Top 10 the stack's
+ * mechanisms actually address (Phase 3A). Computed from the committed
+ * `governance/owasp` mapping: covered counts full, partial half, gaps nothing.
+ * Every flagged gap is named in the evidence so the rating is never a black box,
+ * and the OWASP edition is cited so the score is anchored to a known taxonomy.
+ */
+function guardrailsDimension(coverage: GuardrailCoverage): Dimension {
+  const rating = guardrailBand(coverage.score);
+
+  const headline =
+    rating === "strong"
+      ? "The stack addresses nearly every OWASP agentic threat with a named mechanism."
+      : rating === "adequate"
+        ? "Most OWASP agentic threats have a mechanism, but several are only partly covered."
+        : rating === "at-risk"
+          ? "Real guardrails exist, but coverage of the OWASP agentic threats is incomplete — known gaps remain."
+          : "Most OWASP agentic threats have no mechanism in this stack.";
+
+  const evidence = [
+    `Mapped against the ${coverage.taxonomy} (${coverage.version}, published ${coverage.publishedAt}).`,
+    `${coverage.covered} of ${coverage.total} threats fully covered, ${coverage.partial} partial, ` +
+      `${coverage.gaps} flagged as gaps (weighted coverage ${pct(coverage.score)}).`,
+  ];
+  if (coverage.gapIds.length > 0) {
+    evidence.push(
+      `Explicit gaps to close before a fuller deployment: ${coverage.gapIds.join(", ")}.`,
+    );
+  }
+  if (coverage.partialIds.length > 0) {
+    evidence.push(`Partially covered: ${coverage.partialIds.join(", ")}.`);
+  }
+
+  return {
+    key: "guardrails",
+    title: "Guardrail coverage",
+    rating,
+    headline,
+    evidence,
+    assessed: true,
+  };
+}
+
 /** A not-yet-assessed dimension, honest about which phase computes it. */
 function stubDimension(
   key: string,
@@ -285,8 +347,9 @@ function overallVerdict(dimensions: Dimension[]): Scorecard["overall"] {
  * clock, no I/O — the timestamp is carried from the eval result so the same
  * input always yields the same scorecard. Reliability and Cost discipline are
  * computed in Phase 1C; Observability from trace coverage in Phase 2D when
- * `opts.observability` is supplied; Guardrail/Governance stay stubbed until
- * Phase 3.
+ * `opts.observability` is supplied; Guardrail coverage from the OWASP mapping in
+ * Phase 3A when `opts.guardrails` is supplied; Governance stays stubbed until
+ * Phase 3C.
  */
 export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions = {}): Scorecard {
   const stabilityFloor = opts.stabilityFloor ?? DEFAULT_STABILITY_FLOOR;
@@ -302,12 +365,14 @@ export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions = {
           "Phase 2D",
           "real OpenTelemetry trace coverage",
         ),
-    stubDimension(
-      "guardrails",
-      "Guardrail coverage",
-      "Phase 3A",
-      "the OWASP Agentic Top 10 mapping",
-    ),
+    opts.guardrails
+      ? guardrailsDimension(opts.guardrails)
+      : stubDimension(
+          "guardrails",
+          "Guardrail coverage",
+          "Phase 3A",
+          "the OWASP Agentic Top 10 mapping",
+        ),
     stubDimension(
       "governance",
       "Governance readiness",
