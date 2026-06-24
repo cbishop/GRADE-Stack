@@ -11,6 +11,15 @@
  */
 
 export {
+  AIRGAP_ENV,
+  createGuardedFetch,
+  EgressBlockedError,
+  installEgressGuard,
+  installEgressGuardFromEnv,
+  isAirgapEnabled,
+  isLoopbackHost,
+} from "./airgap.ts";
+export {
   type CreateProviderOptions,
   createDirectProvider,
   createProvider,

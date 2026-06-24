@@ -13,7 +13,7 @@ import { spawn } from "node:child_process";
 import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createProvider, resolveProviderName } from "@grade-stack/core";
+import { createProvider, isAirgapEnabled, resolveProviderName } from "@grade-stack/core";
 import { computeCost } from "./pricing.ts";
 import {
   type CaseResult,
@@ -201,6 +201,17 @@ function spawnPromptfoo(outPath: string, opts: RunEvalOptions): Promise<void> {
         // version is pinned in package.json, so the nag is noise in our output.
         // (promptfoo already self-disables this under CI; this covers local runs.)
         PROMPTFOO_DISABLE_UPDATE: "true",
+        // Under air-gap mode, also silence promptfoo's own outbound calls
+        // (telemetry, update + remote-eval checks) — the in-process guard covers
+        // our fetch paths, but the promptfoo subprocess is outside it (Phase 3D).
+        ...(isAirgapEnabled()
+          ? {
+              PROMPTFOO_DISABLE_TELEMETRY: "1",
+              PROMPTFOO_DISABLE_UPDATE: "1",
+              PROMPTFOO_DISABLE_SHARING: "1",
+              PROMPTFOO_DISABLE_REMOTE_GENERATION: "1",
+            }
+          : {}),
       },
     });
     child.on("error", reject);

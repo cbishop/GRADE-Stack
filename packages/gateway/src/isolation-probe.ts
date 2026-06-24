@@ -26,8 +26,14 @@ import {
   createProvider,
   type GenerateRequest,
   GuardrailError,
+  installEgressGuardFromEnv,
   isAgentSandbox,
 } from "@grade-stack/core";
+
+// When spawned under air-gap mode (Phase 3D), arm the egress guard so this
+// credential-isolated agent process also cannot reach a non-loopback host —
+// proving the gateway path (over loopback) holds even with networking severed.
+installEgressGuardFromEnv();
 
 interface ProbeReport {
   sandbox: boolean;
