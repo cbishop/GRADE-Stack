@@ -338,9 +338,11 @@ The highest-leverage phase — the foundation everything else builds on.
 1. `governance/nist/`: map stack capabilities to the relevant NIST AI RMF functions (**Govern / Map / Measure / Manage**).
 2. Be **honest** about what the stack does and doesn't cover; frame for a **procurement reviewer**.
 
-**Acceptance:**
-- [ ] The mapping is honest about coverage gaps; framed for procurement.
-- [ ] **Artifact:** post — *"NIST AI RMF without the 100-page slog"* for mid-market (`content/cycle-09/`).
+**Acceptance:** 🟢 **Phase 3B implemented** on branch `phase-3b-nist` (2026-06-24); local gate green (typecheck, Biome + checks, tests, build).
+- [x] The mapping is honest about coverage gaps; framed for procurement. *(All 19 AI RMF 1.0 categories mapped with a **shared-responsibility** model — **8 supported, 6 partial, 5 deployer-owned** — `deployer-owned` marking organizational controls the stack can't provide (a boundary, not a deficiency), so GOVERN is honestly deferred to the org while MEASURE/MANAGE are the stack's strength. Machine-readable `governance/nist/nist-ai-rmf-1.0-mapping.json` + procurement-framed README; cites **NIST AI 100-1 v1.0** (2023-01-26, re-verified 2026-06-24) + the GenAI Profile, with the in-progress-revision status stated. Explicit caveat that fairness/privacy trustworthy-characteristics are only partial. **Enforced** by `scripts/check-nist-coverage.ts` (in `bun run check` + CI): all 19 categories classified, supported/partial name a mechanism, every category states its boundary, README/JSON can't drift. [ADR 0010](decisions/0010-nist-ai-rmf-mapping-shared-responsibility.md).)*
+- [x] **Artifact:** post — *"NIST AI RMF without the 100-page slog"* for mid-market (`content/cycle-09/`). *(mid-cycle + end-of-cycle drafts; "review before publishing".)*
+
+**Decisions during Phase 3B:** AI RMF **1.0 (NIST AI 100-1)** pinned and cited at category granularity (function-level too shallow, 72 subcategories are the "slog" the artifact spares the reader); **shared-responsibility status model** (`supported`/`partial`/`deployer-owned`) instead of OWASP's covered/gap, so organizational controls aren't mislabelled as stack deficiencies; validation is a **self-contained check** (no package coupling — 3B feeds no scorecard dimension) ([ADR 0010](decisions/0010-nist-ai-rmf-mapping-shared-responsibility.md)).
 
 ### Phase 3C — EU AI Act deployer readout (Weeks 21–22)
 
@@ -390,6 +392,7 @@ Maintain a running table in `docs/` (created in Phase 0 with its first entries) 
 | Tool selection can't route by name/prompt-rule | Name-blind selection prompt (descriptions + arg schema only; name withheld) | Phase 2B |
 | Guardrails can't be bypassed | Gateway is the sole model path; agent holds no provider credentials | Phase 2C |
 | No silent governance omissions | `scripts/check-owasp-coverage.ts` (covered-or-flagged; Zod completeness + README drift) in `bun run check` + CI | Phase 3A |
+| NIST mapping honest & complete | `scripts/check-nist-coverage.ts` (all 19 AI RMF categories classified, supported/partial name a mechanism, every category states its boundary, README/JSON drift) in `bun run check` + CI | Phase 3B |
 | Every TS file documented | File-header check (SPDX + `@module`) in `bun run check` + CI | Phase 1D |
 | Tracing can't flake CI or break the air gap | OTLP export off by default — no tracer registered unless opted in (`RELIABILITY_OTEL`/endpoint) | Phase 2D |
 

@@ -15,9 +15,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome lint .",
     "format": "biome format --write .",
-    "check": "biome check . && bun run check:file-docs && bun run check:owasp-coverage",
+    "check": "biome check . && bun run check:file-docs && bun run check:owasp-coverage && bun run check:nist-coverage",
     "check:file-docs": "bun run scripts/check-file-docs.ts",
     "check:owasp-coverage": "bun run scripts/check-owasp-coverage.ts",
+    "check:nist-coverage": "bun run scripts/check-nist-coverage.ts",
     "build": "bun build packages/cli/src/index.ts --target bun --outdir dist",
     "test": "bun test"
   },
