@@ -1,0 +1,267 @@
+{
+  "framework": "NIST AI Risk Management Framework (AI RMF 1.0)",
+  "publicationId": "NIST AI 100-1",
+  "version": "1.0",
+  "published": "2023-01-26",
+  "companionProfile": "NIST-AI-600-1 — Generative AI Profile (2024-07-26)",
+  "revisionStatus": "A revision to the AI RMF is in progress as of 2026-06-24; version 1.0 (NIST AI 100-1) remains the published framework in force and is what this mapping cites.",
+  "retrievedAt": "2026-06-24",
+  "sourceUrl": "https://doi.org/10.6028/NIST.AI.100-1",
+  "scope": "Maps the GRADE-Stack reference stack's technical capabilities to the 19 categories of the four AI RMF functions. Framed for a procurement reviewer evaluating what the stack supplies versus what the deploying organization must still own.",
+  "sharedResponsibility": "The AI RMF is an organizational risk-management framework; a software stack is one input to it, not a substitute for it. `deployer-owned` therefore marks a genuinely organizational control the stack cannot provide — it is a responsibility boundary, NOT a deficiency in the stack. The honest procurement question this mapping answers is: which RMF outcomes does adopting this stack help evidence, and which remain the deployer's program work?",
+  "statusLegend": {
+    "supported": "The stack provides a concrete, shipped technical capability or evidence artifact that directly serves this category; the mechanism is named.",
+    "partial": "The stack supplies meaningful inputs to this category, but the outcome is substantially organizational/process work the deployer completes.",
+    "deployer-owned": "Fundamentally an organizational control the stack cannot provide. Any stack input is noted, but the obligation is the deploying organization's."
+  },
+  "items": [
+    {
+      "id": "GOVERN 1",
+      "function": "GOVERN",
+      "title": "Policies, processes, procedures and practices for mapping, measuring, and managing AI risks are in place, transparent, and implemented effectively.",
+      "status": "deployer-owned",
+      "mechanisms": [
+        {
+          "name": "Production-Readiness Assessment runbook + enforcement-mechanism register",
+          "ref": "docs/production-readiness-assessment.md; docs/PLAN-Grade-Stack-v2.md (register)",
+          "note": "Reusable inputs a deployer's AI-risk policy can adopt or reference; not a substitute for the policy itself."
+        }
+      ],
+      "note": "Deployer-owned: writing and enforcing organizational AI-risk policy is the deploying organization's responsibility. The stack offers a worked example of 'mechanisms, not prose' enforcement to borrow from."
+    },
+    {
+      "id": "GOVERN 2",
+      "function": "GOVERN",
+      "title": "Accountability structures are in place so the appropriate teams and individuals are empowered, responsible, and trained for mapping, measuring, and managing AI risks.",
+      "status": "deployer-owned",
+      "mechanisms": [],
+      "note": "Deployer-owned: roles, accountability, and training are organizational structures a software stack cannot supply."
+    },
+    {
+      "id": "GOVERN 3",
+      "function": "GOVERN",
+      "title": "Workforce diversity, equity, inclusion, and accessibility processes are prioritized in mapping, measuring, and managing AI risks throughout the lifecycle.",
+      "status": "deployer-owned",
+      "mechanisms": [],
+      "note": "Deployer-owned and out of a technical stack's scope entirely. Flagged honestly rather than claimed — a procurement reviewer should expect no stack to address this."
+    },
+    {
+      "id": "GOVERN 4",
+      "function": "GOVERN",
+      "title": "Organizational teams are committed to a culture that considers and communicates AI risk.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "AI Reliability Scorecard (board-legible, evidence-backed)",
+          "ref": "packages/scorecard",
+          "note": "Directly serves the 'communicates AI risk' half — a one-page readout an executive can act on, every rating traced to evidence."
+        }
+      ],
+      "note": "Partial: the stack supplies the communication artifact; building the culture that uses it is the deployer's."
+    },
+    {
+      "id": "GOVERN 5",
+      "function": "GOVERN",
+      "title": "Processes are in place for robust engagement with relevant AI actors.",
+      "status": "deployer-owned",
+      "mechanisms": [],
+      "note": "Deployer-owned: stakeholder engagement processes are organizational. The open mappings (OWASP, NIST, EU AI Act) are publishable inputs to such engagement, but the process is the deployer's."
+    },
+    {
+      "id": "GOVERN 6",
+      "function": "GOVERN",
+      "title": "Policies and procedures are in place to address AI risks and benefits arising from third-party software and data and other supply-chain issues.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "Pinned dependencies + CI secret scan + OWASP ASI04 supply-chain mapping + NOTICE/Apache-2.0 propagation",
+          "ref": "bun.lock; .github/workflows/ci.yml (gitleaks); governance/owasp (ASI04); NOTICE",
+          "note": "Concrete technical supply-chain controls and a documented third-party-risk mapping."
+        }
+      ],
+      "note": "Partial: the stack provides the technical controls and a risk mapping; the governing policy around them is the deployer's."
+    },
+    {
+      "id": "MAP 1",
+      "function": "MAP",
+      "title": "Context is established and understood.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "Scoped reference-agent task + Planner/Executor/Validator blueprint + assessment runbook",
+          "ref": "docs/blueprint-planner-executor-validator.md; docs/production-readiness-assessment.md",
+          "note": "Documents the system's intended use, boundaries, and assessment context as a reusable template."
+        }
+      ],
+      "note": "Partial: the stack establishes its own context explicitly; a deployer must establish theirs (use case, users, deployment setting)."
+    },
+    {
+      "id": "MAP 2",
+      "function": "MAP",
+      "title": "Categorization of the AI system is performed.",
+      "status": "supported",
+      "mechanisms": [
+        {
+          "name": "Planner/Executor/Validator blueprint + provider abstraction",
+          "ref": "docs/blueprint-planner-executor-validator.md; @grade-stack/core (ModelProvider)",
+          "note": "The architecture, task type, and model categorization are documented as an explicit, reusable categorization of the system."
+        }
+      ],
+      "note": "Supported: the stack documents its own categorization as a blueprint a deployer can reuse."
+    },
+    {
+      "id": "MAP 3",
+      "function": "MAP",
+      "title": "AI capabilities, targeted usage, goals, and expected benefits and costs compared with appropriate benchmarks are understood.",
+      "status": "supported",
+      "mechanisms": [
+        {
+          "name": "Eval suite (≥12 benchmark cases) + cost-per-success metric",
+          "ref": "packages/evals; src/pricing.ts",
+          "note": "Capabilities are benchmarked against a fixed case suite, and benefits/costs are quantified per successful outcome on both providers."
+        }
+      ],
+      "note": "Supported: capability and cost are measured against benchmarks, not asserted."
+    },
+    {
+      "id": "MAP 4",
+      "function": "MAP",
+      "title": "Risks and benefits are mapped for all components of the AI system including third-party software and data.",
+      "status": "supported",
+      "mechanisms": [
+        {
+          "name": "OWASP Agentic Top 10 mapping + eval suite OOD/refusal cases",
+          "ref": "governance/owasp; packages/evals",
+          "note": "Agent-specific risks (incl. supply chain, ASI04) are mapped to mechanisms or flagged as gaps; the eval suite exercises out-of-distribution and refusal cases."
+        }
+      ],
+      "note": "Supported: a concrete, enforced risk mapping exists (Phase 3A) and is cited here."
+    },
+    {
+      "id": "MAP 5",
+      "function": "MAP",
+      "title": "Impacts to individuals, groups, communities, organizations, and society are characterized.",
+      "status": "deployer-owned",
+      "mechanisms": [
+        {
+          "name": "Gateway PII handling (input control)",
+          "ref": "packages/gateway/src/policy.ts",
+          "note": "Output PII redaction is one input to impact mitigation, but does not characterize societal impact."
+        }
+      ],
+      "note": "Deployer-owned: characterizing impacts on people and society is context-specific organizational analysis the stack cannot perform."
+    },
+    {
+      "id": "MEASURE 1",
+      "function": "MEASURE",
+      "title": "Appropriate methods and metrics are identified and applied.",
+      "status": "supported",
+      "mechanisms": [
+        {
+          "name": "promptfoo eval harness + tolerance-banded reproducibility + cost-per-success + trace coverage",
+          "ref": "packages/evals; packages/scorecard",
+          "note": "Concrete, applied measurement methods with documented metrics and a reproducibility tolerance band."
+        }
+      ],
+      "note": "Supported: this is the stack's strongest function — measurement is config-as-code and runs in CI."
+    },
+    {
+      "id": "MEASURE 2",
+      "function": "MEASURE",
+      "title": "AI systems are evaluated for trustworthy characteristics.",
+      "status": "supported",
+      "mechanisms": [
+        {
+          "name": "AI Reliability Scorecard dimensions + portable LLM-as-judge metric",
+          "ref": "packages/scorecard; packages/evals (validate:judge)",
+          "note": "Evaluates valid-and-reliable (reliability), secure-and-resilient (guardrail coverage), and accountable-and-transparent (observability) characteristics with evidence."
+        }
+      ],
+      "note": "Supported for reliability/security/observability characteristics. Honest gap: fairness/bias and privacy-enhanced characteristics are only partially exercised (gateway PII redaction) — a deployer with fairness obligations must add targeted measurement."
+    },
+    {
+      "id": "MEASURE 3",
+      "function": "MEASURE",
+      "title": "Mechanisms for tracking identified AI risks over time are in place.",
+      "status": "supported",
+      "mechanisms": [
+        {
+          "name": "Eval-gate vs committed baseline + permanent degraded canary + OTel traces",
+          "ref": ".github/workflows/ci.yml; @grade-stack/core (tracing.ts)",
+          "note": "Risk is tracked across every commit against a baseline within a tolerance band; traces make each run inspectable over time."
+        }
+      ],
+      "note": "Supported: continuous, automated tracking is built in, not a periodic manual review."
+    },
+    {
+      "id": "MEASURE 4",
+      "function": "MEASURE",
+      "title": "Feedback about efficacy of measurement is gathered and assessed.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "Per-case flakiness / stability reporting + tolerance band",
+          "ref": "packages/evals",
+          "note": "Surfaces whether the measurement itself is stable (per-case stability, aggregate tolerance band), a feedback signal on measurement efficacy."
+        }
+      ],
+      "note": "Partial: the stack reports measurement-stability signals; assessing them and closing the loop organizationally is the deployer's."
+    },
+    {
+      "id": "MANAGE 1",
+      "function": "MANAGE",
+      "title": "AI risks based on assessments and analytical output from MAP and MEASURE are prioritized, responded to, and managed.",
+      "status": "supported",
+      "mechanisms": [
+        {
+          "name": "Gateway server-side guardrails + eval-gate (blocks regressions) + enforced --max-turns bound",
+          "ref": "packages/gateway; .github/workflows/ci.yml; @grade-stack/core (MaxTurnsError)",
+          "note": "Identified risks are responded to by hard mechanisms: guardrails block at the gateway, the eval-gate fails the build on regression, runaway loops are bounded."
+        }
+      ],
+      "note": "Supported: response to risk is mechanized, not advisory."
+    },
+    {
+      "id": "MANAGE 2",
+      "function": "MANAGE",
+      "title": "Strategies to maximize AI benefits and minimize negative impacts are planned, prepared, implemented, documented, and informed by relevant AI actors.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "Gateway guardrails + degraded-mode canary + sovereign/air-gapped variant",
+          "ref": "packages/gateway; reference-agent (degraded mode); Phase 3D (sovereign variant)",
+          "note": "Implements concrete impact-minimization controls (PII redaction, injection denial, an on-prem option)."
+        }
+      ],
+      "note": "Partial: the stack implements impact-minimization controls; the strategy and stakeholder input that direct them are the deployer's."
+    },
+    {
+      "id": "MANAGE 3",
+      "function": "MANAGE",
+      "title": "AI risks and benefits from third-party entities are managed.",
+      "status": "partial",
+      "mechanisms": [
+        {
+          "name": "Pinned lockfile + CI secret scan + OWASP ASI04 supply-chain mapping",
+          "ref": "bun.lock; .github/workflows/ci.yml; governance/owasp (ASI04)",
+          "note": "Technical management of third-party/supply-chain risk; pairs with the GOVERN 6 policy boundary."
+        }
+      ],
+      "note": "Partial: technical third-party controls are present; vendor due-diligence and contracts are the deployer's."
+    },
+    {
+      "id": "MANAGE 4",
+      "function": "MANAGE",
+      "title": "Risk treatments, including response and recovery and communication plans, for identified and measured AI risks are documented and monitored regularly.",
+      "status": "supported",
+      "mechanisms": [
+        {
+          "name": "OTel tracing (monitoring) + AI Reliability Scorecard (documentation) + eval-gate CI (continuous monitoring) + enforcement-mechanism register",
+          "ref": "@grade-stack/core (tracing.ts); packages/scorecard; .github/workflows/ci.yml; docs/PLAN-Grade-Stack-v2.md",
+          "note": "Risk treatments are documented (register + scorecard) and monitored continuously (CI gate + traces) rather than reviewed ad hoc."
+        }
+      ],
+      "note": "Supported for documentation and monitoring of treatments; recovery/communication plans for a specific deployment remain the deployer's to formalize."
+    }
+  ]
+}
