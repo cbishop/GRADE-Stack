@@ -4,6 +4,7 @@
       "Bash(bun run typecheck)",
       "Bash(bun run check)",
       "Bash(bun run check:file-docs)",
+      "Bash(bun run check:*)",
       "Bash(bun run lint)",
       "Bash(bun run build)",
       "Bash(bun run test)",
