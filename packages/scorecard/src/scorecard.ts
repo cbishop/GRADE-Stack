@@ -8,11 +8,13 @@
  * evidence to executive dimensions (Reliability and Cost discipline computed in
  * Phase 1C; Observability from real trace coverage in Phase 2D when measured;
  * Guardrail coverage from the OWASP Agentic Top 10 mapping in Phase 3A when
- * supplied; Governance still stubbed until Phase 3C). Pure: no clock, no I/O.
+ * supplied; Governance readiness from the EU AI Act deployer module in Phase 3C
+ * when supplied — all five dimensions now computable). Pure: no clock, no I/O.
  */
 
 import type { TraceCoverage } from "@grade-stack/core";
 import { type CaseResult, type EvalRunResult, priceFor } from "@grade-stack/evals";
+import type { GovernanceReadiness } from "./eu-ai-act.ts";
 import type { GuardrailCoverage } from "./owasp.ts";
 import type { Dimension, Rating, Scorecard } from "./types.ts";
 import { RATING_RANK } from "./types.ts";
@@ -47,6 +49,15 @@ export interface ScorecardOptions {
    * of degraded mode.
    */
   guardrails?: GuardrailCoverage;
+  /**
+   * Governance readiness from the EU AI Act deployer module (Phase 3C — the last
+   * dimension). When provided, the Governance-readiness dimension is computed from
+   * it; when omitted it stays honestly stubbed. Like guardrails, it is a property
+   * of the *stack's mechanisms* (how ready the stack makes a deployer), not of the
+   * run — so it is independent of degraded mode. It rates readiness, NOT legal
+   * compliance, which remains the deployer's.
+   */
+  governance?: GovernanceReadiness;
 }
 
 const DEFAULT_AGENT_TASK = "Support-email triage";
@@ -297,6 +308,58 @@ function guardrailsDimension(coverage: GuardrailCoverage): Dimension {
   };
 }
 
+/** Map a weighted EU AI Act readiness score in [0,1] to a governance band. */
+function governanceBand(score: number): Exclude<Rating, "not-assessed"> {
+  if (score >= 0.9) return "strong";
+  if (score >= 0.7) return "adequate";
+  if (score >= 0.5) return "at-risk";
+  return "critical";
+}
+
+/**
+ * Governance readiness — how ready the stack makes a deployer for the EU AI Act
+ * (Phase 3C, the last dimension). Computed from the committed `governance/eu-ai-act`
+ * module: the weighted readiness over stack-supportable deployer obligations sets
+ * the band. The evidence cites the regulation + re-verification date, the Digital
+ * Omnibus's legal status, and names the legal duties that remain the deployer's.
+ * This rates *readiness*, never legal compliance — which is always the deployer's.
+ */
+function governanceDimension(readiness: GovernanceReadiness): Dimension {
+  const rating = governanceBand(readiness.score);
+
+  const headline =
+    rating === "strong"
+      ? "The stack readies a deployer for nearly every supportable EU AI Act obligation — compliance itself stays the deployer's."
+      : rating === "adequate"
+        ? "The stack readies a deployer for the technical EU AI Act duties; the legal duties remain the deployer's."
+        : rating === "at-risk"
+          ? "The stack covers some EU AI Act readiness, but much remains the deployer's program work."
+          : "The stack provides little EU AI Act readiness on its own.";
+
+  const evidence = [
+    `Mapped against the ${readiness.framework} (${readiness.regulation}), re-verified ${readiness.retrievedAt}.`,
+    `Readiness ${pct(readiness.score)} over ${readiness.scoredCount} stack-supportable deployer obligations ` +
+      `(${readiness.supported} supported, ${readiness.partial} partial, ${readiness.deployerOwned} deployer-owned).`,
+    `In force now / from 2026-08-02: ${readiness.inForceNowIds.join(", ")}.`,
+    `Digital Omnibus: ${readiness.omnibusStage}`,
+  ];
+  if (readiness.deployerOwnedIds.length > 0) {
+    evidence.push(
+      `Legal duties that remain the deployer's (no software satisfies them): ${readiness.deployerOwnedIds.join(", ")}.`,
+    );
+  }
+  evidence.push("Governance readiness is not legal compliance — compliance is the deployer's.");
+
+  return {
+    key: "governance",
+    title: "Governance readiness",
+    rating,
+    headline,
+    evidence,
+    assessed: true,
+  };
+}
+
 /** A not-yet-assessed dimension, honest about which phase computes it. */
 function stubDimension(
   key: string,
@@ -348,8 +411,8 @@ function overallVerdict(dimensions: Dimension[]): Scorecard["overall"] {
  * input always yields the same scorecard. Reliability and Cost discipline are
  * computed in Phase 1C; Observability from trace coverage in Phase 2D when
  * `opts.observability` is supplied; Guardrail coverage from the OWASP mapping in
- * Phase 3A when `opts.guardrails` is supplied; Governance stays stubbed until
- * Phase 3C.
+ * Phase 3A when `opts.guardrails` is supplied; Governance readiness from the EU
+ * AI Act module in Phase 3C when `opts.governance` is supplied.
  */
 export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions = {}): Scorecard {
   const stabilityFloor = opts.stabilityFloor ?? DEFAULT_STABILITY_FLOOR;
@@ -373,12 +436,14 @@ export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions = {
           "Phase 3A",
           "the OWASP Agentic Top 10 mapping",
         ),
-    stubDimension(
-      "governance",
-      "Governance readiness",
-      "Phase 3C",
-      "the EU AI Act deployer module",
-    ),
+    opts.governance
+      ? governanceDimension(opts.governance)
+      : stubDimension(
+          "governance",
+          "Governance readiness",
+          "Phase 3C",
+          "the EU AI Act deployer module",
+        ),
   ];
 
   return {

@@ -1,0 +1,219 @@
+{
+  "framework": "EU Artificial Intelligence Act",
+  "regulation": "Regulation (EU) 2024/1689",
+  "lens": "deployer",
+  "enteredIntoForce": "2024-08-01",
+  "retrievedAt": "2026-06-24",
+  "sourceUrl": "https://artificialintelligenceact.eu/",
+  "scope": "A deployer-side readout for a mid-market company deploying an AI agent (e.g. the reference support-email triage agent), framed so a CTO can act on the basics without a lawyer. Distinguishes what is in force now from what is deferred, and states the Digital Omnibus's exact legal status. This readout is NOT legal advice and does not make a deployer compliant — it identifies which obligations apply and where the stack helps you be ready.",
+  "omnibusStatus": {
+    "name": "Digital Omnibus on AI",
+    "stage": "Provisional agreement reached by the European Parliament and Council on 2026-05-07; NOT yet formally adopted and NOT yet published in the Official Journal as of 2026-06-24.",
+    "legalEffect": "None yet. Until formally adopted and published in the Official Journal, its deferrals are proposed, not law — a deployer must plan against the dates currently in force (notably 2026-08-02), treating the deferrals as likely-but-not-guaranteed relief.",
+    "ifAdopted": [
+      "Annex III high-risk obligations deferred from 2026-08-02 to 2026-12-02 (2027 in the original plan note; the provisional agreement sets 2026-12-02 for some duties — see per-obligation notes).",
+      "Product-integrated (Annex I) high-risk rules deferred to 2028-08-02.",
+      "Art 50(2) synthetic-content marking: generative systems already on the market before 2026-08-02 get a transitional period to 2026-12-02."
+    ]
+  },
+  "penaltyTiers": [
+    {
+      "tier": "Tier 1",
+      "cap": "€35,000,000 or 7% of total worldwide annual turnover, whichever is higher",
+      "appliesTo": "Art 5 prohibited AI practices (Art 99(3))"
+    },
+    {
+      "tier": "Tier 2",
+      "cap": "€15,000,000 or 3% of total worldwide annual turnover, whichever is higher",
+      "appliesTo": "Deployer obligations under Art 26 and other operator obligations, incl. high-risk non-compliance (Art 99(4))"
+    },
+    {
+      "tier": "Tier 3",
+      "cap": "€7,500,000 or 1% of total worldwide annual turnover, whichever is higher",
+      "appliesTo": "Supplying incorrect, incomplete or misleading information to authorities (Art 99(5))"
+    }
+  ],
+  "penaltyNote": "SMEs and start-ups are fined the LOWER of the fixed sum or the percentage. The three tiers must NOT be conflated — only Art 5 prohibited practices carry the €35M/7% cap.",
+  "statusLegend": {
+    "supported": "The stack ships a concrete technical capability that materially readies a deployer for this obligation (mechanism named).",
+    "partial": "The stack contributes inputs, but meeting the obligation is substantially the deployer's process/legal work.",
+    "deployer-owned": "A legal/process obligation the stack cannot satisfy. Listed so it is never silently assumed; the obligation is the deployer's."
+  },
+  "applicabilityLegend": {
+    "in-force": "Already applies (date in `effectiveDate`).",
+    "from-2026-08-02": "Applies from 2026-08-02 under the current law.",
+    "conditional-high-risk": "Applies only if the deployed system is high-risk (Annex III); for a limited-risk agent it is good practice, not a legal duty.",
+    "provider-only": "An obligation on the model/system provider, not the deployer — listed for context; a mid-market deployer relies on its provider here."
+  },
+  "obligations": [
+    {
+      "id": "Art 5",
+      "title": "Do not deploy prohibited AI practices (manipulation, social scoring, untargeted scraping for facial recognition, etc.).",
+      "owner": "deployer",
+      "applicability": "in-force",
+      "effectiveDate": "2025-02-02",
+      "penaltyTier": "Tier 1",
+      "scored": true,
+      "stackSupport": "partial",
+      "mechanisms": [
+        {
+          "name": "Gateway server-side guardrails (prompt-injection/manipulation denial)",
+          "ref": "packages/gateway/src/policy.ts",
+          "note": "Reduce manipulative-prompt risk, but do not legally classify a use case as prohibited — that judgement is the deployer's."
+        }
+      ],
+      "note": "Already in force. The decisive control is choosing a non-prohibited use case; the stack lowers manipulation risk but cannot make a prohibited purpose lawful."
+    },
+    {
+      "id": "Art 4",
+      "title": "Ensure staff operating/overseeing the AI have sufficient AI literacy.",
+      "owner": "deployer",
+      "applicability": "in-force",
+      "effectiveDate": "2025-02-02",
+      "penaltyTier": "Tier 2",
+      "scored": true,
+      "stackSupport": "partial",
+      "mechanisms": [
+        {
+          "name": "AI Reliability Scorecard + blueprint/assessment docs as literacy material",
+          "ref": "packages/scorecard; docs/blueprint-planner-executor-validator.md; docs/production-readiness-assessment.md",
+          "note": "Board-legible, plain-language artifacts your team can learn from; the training program itself is the deployer's."
+        }
+      ],
+      "note": "Already in force. The stack supplies legible material; running literacy training is the deployer's."
+    },
+    {
+      "id": "Art 50 (1)(4)",
+      "title": "Transparency: tell people when they are interacting with an AI system, and disclose AI-generated/manipulated content where required.",
+      "owner": "deployer",
+      "applicability": "from-2026-08-02",
+      "effectiveDate": "2026-08-02",
+      "penaltyTier": "Tier 2",
+      "scored": true,
+      "stackSupport": "partial",
+      "mechanisms": [
+        {
+          "name": "Structured output + human-in-the-loop draft review",
+          "ref": "@grade-stack/core (zodValidator); reference-agent (drafts a reply a human sends)",
+          "note": "The agent's output is structured and human-reviewed, making an AI-generated disclosure straightforward to attach; the disclosure text and policy are the deployer's."
+        }
+      ],
+      "note": "Applies 2026-08-02. A Code of Practice on AI-generated-content transparency was published 2026-06-10; signing it is one route to demonstrate compliance."
+    },
+    {
+      "id": "Art 26 (oversight)",
+      "title": "High-risk deployer duty: ensure human oversight by competent persons and use the system per the provider's instructions.",
+      "owner": "deployer",
+      "applicability": "conditional-high-risk",
+      "effectiveDate": "2026-08-02",
+      "deferralNote": "If the Digital Omnibus is adopted, Annex III high-risk duties move to 2026-12-02 — not yet law (see omnibusStatus).",
+      "penaltyTier": "Tier 2",
+      "scored": true,
+      "stackSupport": "supported",
+      "mechanisms": [
+        {
+          "name": "Planner/Executor/Validator + human-reviewed drafts + enforced --max-turns",
+          "ref": "@grade-stack/core (pev.ts, MaxTurnsError); reference-agent",
+          "note": "Human-in-the-loop by design; the validator and bounded loop give a competent person a reviewable, bounded decision to oversee."
+        }
+      ],
+      "note": "Legally required only if your agent is Annex III high-risk; good practice regardless. The reference support-triage agent is most likely NOT Annex III."
+    },
+    {
+      "id": "Art 26(6) / Art 12",
+      "title": "High-risk deployer duty: keep automatically generated logs / records of the system's operation.",
+      "owner": "deployer",
+      "applicability": "conditional-high-risk",
+      "effectiveDate": "2026-08-02",
+      "deferralNote": "Deferred to 2026-12-02 if the Digital Omnibus is adopted (not yet law).",
+      "penaltyTier": "Tier 2",
+      "scored": true,
+      "stackSupport": "supported",
+      "mechanisms": [
+        {
+          "name": "OpenTelemetry tracing (connected plan→tool→validate trace per run)",
+          "ref": "@grade-stack/core (tracing.ts); docs/observability-tracing.md",
+          "note": "Produces durable, inspectable per-run records — the technical substrate of record-keeping."
+        }
+      ],
+      "note": "Strongest area of stack readiness: if you go high-risk, the logging substrate already exists."
+    },
+    {
+      "id": "Art 26 (monitoring)",
+      "title": "High-risk deployer duty: monitor operation and accuracy/robustness; act on and report serious incidents.",
+      "owner": "deployer",
+      "applicability": "conditional-high-risk",
+      "effectiveDate": "2026-08-02",
+      "deferralNote": "Deferred to 2026-12-02 if the Digital Omnibus is adopted (not yet law).",
+      "penaltyTier": "Tier 2",
+      "scored": true,
+      "stackSupport": "supported",
+      "mechanisms": [
+        {
+          "name": "Eval suite + CI eval-gate vs committed baseline + reliability scorecard",
+          "ref": "packages/evals; .github/workflows/ci.yml; packages/scorecard",
+          "note": "Continuous accuracy/robustness measurement against a baseline, with a board-legible readout — the monitoring half of the duty."
+        }
+      ],
+      "note": "Incident reporting to authorities remains a deployer process; the measurement and detection substrate is provided."
+    },
+    {
+      "id": "Art 27 (FRIA)",
+      "title": "Fundamental-rights impact assessment for certain high-risk deployers (e.g. public bodies, essential private services).",
+      "owner": "deployer",
+      "applicability": "conditional-high-risk",
+      "effectiveDate": "2026-08-02",
+      "deferralNote": "Deferred to 2026-12-02 if the Digital Omnibus is adopted (not yet law).",
+      "penaltyTier": "Tier 2",
+      "scored": false,
+      "stackSupport": "deployer-owned",
+      "mechanisms": [],
+      "note": "A legal/process assessment no software stack performs. Listed so it is never silently assumed. The stack's traces and scorecard are inputs a FRIA can cite, but the assessment is the deployer's."
+    },
+    {
+      "id": "Art 49 / conformity",
+      "title": "Registration in the EU database and conformity assessment for high-risk systems.",
+      "owner": "shared",
+      "applicability": "conditional-high-risk",
+      "effectiveDate": "2026-08-02",
+      "deferralNote": "Deferred to 2026-12-02 if the Digital Omnibus is adopted (not yet law).",
+      "penaltyTier": "Tier 2",
+      "scored": false,
+      "stackSupport": "deployer-owned",
+      "mechanisms": [],
+      "note": "Primarily provider-led; deployer registration duties apply to some (e.g. public-authority) deployers. A legal/administrative process the stack cannot perform."
+    },
+    {
+      "id": "Art 50(2)",
+      "title": "Mark synthetic (AI-generated) content in a machine-readable way.",
+      "owner": "provider",
+      "applicability": "provider-only",
+      "effectiveDate": "2026-08-02",
+      "deferralNote": "If the Digital Omnibus is adopted, generative systems already on the market before 2026-08-02 get a transitional period to 2026-12-02 (not yet law).",
+      "penaltyTier": "Tier 2",
+      "scored": false,
+      "stackSupport": "partial",
+      "mechanisms": [
+        {
+          "name": "Structured, machine-readable output",
+          "ref": "@grade-stack/core (zodValidator)",
+          "note": "As a deployer you rely on your model provider here; if you act as a provider, structured output eases machine-readable marking."
+        }
+      ],
+      "note": "Provider-side obligation; a mid-market deployer relies on its model provider. Listed for context, not scored against deployer readiness."
+    },
+    {
+      "id": "Art 53 (GPAI)",
+      "title": "General-purpose AI model provider obligations (technical documentation, copyright policy, training-data summary).",
+      "owner": "provider",
+      "applicability": "provider-only",
+      "effectiveDate": "2025-08-02",
+      "penaltyTier": "Tier 2",
+      "scored": false,
+      "stackSupport": "deployer-owned",
+      "mechanisms": [],
+      "note": "On the GPAI model provider (e.g. the foundation-model vendor behind your agent), not on you as a deployer. The provider abstraction lets you choose a compliant provider, but the obligation is theirs."
+    }
+  ],
+  "scoreWeights": { "supported": 1.0, "partial": 0.5, "deployer-owned": 0.0 }
+}

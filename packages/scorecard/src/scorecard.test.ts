@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import type { TraceCoverage } from "@grade-stack/core";
 import { type CaseResult, computeCost, type EvalRunResult } from "@grade-stack/evals";
+import type { GovernanceReadiness } from "./eu-ai-act.ts";
 import type { GuardrailCoverage } from "./owasp.ts";
 import { buildScorecard } from "./scorecard.ts";
 import type { Dimension, Scorecard } from "./types.ts";
@@ -356,6 +357,74 @@ describe("Guardrail dimension (Phase 3A)", () => {
     const degraded = dim(
       buildScorecard(makeResult(0, 12), { degraded: true, guardrails: guard() }),
       "guardrails",
+    );
+    expect(healthy.rating).toBe(degraded.rating);
+  });
+});
+
+/** A governance-readiness fixture; defaults describe the committed module's shape. */
+function gov(p: Partial<GovernanceReadiness> = {}): GovernanceReadiness {
+  return {
+    framework: p.framework ?? "EU Artificial Intelligence Act",
+    regulation: p.regulation ?? "Regulation (EU) 2024/1689",
+    retrievedAt: p.retrievedAt ?? "2026-06-24",
+    sourceUrl: p.sourceUrl ?? "https://artificialintelligenceact.eu/",
+    omnibusStage: p.omnibusStage ?? "Provisional agreement; not yet adopted.",
+    total: p.total ?? 10,
+    scoredCount: p.scoredCount ?? 6,
+    supported: p.supported ?? 3,
+    partial: p.partial ?? 3,
+    deployerOwned: p.deployerOwned ?? 0,
+    score: p.score ?? 0.75,
+    inForceNowIds: p.inForceNowIds ?? ["Art 5", "Art 4", "Art 50 (1)(4)"],
+    deployerOwnedIds: p.deployerOwnedIds ?? [],
+  };
+}
+
+describe("Governance dimension (Phase 3C — the last dimension)", () => {
+  test("stays a not-assessed stub when no readiness is supplied", () => {
+    const d = dim(buildScorecard(makeResult(12, 12)), "governance");
+    expect(d.assessed).toBe(false);
+    expect(d.rating).toBe("not-assessed");
+  });
+
+  test("bands track the weighted EU AI Act readiness score", () => {
+    const rating = (score: number) =>
+      dim(buildScorecard(makeResult(12, 12), { governance: gov({ score }) }), "governance").rating;
+    expect(rating(0.95)).toBe("strong");
+    expect(rating(0.75)).toBe("adequate");
+    expect(rating(0.5)).toBe("at-risk");
+    expect(rating(0.3)).toBe("critical");
+  });
+
+  test("cites the regulation, Omnibus status, and that readiness != compliance", () => {
+    const card = buildScorecard(makeResult(12, 12), {
+      governance: gov({ deployerOwnedIds: ["Art 27"] }),
+    });
+    const d = dim(card, "governance");
+    expect(d.assessed).toBe(true);
+    const text = d.evidence.join(" ");
+    expect(text).toContain("Regulation (EU) 2024/1689");
+    expect(text).toContain("Omnibus");
+    expect(text.toLowerCase()).toContain("not legal compliance");
+    expect(text).toContain("Art 27");
+  });
+
+  test("all five dimensions assessed when every coverage input is supplied", () => {
+    const card = buildScorecard(makeResult(12, 12), {
+      observability: cov(),
+      guardrails: guard(),
+      governance: gov(),
+    });
+    expect(card.meta.assessedCount).toBe(5);
+    expect(card.dimensions.every((d) => d.assessed)).toBe(true);
+  });
+
+  test("governance readiness is independent of degraded mode (it rates the stack, not the run)", () => {
+    const healthy = dim(buildScorecard(makeResult(12, 12), { governance: gov() }), "governance");
+    const degraded = dim(
+      buildScorecard(makeResult(0, 12), { degraded: true, governance: gov() }),
+      "governance",
     );
     expect(healthy.rating).toBe(degraded.rating);
   });

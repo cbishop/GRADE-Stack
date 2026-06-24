@@ -9,6 +9,14 @@
  */
 
 export {
+  computeGovernanceReadiness,
+  type EuAiActModule,
+  type EuAiActObligation,
+  type GovernanceReadiness,
+  parseEuAiActModule,
+  type StackSupport,
+} from "./eu-ai-act.ts";
+export {
   type CoverageStatus,
   computeGuardrailCoverage,
   type GuardrailCoverage,

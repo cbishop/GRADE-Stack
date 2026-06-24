@@ -15,10 +15,11 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome lint .",
     "format": "biome format --write .",
-    "check": "biome check . && bun run check:file-docs && bun run check:owasp-coverage && bun run check:nist-coverage",
+    "check": "biome check . && bun run check:file-docs && bun run check:owasp-coverage && bun run check:nist-coverage && bun run check:eu-ai-act",
     "check:file-docs": "bun run scripts/check-file-docs.ts",
     "check:owasp-coverage": "bun run scripts/check-owasp-coverage.ts",
     "check:nist-coverage": "bun run scripts/check-nist-coverage.ts",
+    "check:eu-ai-act": "bun run scripts/check-eu-ai-act.ts",
     "build": "bun build packages/cli/src/index.ts --target bun --outdir dist",
     "test": "bun test"
   },

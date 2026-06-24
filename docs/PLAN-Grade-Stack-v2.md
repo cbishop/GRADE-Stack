@@ -355,10 +355,14 @@ The highest-leverage phase — the foundation everything else builds on.
 2. `governance/eu-ai-act/`: produce a precise **deployer** readout. Get the framing exactly right (this is the credibility test). The readout must **distinguish what applies now from what's deferred**, and state the Omnibus's current legal status.
 3. The scorecard's **Governance readiness** dimension is now **computed from this module** (un-stub the last dimension).
 
-**Acceptance:**
-- [ ] Dates and penalties re-verified at build time; the readout distinguishes current vs. deferred obligations and states the Omnibus's legal status.
-- [ ] A mid-market CTO could act on the basics without a lawyer.
-- [ ] **Artifact:** post — *"What the EU AI Act actually requires of you in 2026 vs. 2027 (most advice gets this wrong)."* (`content/cycle-10/`).
+**Acceptance:** 🟢 **Phase 3C implemented** on branch `phase-3c-eu-ai-act` (2026-06-24); local gate green (typecheck, Biome + checks, tests, build).
+- [x] Dates and penalties re-verified at build time; the readout distinguishes current vs. deferred obligations and states the Omnibus's legal status. *(Re-verified 2026-06-24: Art 5/Art 4 in force (2025-02-02), Art 50 transparency + Annex III high-risk from **2026-08-02**; **Digital Omnibus = provisional agreement 2026-05-07, NOT yet adopted / not in OJ** → deferrals (high-risk→2026-12-02, product→2028-08-02, Art 50(2) grace→2026-12-02) are **proposed, not law** — plan for 2026-08-02. Penalty tiers kept distinct: €35M/7% (Art 5 only), €15M/3% (Art 26 & operator), €7.5M/1% (misleading info). `governance/eu-ai-act/` JSON + README; [ADR 0011](decisions/0011-eu-ai-act-deployer-readout-and-governance-readiness.md). **Enforced** by `scripts/check-eu-ai-act.ts`.)*
+- [x] A mid-market CTO could act on the basics without a lawyer. *(README leads with: most mid-market agents are limited-risk (the reference support-triage agent is not Annex III); near-term duties are Art 5 (don't deploy prohibited), Art 4 (literacy), Art 50 (transparency from 2026-08-02); high-risk Art 26/27 duties apply only if Annex III. Three-step action list, plain language, explicit "not legal advice / not compliance" caveat.)*
+- [x] **Artifact:** post — *"What the EU AI Act actually requires of you in 2026 vs. 2027 (most advice gets this wrong)."* (`content/cycle-10/`). *(mid-cycle + end-of-cycle drafts + regenerated 5-dimension sample scorecard; "review before publishing".)*
+
+**Also delivered (task 3):** the scorecard's **Governance readiness** dimension is **un-stubbed** — the **last** stubbed dimension. Computed from the EU AI Act module over stack-supportable deployer obligations (`supported=1.0`/`partial=0.5`/`deployer-owned=0.0`), evidence cites the regulation + re-verification date + Omnibus status + the deployer-owned legal duties + a "readiness ≠ compliance" line; independent of degraded mode. Result **0.75 → Adequate**. **All five dimensions now compute from evidence** (overall stays **At risk**, driven by Guardrail coverage, not governance).
+
+**Decisions during Phase 3C:** build-time re-verification of every date/penalty/Omnibus-status; **governance readiness rates the stack's readiness contribution, never legal compliance** (pure-legal duties listed but unscored); honesty + fact-freshness enforced by `scripts/check-eu-ai-act.ts`; the `supported/partial/deployer-owned` model carried over from NIST/3B ([ADR 0011](decisions/0011-eu-ai-act-deployer-readout-and-governance-readiness.md)).
 
 ### Phase 3D — Sovereign / on-prem variant (Weeks 23–24)
 
@@ -372,7 +376,7 @@ The highest-leverage phase — the foundation everything else builds on.
 - [ ] The cost/effort trade-off is documented honestly (directional), with real numbers from the 1B cost config.
 - [ ] **Artifact:** post on the regulated/sovereign mid-market variant (`content/cycle-11/`).
 
-> **Phase 3 gate:** the full scorecard (all five dimensions) now produces an end-to-end, evidence-backed readout. This is the complete reference stack.
+> **Phase 3 gate:** ✅ **Met at Phase 3C** (2026-06-24) — the full scorecard now produces an end-to-end, evidence-backed readout across **all five dimensions** (Reliability, Cost discipline, Observability, Guardrail coverage, Governance readiness); none stubbed. Guardrail coverage (3A) and Governance readiness (3C) compute from the committed OWASP/EU-AI-Act mappings; the overall verdict is **At risk**, driven honestly by Guardrail coverage. Remaining in Phase 3: **3D — sovereign/on-prem variant**. *(NIST/3B is a standalone procurement artifact, not a scorecard dimension.)*
 
 ---
 
@@ -393,6 +397,7 @@ Maintain a running table in `docs/` (created in Phase 0 with its first entries) 
 | Guardrails can't be bypassed | Gateway is the sole model path; agent holds no provider credentials | Phase 2C |
 | No silent governance omissions | `scripts/check-owasp-coverage.ts` (covered-or-flagged; Zod completeness + README drift) in `bun run check` + CI | Phase 3A |
 | NIST mapping honest & complete | `scripts/check-nist-coverage.ts` (all 19 AI RMF categories classified, supported/partial name a mechanism, every category states its boundary, README/JSON drift) in `bun run check` + CI | Phase 3B |
+| EU AI Act readout honest & current-facts | `scripts/check-eu-ai-act.ts` (Zod-valid obligations, scored supported/partial name a mechanism, 3 penalty tiers intact, README states regulation/Omnibus/2026-08-02/penalty-caps/readiness≠compliance) in `bun run check` + CI | Phase 3C |
 | Every TS file documented | File-header check (SPDX + `@module`) in `bun run check` + CI | Phase 1D |
 | Tracing can't flake CI or break the air gap | OTLP export off by default — no tracer registered unless opted in (`RELIABILITY_OTEL`/endpoint) | Phase 2D |
 
