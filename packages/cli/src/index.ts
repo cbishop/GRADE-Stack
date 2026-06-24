@@ -30,7 +30,9 @@ import { ISOLATION_PROBE_BIN, isolatedAgentEnv, serveGateway } from "@grade-stac
 import { serveHttp, serveStdio } from "@grade-stack/mcp-server";
 import {
   buildScorecard,
+  computeGovernanceReadiness,
   computeGuardrailCoverage,
+  parseEuAiActModule,
   parseOwaspMapping,
   renderCli,
   renderHtml,
@@ -56,6 +58,18 @@ const OWASP_MAPPING_URL = new URL(
 async function loadGuardrailCoverage() {
   const raw = await Bun.file(OWASP_MAPPING_URL).json();
   return computeGuardrailCoverage(parseOwaspMapping(raw));
+}
+
+/** Committed EU AI Act deployer module (Phase 3C), resolved by path. */
+const EU_AI_ACT_MODULE_URL = new URL(
+  "../../../governance/eu-ai-act/eu-ai-act-deployer-2026.json",
+  import.meta.url,
+);
+
+/** Load + validate the committed EU AI Act module and reduce it to governance readiness. */
+async function loadGovernanceReadiness() {
+  const raw = await Bun.file(EU_AI_ACT_MODULE_URL).json();
+  return computeGovernanceReadiness(parseEuAiActModule(raw));
 }
 
 const agent = program.command("agent").description("Run and inspect the reference agent");
@@ -406,14 +420,17 @@ program
         runReferenceAgent(new StubProvider(), SAMPLE_EMAIL, {}),
       );
 
-      // Guardrail coverage is derived from the committed OWASP mapping (Phase 3A) —
-      // a property of the stack's mechanisms, independent of which model answered.
+      // Guardrail coverage (OWASP, Phase 3A) and Governance readiness (EU AI Act,
+      // Phase 3C) are derived from the committed governance mappings — properties of
+      // the stack's mechanisms, independent of which model answered.
       const guardrails = await loadGuardrailCoverage();
+      const governance = await loadGovernanceReadiness();
 
       const card = buildScorecard(result, {
         degraded: opts.degraded,
         observability: coverage,
         guardrails,
+        governance,
       });
 
       const wantMd = opts.format === "md" || opts.format === "both";

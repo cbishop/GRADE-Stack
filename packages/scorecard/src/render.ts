@@ -45,9 +45,12 @@ export function renderMarkdown(card: Scorecard): string {
   lines.push(`**Agent:** ${card.agentTask}  `);
   lines.push(`**Model:** ${card.provider} / ${card.model}  `);
   lines.push(`**Generated:** ${card.generatedAt}  `);
+  const allAssessed = card.meta.assessedCount === card.meta.totalDimensions;
   lines.push(
-    `**Coverage:** ${card.meta.assessedCount} of ${card.meta.totalDimensions} dimensions assessed today` +
-      ` — the rest are computed in later phases and shown as *not yet assessed*.`,
+    `**Coverage:** ${card.meta.assessedCount} of ${card.meta.totalDimensions} dimensions assessed` +
+      (allAssessed
+        ? " — every dimension is now computed from evidence."
+        : " today — the rest are computed in later phases and shown as *not yet assessed*."),
   );
   lines.push("");
   lines.push(`## Overall: ${ratingCell(card.overall.rating)}`);
@@ -94,7 +97,9 @@ export function renderCli(card: Scorecard): string {
   }
   lines.push("");
   lines.push(
-    `${card.meta.assessedCount}/${card.meta.totalDimensions} dimensions assessed; the rest land in later phases.`,
+    card.meta.assessedCount === card.meta.totalDimensions
+      ? `${card.meta.assessedCount}/${card.meta.totalDimensions} dimensions assessed — all computed from evidence.`
+      : `${card.meta.assessedCount}/${card.meta.totalDimensions} dimensions assessed; the rest land in later phases.`,
   );
   return lines.join("\n");
 }
@@ -186,7 +191,11 @@ export function renderHtml(card: Scorecard): string {
       <b>Agent:</b> ${escapeHtml(card.agentTask)} &nbsp;·&nbsp;
       <b>Model:</b> ${escapeHtml(card.provider)} / ${escapeHtml(card.model)} &nbsp;·&nbsp;
       <b>Generated:</b> ${escapeHtml(card.generatedAt)}<br />
-      <b>Coverage:</b> ${card.meta.assessedCount} of ${card.meta.totalDimensions} dimensions assessed today; the rest are computed in later phases.
+      <b>Coverage:</b> ${card.meta.assessedCount} of ${card.meta.totalDimensions} dimensions assessed${
+        card.meta.assessedCount === card.meta.totalDimensions
+          ? " — every dimension is now computed from evidence."
+          : " today; the rest are computed in later phases."
+      }
     </p>
 ${degradedBanner}    <div class="overall">
       <h2>Overall: ${htmlChip(card.overall.rating)}</h2>
