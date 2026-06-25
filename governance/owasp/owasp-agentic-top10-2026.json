@@ -11,6 +11,7 @@
     "partial": "A named mechanism reduces this threat but leaves a stated residual gap a deployment must close.",
     "gap": "The reference architecture has no mechanism for this threat — explicitly flagged, never silently assumed safe."
   },
+  "scopingNote": "Each threat also carries a `scored` flag. `scored: false` marks a threat that is out of architectural scope — it targets a capability this single-agent, stateless reference does not implement (a long-term memory store; an agent-to-agent channel). Such a threat is reported with its `residualGap` stating why the capability is absent, but is excluded from the weighted score's denominator: it is a scope boundary, NOT a deficiency to fix. The boundary becomes a real, scored obligation the moment a deployment adds that capability.",
   "scoreWeights": { "covered": 1.0, "partial": 0.5, "gap": 0.0 },
   "items": [
     {
@@ -18,6 +19,7 @@
       "title": "Agent Goal Hijack",
       "summary": "Attackers manipulate the agent's goals, plans, or decision paths through direct or indirect instruction injection, redirecting it to unintended objectives.",
       "status": "partial",
+      "scored": true,
       "mechanisms": [
         {
           "name": "Gateway server-side prompt-injection / override denial",
@@ -37,6 +39,7 @@
       "title": "Tool Misuse & Exploitation",
       "summary": "Agents misuse or abuse legitimate tools through unsafe composition, recursion, or excessive execution, causing harmful side effects despite valid permissions.",
       "status": "partial",
+      "scored": true,
       "mechanisms": [
         {
           "name": "Name-blind tool selection",
@@ -61,6 +64,7 @@
       "title": "Agent Identity & Privilege Abuse",
       "summary": "Delegated authority, ambiguous agent identity, or trust assumptions lead to unauthorized actions, impersonation, or exploitation of cross-agent trust.",
       "status": "covered",
+      "scored": true,
       "mechanisms": [
         {
           "name": "Structural credential isolation",
@@ -75,6 +79,7 @@
       "title": "Agentic Supply Chain Compromise",
       "summary": "External agents, tools, schemas, or prompts that the agent dynamically trusts or imports become compromised — including schema manipulation and tool-description deception.",
       "status": "partial",
+      "scored": true,
       "mechanisms": [
         {
           "name": "CI secret scan (gitleaks) + pre-commit + PreToolUse hooks",
@@ -99,6 +104,7 @@
       "title": "Unexpected Code Execution",
       "summary": "Agent-generated or agent-triggered code executes without sufficient validation or isolation, enabling unauthorized code execution or command injection.",
       "status": "covered",
+      "scored": true,
       "mechanisms": [
         {
           "name": "No code-execution surface (structural)",
@@ -118,6 +124,7 @@
       "title": "Memory & Context Poisoning",
       "summary": "Injection or leakage into agent memory or contextual state corrupts future reasoning or actions through long-term memory poisoning or state manipulation.",
       "status": "gap",
+      "scored": false,
       "mechanisms": [
         {
           "name": "Gateway input scanning (partial mitigation)",
@@ -132,6 +139,7 @@
       "title": "Insecure Inter-Agent Communication",
       "summary": "Manipulation of messages exchanged between agents, planners, and executors through interception, injection, or spoofing of agent-to-agent communication.",
       "status": "gap",
+      "scored": false,
       "mechanisms": [
         {
           "name": "Single controlled network seam (agent → gateway over HTTP)",
@@ -146,6 +154,7 @@
       "title": "Cascading Agent Failures",
       "summary": "Small agent failures propagate through connected systems — tool-chain errors, resource-exhaustion cascades — causing large-scale impact.",
       "status": "partial",
+      "scored": true,
       "mechanisms": [
         {
           "name": "Enforced turn bound + gateway token/model caps",
@@ -165,6 +174,7 @@
       "title": "Human-Agent Trust Exploitation",
       "summary": "Exploiting human over-reliance on agents through misleading explanations, authority misrepresentation, or unwarranted certainty in recommendations.",
       "status": "partial",
+      "scored": true,
       "mechanisms": [
         {
           "name": "AI Reliability Scorecard (evidence-backed, honest degradation)",
@@ -184,6 +194,7 @@
       "title": "Rogue Agents",
       "summary": "Agents act beyond intended objectives due to goal drift, collusion, reward hacking, or emergent behavior exceeding designed autonomy boundaries.",
       "status": "partial",
+      "scored": true,
       "mechanisms": [
         {
           "name": "Enforced turn bound + sole-path gateway",
