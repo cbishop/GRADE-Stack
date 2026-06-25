@@ -11,10 +11,14 @@
 
 import { readFile } from "node:fs/promises";
 import {
+  AIRGAP_ENV,
   createDirectProvider,
   createProvider,
+  EgressBlockedError,
   formatSpanTree,
   initTracing,
+  installEgressGuard,
+  installEgressGuardFromEnv,
   StubProvider,
   withInMemoryTracing,
 } from "@grade-stack/core";
@@ -40,6 +44,10 @@ import {
 } from "@grade-stack/scorecard";
 import { Command } from "commander";
 import { connectSupportTools, runReferenceAgent, SAMPLE_EMAIL, selectTool } from "reference-agent";
+
+// Arm the air-gap egress guard before anything runs, so *every* command honors
+// RELIABILITY_AIRGAP=1 (Phase 3D) — not just `sovereign verify`. A no-op when off.
+installEgressGuardFromEnv();
 
 const program = new Command();
 
@@ -258,6 +266,180 @@ gateway
       await handle.stop();
     }
   });
+
+const sovereign = program
+  .command("sovereign")
+  .description("Sovereign / on-prem (air-gapped) variant (Phase 3D)");
+
+/** A cloud host used as the egress canary — reaching it would break the air gap. */
+const EGRESS_CANARY_URL = "https://bedrock-runtime.us-east-1.amazonaws.com/";
+
+sovereign
+  .command("verify")
+  .description("Prove the full pipeline (agent → evals → scorecard) runs with no cloud dependency")
+  .option("-p, --provider <provider>", "local model provider: ollama | stub", "ollama")
+  .option("-n, --first-n <n>", "run only the first N eval cases (faster smoke run)")
+  .option("-j, --concurrency <n>", "max concurrent eval cases", "3")
+  .option("--amortized <usd>", "amortized self-hosting rate (USD/MTok) for the cost line (else $0)")
+  .option("--gateway", "also prove the gateway + credential isolation hold air-gapped (Phase 2C)")
+  .action(
+    async (opts: {
+      provider: string;
+      firstN?: string;
+      concurrency: string;
+      amortized?: string;
+      gateway?: boolean;
+    }) => {
+      // Arm the air gap for this process *and* every process it spawns (the
+      // promptfoo→bridge eval chain inherits process.env), then install the guard
+      // here. The guard is the mechanism; the steps below prove it is live and
+      // that the pipeline needs nothing beyond this machine.
+      process.env[AIRGAP_ENV] = "1";
+      if (opts.amortized) {
+        process.env.RELIABILITY_OLLAMA_USD_PER_MTOK = opts.amortized;
+      }
+      const restore = installEgressGuard();
+
+      const ok = (b: boolean) => (b ? "✓" : "✗");
+      let allHeld = true;
+      const fail = (msg: string) => {
+        allHeld = false;
+        console.error(`  ✗ ${msg}`);
+      };
+
+      try {
+        console.log(`Sovereign / on-prem variant — air-gap verification (${AIRGAP_ENV}=1)\n`);
+
+        // ── Proof 0: the guard actually blocks cloud egress ───────────────────
+        let canaryBlocked = false;
+        try {
+          await fetch(EGRESS_CANARY_URL);
+          fail(`egress canary REACHED ${EGRESS_CANARY_URL} — the guard is not enforcing`);
+        } catch (err) {
+          canaryBlocked = err instanceof EgressBlockedError;
+          if (!canaryBlocked) {
+            fail(
+              `egress canary failed for the wrong reason: ${err instanceof Error ? err.message : err}`,
+            );
+          }
+        }
+        console.log("Guard (mechanism is live):");
+        console.log(`  ${ok(canaryBlocked)} a call to a cloud host is blocked at the egress guard`);
+
+        // ── Proof: a loopback model endpoint is reachable ─────────────────────
+        const provider = createProvider(opts.provider);
+        let localReachable = opts.provider === "stub";
+        if (opts.provider !== "stub") {
+          const host = process.env.OLLAMA_HOST ?? "http://localhost:11434";
+          try {
+            const res = await fetch(`${host}/api/tags`);
+            localReachable = res.ok;
+            if (!res.ok) fail(`local model host ${host} returned ${res.status}`);
+          } catch (err) {
+            fail(
+              `local model host ${host} unreachable: ${err instanceof Error ? err.message : err} ` +
+                "(is Ollama running?)",
+            );
+          }
+        }
+        console.log(
+          `  ${ok(localReachable)} the local model (${provider.name}) is reachable over loopback\n`,
+        );
+
+        // ── Stage 1: the reference agent runs on the local model ──────────────
+        console.log("Pipeline (runs entirely on this machine):");
+        let agentOk = false;
+        try {
+          const run = await runReferenceAgent(provider, SAMPLE_EMAIL, {});
+          agentOk = run.raw.length > 0;
+          console.log(
+            `  ${ok(agentOk)} agent: ${run.provider}/${run.model}, ${run.turns} turn(s), ` +
+              `${run.usage.inputTokens}+${run.usage.outputTokens} tokens`,
+          );
+        } catch (err) {
+          fail(`agent stage failed: ${err instanceof Error ? err.message : err}`);
+        }
+
+        // ── Stage 2: the eval suite runs (subprocess inherits the air gap) ────
+        const evalResult = await runEvalSuite({
+          provider: opts.provider,
+          firstN: opts.firstN === undefined ? undefined : Number.parseInt(opts.firstN, 10),
+          concurrency: Number.parseInt(opts.concurrency, 10),
+        });
+        const s = evalResult.summary;
+        const evalsOk = s.total > 0;
+        if (!evalsOk) fail("eval suite produced no cases");
+        console.log(
+          `  ${ok(evalsOk)} evals: ${s.passed}/${s.total} passed ` +
+            `(judge: ${evalResult.judgeProvider}, stability ${s.meanStability.toFixed(2)})`,
+        );
+
+        // ── Stage 3: the scorecard generates from the offline run ─────────────
+        const { coverage } = await withInMemoryTracing(() =>
+          runReferenceAgent(new StubProvider(), SAMPLE_EMAIL, {}),
+        );
+        const card = buildScorecard(evalResult, {
+          observability: coverage,
+          guardrails: await loadGuardrailCoverage(),
+          governance: await loadGovernanceReadiness(),
+        });
+        console.log(
+          `  ${ok(true)} scorecard: overall ${card.overall.rating} — ${card.overall.headline}\n`,
+        );
+
+        // ── Cost/effort: Ollama semantics from the 1B cost config ─────────────
+        const cost = s.cost;
+        const perSuccess =
+          cost.usdPerSuccess === null
+            ? "n/a (no passing case)"
+            : `$${cost.usdPerSuccess.toFixed(5)}`;
+        const tokPerSuccess =
+          cost.tokensPerSuccess === null ? "n/a" : `${Math.round(cost.tokensPerSuccess)} tokens`;
+        console.log("Cost-per-success (sovereign basis):");
+        console.log(
+          `  basis: ${cost.basis}   (dollars default to $0; amortized only if a rate is set)`,
+        );
+        console.log(`  per passing case: ${perSuccess}  ·  ${tokPerSuccess}`);
+        console.log(
+          `  run total: $${cost.totalUsd.toFixed(5)} over ${s.usage.inputTokens + s.usage.outputTokens} tokens\n`,
+        );
+
+        // ── Optional: the gateway + credential isolation hold air-gapped ──────
+        if (opts.gateway) {
+          console.log("Gateway + credential isolation (air-gapped, Phase 2C):");
+          const handle = serveGateway({
+            resolveProvider: () => createDirectProvider(opts.provider),
+          });
+          try {
+            const env = { ...isolatedAgentEnv(process.env, handle.url), [AIRGAP_ENV]: "1" };
+            const proc = Bun.spawn(["bun", ISOLATION_PROBE_BIN], {
+              env,
+              stdout: "pipe",
+              stderr: "pipe",
+            });
+            const code = await proc.exited;
+            const gatewayOk = code === 0;
+            if (!gatewayOk) fail("air-gapped gateway/isolation probe did not pass");
+            console.log(
+              `  ${ok(gatewayOk)} agent (no creds) reaches the model only via the local gateway; ` +
+                "a direct provider call fails\n",
+            );
+          } finally {
+            await handle.stop();
+          }
+        }
+
+        console.log(
+          allHeld
+            ? "✓ Sovereign variant verified: the full pipeline ran with no cloud dependency."
+            : "✗ Sovereign verification FAILED — see the marks above.",
+        );
+        process.exitCode = allHeld ? 0 : 1;
+      } finally {
+        restore();
+      }
+    },
+  );
 
 const evalCmd = program.command("eval").description("Run the reliability eval suite");
 

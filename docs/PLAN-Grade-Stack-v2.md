@@ -371,12 +371,14 @@ The highest-leverage phase — the foundation everything else builds on.
 2. **Prove zero cloud dependency:** the full pipeline (agent → evals → scorecard) runs with networking disabled.
 3. Document the cost/effort trade-off **honestly**, using the 1B Ollama cost semantics (token counts + optional amortized-hardware rate) — self-hosting carries materially more engineering effort and only pencils out above meaningful token volume; present as **directional, not a guarantee**.
 
-**Acceptance:**
-- [ ] The full pipeline runs with no cloud dependency.
-- [ ] The cost/effort trade-off is documented honestly (directional), with real numbers from the 1B cost config.
-- [ ] **Artifact:** post on the regulated/sovereign mid-market variant (`content/cycle-11/`).
+**Acceptance:** 🟢 **Phase 3D implemented** on branch `phase-3d-sovereign` (2026-06-24); local gate green (typecheck, Biome + checks, 164 tests, build).
+- [x] The full pipeline runs with no cloud dependency. *(`reliability sovereign verify` arms an **egress guard** (`@grade-stack/core` `src/airgap.ts`) — `RELIABILITY_AIRGAP=1` makes any `fetch` to a non-loopback host throw `EgressBlockedError`, installed at the CLI, the eval bridge, and the isolation probe; the env propagates down the promptfoo→bridge spawn chain so every model-calling process is guarded. A real air-gapped Ollama run (`gemma4:12b-mlx`, 2026-06-24) **exits 0**: cloud canary blocked, agent runs, evals **11/12** (Ollama judge, stability 1.00), scorecard generates offline; `--gateway` also proves 2C credential isolation holds air-gapped. The AWS-SDK path (not `fetch`) is covered air-gapped by 2C — a direct call has no credentials. [ADR 0012](decisions/0012-airgap-egress-guard-and-sovereign-variant.md).)*
+- [x] The cost/effort trade-off is documented honestly (directional), with real numbers from the 1B cost config. *(`docs/sovereign-on-prem-variant.md` — Ollama cost-per-success in the 1B semantics: tokens always, dollars default **\$0**, optional `--amortized` rate; real figures (≈1,423 tokens/success; ≈\$0.0017 at \$1.20/MTok) vs. a clearly-labelled directional cloud list-price figure; honest "self-hosting only pencils out above meaningful token volume, the effort is real, and cost-per-success is the wrong question for these buyers" framing.)*
+- [x] **Artifact:** post on the regulated/sovereign mid-market variant (`content/cycle-11/`). *(mid-cycle + end-of-cycle drafts, "review before publishing".)*
 
-> **Phase 3 gate:** ✅ **Met at Phase 3C** (2026-06-24) — the full scorecard now produces an end-to-end, evidence-backed readout across **all five dimensions** (Reliability, Cost discipline, Observability, Guardrail coverage, Governance readiness); none stubbed. Guardrail coverage (3A) and Governance readiness (3C) compute from the committed OWASP/EU-AI-Act mappings; the overall verdict is **At risk**, driven honestly by Guardrail coverage. Remaining in Phase 3: **3D — sovereign/on-prem variant**. *(NIST/3B is a standalone procurement artifact, not a scorecard dimension.)*
+**Decisions during Phase 3D:** "no cloud dependency" is enforced as a **mechanism** — an in-process egress guard (`fetch`→non-loopback throws), armed by one env var and proven *live* by a cloud canary in `sovereign verify`, not asserted in prose; it composes with 2C credential isolation (guard covers `fetch`; the AWS SDK fails for lack of creds) rather than patching Node's HTTP layer; off by default so the CI gate and cloud path are untouched; no new package — the guard lives in `@grade-stack/core`, which owns the network seam. The OS-level network-off run is **documented** as an independent confirmation, not the binding mechanism ([ADR 0012](decisions/0012-airgap-egress-guard-and-sovereign-variant.md)).
+
+> **Phase 3 gate:** ✅ **Met at Phase 3C** (2026-06-24) — the full scorecard now produces an end-to-end, evidence-backed readout across **all five dimensions** (Reliability, Cost discipline, Observability, Guardrail coverage, Governance readiness); none stubbed. Guardrail coverage (3A) and Governance readiness (3C) compute from the committed OWASP/EU-AI-Act mappings; the overall verdict is **At risk**, driven honestly by Guardrail coverage. *(NIST/3B is a standalone procurement artifact, not a scorecard dimension.)* **Phase 3 complete** with **3D — sovereign/on-prem variant** (2026-06-24): the full pipeline runs air-gapped on Ollama (egress guard + 2C credential isolation), proven by `reliability sovereign verify`.
 
 ---
 
@@ -400,6 +402,7 @@ Maintain a running table in `docs/` (created in Phase 0 with its first entries) 
 | EU AI Act readout honest & current-facts | `scripts/check-eu-ai-act.ts` (Zod-valid obligations, scored supported/partial name a mechanism, 3 penalty tiers intact, README states regulation/Omnibus/2026-08-02/penalty-caps/readiness≠compliance) in `bun run check` + CI | Phase 3C |
 | Every TS file documented | File-header check (SPDX + `@module`) in `bun run check` + CI | Phase 1D |
 | Tracing can't flake CI or break the air gap | OTLP export off by default — no tracer registered unless opted in (`RELIABILITY_OTEL`/endpoint) | Phase 2D |
+| Sovereign variant has no cloud dependency | Egress guard — under `RELIABILITY_AIRGAP=1`, `fetch` to a non-loopback host throws `EgressBlockedError` (composes with 2C credential isolation); proven live by `sovereign verify` | Phase 3D |
 
 ### ADR log (`docs/decisions/`)
 

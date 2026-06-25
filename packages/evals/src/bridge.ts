@@ -20,8 +20,13 @@
  *                 swappable to an Ollama judge — a hard Phase 3D prerequisite).
  */
 
-import { createProvider, type GenerateResult } from "@grade-stack/core";
+import { createProvider, type GenerateResult, installEgressGuardFromEnv } from "@grade-stack/core";
 import { runReferenceAgent, type SupportEmail } from "reference-agent";
+
+// This is where the eval harness actually talks to a model. Under air-gap mode
+// (RELIABILITY_AIRGAP=1, propagated down the promptfoo→bridge spawn chain), arm
+// the egress guard here so any non-loopback model/tool call fails loudly (Phase 3D).
+installEgressGuardFromEnv();
 
 interface AgentRequest {
   mode: "agent";
