@@ -1,38 +1,39 @@
 # AI Reliability Scorecard
 
 **Agent:** Support-email triage  
-**Model:** stub / stub-deterministic-v1  
-**Generated:** 2026-06-25T00:00:00.000Z  
+**Model:** ollama / gemma4:12b-mlx  
+**Generated:** 2026-06-26T11:28:27.008Z  
 **Coverage:** 5 of 5 dimensions assessed — every dimension is now computed from evidence.
 
 ## Overall: 🟡 Adequate
 
-Workable, but with gaps a team should close before relying on it unsupervised. Weakest dimension: Guardrail coverage (Adequate).
+Workable, but with gaps a team should close before relying on it unsupervised. Weakest dimension: Reliability (Adequate).
 
 | Dimension | Rating | Summary |
 |---|---|---|
-| Reliability | 🟢 Strong | The agent handles its task dependably across the test suite. |
-| Cost discipline | 🟢 Strong | Almost every dollar spent produces a usable result. |
+| Reliability | 🟡 Adequate | The agent usually succeeds, but a meaningful share of cases fail. |
+| Cost discipline | 🟡 Adequate | Most spend is productive, but failures add a real tax to each success. |
 | Observability coverage | 🟢 Strong | Every step the agent takes is captured as one connected, inspectable trace. |
 | Guardrail coverage | 🟡 Adequate | Every applicable OWASP agentic threat has a mechanism, though several are only partly covered. |
 | Governance readiness | 🟡 Adequate | The stack readies a deployer for the technical EU AI Act duties; the legal duties remain the deployer's. |
 
 ---
 
-### Reliability — 🟢 Strong
+### Reliability — 🟡 Adequate
 
-The agent handles its task dependably across the test suite.
+The agent usually succeeds, but a meaningful share of cases fail.
 
-- 12 of 12 test cases passed (100%).
+- 10 of 12 test cases passed (83%).
 - Run-to-run stability 1.00 (1.00 = identical results each run).
+- Failing cases: billing-duplicate-charge, billing-late-fee-dispute.
 
-### Cost discipline — 🟢 Strong
+### Cost discipline — 🟡 Adequate
 
-Almost every dollar spent produces a usable result.
+Most spend is productive, but failures add a real tax to each success.
 
-- Cost per successful outcome: 130 tokens ($0 list cost).
-- Total run cost $0 on stub/stub-deterministic-v1 — no per-token cost (self-hosted); the spend signal here is token volume.
-- 0% of spend produced no passing result.
+- Cost per successful outcome: 1582 tokens ($0 list cost).
+- Total run cost $0 on ollama/gemma4:12b-mlx — no per-token cost (self-hosted); the spend signal here is token volume.
+- 16% of spend produced no passing result.
 
 ### Observability coverage — 🟢 Strong
 
@@ -65,4 +66,3 @@ The stack readies a deployer for the technical EU AI Act duties; the legal dutie
 ---
 
 _Every rating above is computed from the eval suite — no score is asserted without the evidence shown beneath it._
-
