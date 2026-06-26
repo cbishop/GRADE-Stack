@@ -28,6 +28,8 @@ import {
   evaluateGate,
   formatGateVerdict,
   formatRunResult,
+  renderRunHtml,
+  renderRunMarkdown,
   runEvalSuite,
 } from "@grade-stack/evals";
 import { ISOLATION_PROBE_BIN, isolatedAgentEnv, serveGateway } from "@grade-stack/gateway";
@@ -442,6 +444,65 @@ sovereign
   );
 
 const evalCmd = program.command("eval").description("Run the reliability eval suite");
+
+evalCmd
+  .command("report")
+  .description("Per-case interaction report (table + full detail) as a Markdown/HTML artifact")
+  .option("-p, --provider <provider>", "agent model provider: bedrock | ollama | stub")
+  .option("-J, --judge-provider <provider>", "LLM-as-judge provider (defaults to --provider)")
+  .option("-f, --from <file>", "build from an existing `eval run` results JSON instead of running")
+  .option("--format <fmt>", "output format: md | html | both", "md")
+  .option("-o, --out <path>", "write to <path>.md / <path>.html instead of stdout")
+  .option("-j, --concurrency <n>", "max concurrent cases", "3")
+  .option("-n, --first-n <n>", "run only the first N cases (smoke run)")
+  .action(
+    async (opts: {
+      provider?: string;
+      judgeProvider?: string;
+      from?: string;
+      format: string;
+      out?: string;
+      concurrency: string;
+      firstN?: string;
+    }) => {
+      let result: EvalRunResult;
+      if (opts.from) {
+        try {
+          result = JSON.parse(await readFile(opts.from, "utf8")) as EvalRunResult;
+        } catch (err) {
+          console.error(
+            `Could not read results "${opts.from}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      } else {
+        result = await runEvalSuite({
+          provider: opts.provider,
+          judgeProvider: opts.judgeProvider,
+          concurrency: Number.parseInt(opts.concurrency, 10),
+          firstN: opts.firstN === undefined ? undefined : Number.parseInt(opts.firstN, 10),
+        });
+      }
+
+      const wantMd = opts.format === "md" || opts.format === "both";
+      const wantHtml = opts.format === "html" || opts.format === "both";
+
+      if (opts.out) {
+        if (wantMd) await Bun.write(`${opts.out}.md`, renderRunMarkdown(result));
+        if (wantHtml) await Bun.write(`${opts.out}.html`, renderRunHtml(result));
+        const written = [wantMd ? `${opts.out}.md` : null, wantHtml ? `${opts.out}.html` : null]
+          .filter(Boolean)
+          .join(", ");
+        console.log(`interaction report written to ${written}`);
+      } else if (wantHtml && !wantMd) {
+        console.log(renderRunHtml(result));
+      } else {
+        console.log(renderRunMarkdown(result));
+        if (wantHtml) console.log(renderRunHtml(result));
+      }
+    },
+  );
 
 evalCmd
   .command("run")

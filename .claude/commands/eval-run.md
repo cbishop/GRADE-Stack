@@ -20,6 +20,16 @@ Steps:
    - `--out <file>` — also write the structured JSON results.
    - `--json` — print structured JSON instead of the human summary.
 
+   For a **readable, committable artifact** (per-case interaction table + full
+   detail, including each check and the judge's reason), use the sibling command:
+
+   ```bash
+   bun run reliability eval report --provider ollama --format both --out <path>
+   ```
+
+   It writes `<path>.md` and/or `<path>.html`, or pass `--from <results.json>` to
+   render a prior `eval run --out` JSON without re-running the suite.
+
 2. Read the summary: per-case PASS/FAIL with the planner/executor/validator
    trace (`· execute · validate`), the pass rate, mean stability (flakiness),
    and agent token totals.

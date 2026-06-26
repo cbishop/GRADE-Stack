@@ -23,6 +23,7 @@ export {
   priceFor,
   type TokenPrice,
 } from "./pricing.ts";
+export { renderRunHtml, renderRunMarkdown } from "./report.ts";
 export { type RunEvalOptions, runEvalSuite } from "./run.ts";
 export type {
   CaseResult,
