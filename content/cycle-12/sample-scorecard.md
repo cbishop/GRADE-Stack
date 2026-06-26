@@ -2,7 +2,7 @@
 
 **Agent:** Support-email triage  
 **Model:** ollama / gemma4:12b-mlx  
-**Generated:** 2026-06-26T11:28:27.008Z  
+**Generated:** 2026-06-26T12:17:14.371Z  
 **Coverage:** 5 of 5 dimensions assessed — every dimension is now computed from evidence.
 
 ## Overall: 🟡 Adequate
