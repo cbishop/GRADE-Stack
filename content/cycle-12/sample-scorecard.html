@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Reliability Scorecard — Support-email triage</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body {
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #1f2328; margin: 0; padding: 2rem; max-width: 820px; margin-inline: auto;
+    }
+    h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+    h3 { font-size: 1.05rem; margin: 0 0 .35rem; display: flex; align-items: center; gap: .5rem; }
+    .meta { color: #57606a; font-size: .85rem; margin: 0 0 1.25rem; }
+    .meta b { color: #1f2328; font-weight: 600; }
+    .overall { padding: 1rem 1.25rem; border: 1px solid #d0d7de; border-radius: 8px; margin-bottom: 1.5rem; background: #f6f8fa; }
+    .overall h2 { margin: 0 0 .35rem; font-size: 1.15rem; display: flex; align-items: center; gap: .6rem; }
+    .overall p { margin: 0; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+    th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #d0d7de; vertical-align: top; }
+    th { font-size: .8rem; text-transform: uppercase; letter-spacing: .03em; color: #57606a; }
+    .chip { display: inline-block; color: #fff; font-size: .78rem; font-weight: 600; padding: .12rem .5rem; border-radius: 999px; white-space: nowrap; }
+    .dim { padding: .75rem 0; border-top: 1px solid #eaeef2; }
+    .dim .headline { margin: 0 0 .4rem; }
+    .dim ul { margin: 0; padding-left: 1.2rem; color: #424a53; }
+    .dim li { margin: .15rem 0; }
+    .section--muted { opacity: .7; }
+    .banner { background: #fff8c5; border: 1px solid #d4a72c; border-radius: 6px; padding: .5rem .75rem; font-size: .9rem; }
+    footer { margin-top: 1.5rem; color: #57606a; font-size: .8rem; border-top: 1px solid #eaeef2; padding-top: .75rem; }
+    @media print { body { padding: 0; } .overall { background: #f6f8fa !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } .chip { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>AI Reliability Scorecard</h1>
+    <p class="meta">
+      <b>Agent:</b> Support-email triage &nbsp;·&nbsp;
+      <b>Model:</b> ollama / gemma4:12b-mlx &nbsp;·&nbsp;
+      <b>Generated:</b> 2026-06-26T11:28:27.008Z<br />
+      <b>Coverage:</b> 5 of 5 dimensions assessed — every dimension is now computed from evidence.
+    </p>
+    <div class="overall">
+      <h2>Overall: <span class="chip" style="background:#9a6700">Adequate</span></h2>
+      <p>Workable, but with gaps a team should close before relying on it unsupervised. Weakest dimension: Reliability (Adequate).</p>
+    </div>
+    <table>
+      <thead><tr><th>Dimension</th><th>Rating</th><th>Summary</th></tr></thead>
+      <tbody>
+        <tr><td>Reliability</td><td><span class="chip" style="background:#9a6700">Adequate</span></td><td>The agent usually succeeds, but a meaningful share of cases fail.</td></tr>
+        <tr><td>Cost discipline</td><td><span class="chip" style="background:#9a6700">Adequate</span></td><td>Most spend is productive, but failures add a real tax to each success.</td></tr>
+        <tr><td>Observability coverage</td><td><span class="chip" style="background:#1a7f37">Strong</span></td><td>Every step the agent takes is captured as one connected, inspectable trace.</td></tr>
+        <tr><td>Guardrail coverage</td><td><span class="chip" style="background:#9a6700">Adequate</span></td><td>Every applicable OWASP agentic threat has a mechanism, though several are only partly covered.</td></tr>
+        <tr><td>Governance readiness</td><td><span class="chip" style="background:#9a6700">Adequate</span></td><td>The stack readies a deployer for the technical EU AI Act duties; the legal duties remain the deployer's.</td></tr>
+      </tbody>
+    </table>
+    <section class="dim">
+      <h3>Reliability <span class="chip" style="background:#9a6700">Adequate</span></h3>
+      <p class="headline">The agent usually succeeds, but a meaningful share of cases fail.</p>
+      <ul>
+      <li>10 of 12 test cases passed (83%).</li>
+      <li>Run-to-run stability 1.00 (1.00 = identical results each run).</li>
+      <li>Failing cases: billing-duplicate-charge, billing-late-fee-dispute.</li>
+      </ul>
+    </section>
+    <section class="dim">
+      <h3>Cost discipline <span class="chip" style="background:#9a6700">Adequate</span></h3>
+      <p class="headline">Most spend is productive, but failures add a real tax to each success.</p>
+      <ul>
+      <li>Cost per successful outcome: 1582 tokens ($0 list cost).</li>
+      <li>Total run cost $0 on ollama/gemma4:12b-mlx — no per-token cost (self-hosted); the spend signal here is token volume.</li>
+      <li>16% of spend produced no passing result.</li>
+      </ul>
+    </section>
+    <section class="dim">
+      <h3>Observability coverage <span class="chip" style="background:#1a7f37">Strong</span></h3>
+      <p class="headline">Every step the agent takes is captured as one connected, inspectable trace.</p>
+      <ul>
+      <li>A full run produces one connected trace: 5 spans, single root, single trace id.</li>
+      <li>Agent phases captured as spans: plan → execute → validate (3/3).</li>
+      <li>Model calls traced with GenAI semantic conventions: 1.</li>
+      </ul>
+    </section>
+    <section class="dim">
+      <h3>Guardrail coverage <span class="chip" style="background:#9a6700">Adequate</span></h3>
+      <p class="headline">Every applicable OWASP agentic threat has a mechanism, though several are only partly covered.</p>
+      <ul>
+      <li>Mapped against the OWASP Top 10 for Agentic Applications (2026, published 2025-12-09).</li>
+      <li>8 of 10 threats apply to this architecture; of those, 2 fully covered, 6 partial, 0 unaddressed (weighted coverage 63%; bands: strong ≥90%, adequate ≥70%, at-risk ≥50%).</li>
+      <li>Zero applicable threats are unaddressed — every applicable threat has a named mechanism.</li>
+      <li>Partially covered (named residual gap each): ASI01:2026, ASI02:2026, ASI04:2026, ASI08:2026, ASI09:2026, ASI10:2026.</li>
+      <li>Out of architectural scope — not deficiencies: ASI06:2026, ASI07:2026. These target capabilities a single-agent, stateless stack does not include; they become relevant only if a deployment adds them (e.g. persistent memory/RAG, multi-agent messaging).</li>
+      </ul>
+    </section>
+    <section class="dim">
+      <h3>Governance readiness <span class="chip" style="background:#9a6700">Adequate</span></h3>
+      <p class="headline">The stack readies a deployer for the technical EU AI Act duties; the legal duties remain the deployer's.</p>
+      <ul>
+      <li>Mapped against the EU Artificial Intelligence Act (Regulation (EU) 2024/1689), re-verified 2026-06-24.</li>
+      <li>Readiness 75% over 6 stack-supportable deployer obligations (3 supported, 3 partial, 0 deployer-owned).</li>
+      <li>In force now / from 2026-08-02: Art 5, Art 4, Art 50 (1)(4).</li>
+      <li>Digital Omnibus: Provisional agreement reached by the European Parliament and Council on 2026-05-07; NOT yet formally adopted and NOT yet published in the Official Journal as of 2026-06-24.</li>
+      <li>Governance readiness is not legal compliance — compliance is the deployer's.</li>
+      </ul>
+    </section>
+    <footer>Every rating is computed from the eval suite — no score is asserted without the evidence shown beneath it.</footer>
+  </main>
+</body>
+</html>

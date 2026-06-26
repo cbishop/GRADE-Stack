@@ -46,6 +46,16 @@ import {
 } from "@grade-stack/scorecard";
 import { Command } from "commander";
 import { connectSupportTools, runReferenceAgent, SAMPLE_EMAIL, selectTool } from "reference-agent";
+// Governance mappings are imported (bundled into the build), not read from disk:
+// a relative path resolved against import.meta.url breaks once the CLI is bundled
+// to dist/ (it overshoots the repo root). Bundling the JSON makes the built
+// binary self-contained and the scorecard reproducible anywhere. See ADR 0014.
+import euAiActModuleRaw from "../../../governance/eu-ai-act/eu-ai-act-deployer-2026.json" with {
+  type: "json",
+};
+import owaspMappingRaw from "../../../governance/owasp/owasp-agentic-top10-2026.json" with {
+  type: "json",
+};
 
 // Arm the air-gap egress guard before anything runs, so *every* command honors
 // RELIABILITY_AIRGAP=1 (Phase 3D) — not just `sovereign verify`. A no-op when off.
@@ -58,28 +68,14 @@ program
   .description("GRADE-Stack CLI — reliability tooling for mid-market AI agents")
   .version("0.0.0");
 
-/** Committed OWASP Agentic Top 10 → stack mapping (Phase 3A), resolved by path. */
-const OWASP_MAPPING_URL = new URL(
-  "../../../governance/owasp/owasp-agentic-top10-2026.json",
-  import.meta.url,
-);
-
-/** Load + validate the committed OWASP mapping and reduce it to guardrail coverage. */
-async function loadGuardrailCoverage() {
-  const raw = await Bun.file(OWASP_MAPPING_URL).json();
-  return computeGuardrailCoverage(parseOwaspMapping(raw));
+/** Validate the bundled OWASP mapping (Phase 3A) and reduce it to guardrail coverage. */
+function loadGuardrailCoverage() {
+  return computeGuardrailCoverage(parseOwaspMapping(owaspMappingRaw));
 }
 
-/** Committed EU AI Act deployer module (Phase 3C), resolved by path. */
-const EU_AI_ACT_MODULE_URL = new URL(
-  "../../../governance/eu-ai-act/eu-ai-act-deployer-2026.json",
-  import.meta.url,
-);
-
-/** Load + validate the committed EU AI Act module and reduce it to governance readiness. */
-async function loadGovernanceReadiness() {
-  const raw = await Bun.file(EU_AI_ACT_MODULE_URL).json();
-  return computeGovernanceReadiness(parseEuAiActModule(raw));
+/** Validate the bundled EU AI Act module (Phase 3C) and reduce it to governance readiness. */
+function loadGovernanceReadiness() {
+  return computeGovernanceReadiness(parseEuAiActModule(euAiActModuleRaw));
 }
 
 const agent = program.command("agent").description("Run and inspect the reference agent");
@@ -382,8 +378,8 @@ sovereign
         );
         const card = buildScorecard(evalResult, {
           observability: coverage,
-          guardrails: await loadGuardrailCoverage(),
-          governance: await loadGovernanceReadiness(),
+          guardrails: loadGuardrailCoverage(),
+          governance: loadGovernanceReadiness(),
         });
         console.log(
           `  ${ok(true)} scorecard: overall ${card.overall.rating} — ${card.overall.headline}\n`,
@@ -666,8 +662,8 @@ program
       // Guardrail coverage (OWASP, Phase 3A) and Governance readiness (EU AI Act,
       // Phase 3C) are derived from the committed governance mappings — properties of
       // the stack's mechanisms, independent of which model answered.
-      const guardrails = await loadGuardrailCoverage();
-      const governance = await loadGovernanceReadiness();
+      const guardrails = loadGuardrailCoverage();
+      const governance = loadGovernanceReadiness();
 
       const card = buildScorecard(result, {
         degraded: opts.degraded,

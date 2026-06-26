@@ -17,7 +17,7 @@ import { type CaseResult, type EvalRunResult, priceFor } from "@grade-stack/eval
 import type { GovernanceReadiness } from "./eu-ai-act.ts";
 import type { GuardrailCoverage } from "./owasp.ts";
 import type { Dimension, Rating, Scorecard } from "./types.ts";
-import { RATING_RANK } from "./types.ts";
+import { RATING_LABEL, RATING_RANK } from "./types.ts";
 
 /** Options for {@link buildScorecard}. */
 export interface ScorecardOptions {
@@ -89,6 +89,13 @@ function failingIds(cases: CaseResult[], limit = 4): string[] {
   return [...failing.slice(0, limit), `+${failing.length - limit} more`];
 }
 
+const RELIABILITY_HEADLINES: Record<Exclude<Rating, "not-assessed">, string> = {
+  strong: "The agent handles its task dependably across the test suite.",
+  adequate: "The agent usually succeeds, but a meaningful share of cases fail.",
+  "at-risk": "The agent fails too often to rely on without supervision.",
+  critical: "The agent fails the majority of cases — not fit for production.",
+};
+
 /**
  * Reliability — does the agent do its job? Derived from the pass rate, with a
  * flakiness guard: a barely-stable pass rate is downgraded one band.
@@ -99,14 +106,7 @@ function reliabilityDimension(result: EvalRunResult, stabilityFloor: number): Di
   const flaky = summary.meanStability < stabilityFloor;
   if (flaky && rating !== "critical") rating = downgrade(rating);
 
-  const headline =
-    rating === "strong"
-      ? "The agent handles its task dependably across the test suite."
-      : rating === "adequate"
-        ? "The agent usually succeeds, but a meaningful share of cases fail."
-        : rating === "at-risk"
-          ? "The agent fails too often to rely on without supervision."
-          : "The agent fails the majority of cases — not fit for production.";
+  const headline = RELIABILITY_HEADLINES[rating];
 
   const evidence = [
     `${summary.passed} of ${summary.total} test cases passed (${pct(summary.passRate)}).`,
@@ -138,6 +138,13 @@ function costBand(waste: number): Exclude<Rating, "not-assessed"> {
   if (waste < 0.5) return "at-risk";
   return "critical";
 }
+
+const COST_HEADLINES: Record<Exclude<Rating, "not-assessed">, string> = {
+  strong: "Almost every dollar spent produces a usable result.",
+  adequate: "Most spend is productive, but failures add a real tax to each success.",
+  "at-risk": "A large share of spend produces nothing usable.",
+  critical: "Spend is mostly wasted — there is little or no successful output to pay for.",
+};
 
 /**
  * Cost discipline — how much money buys a *successful* outcome. The board-legible
@@ -171,14 +178,7 @@ function costDimension(result: EvalRunResult): Dimension {
         ? `${Math.round(cost.tokensPerSuccess ?? 0)} tokens ($0 list cost)`
         : `$${cost.usdPerSuccess.toFixed(5)} (${Math.round(cost.tokensPerSuccess ?? 0)} tokens)`;
 
-  const headline =
-    rating === "strong"
-      ? "Almost every dollar spent produces a usable result."
-      : rating === "adequate"
-        ? "Most spend is productive, but failures add a real tax to each success."
-        : rating === "at-risk"
-          ? "A large share of spend produces nothing usable."
-          : "Spend is mostly wasted — there is little or no successful output to pay for.";
+  const headline = COST_HEADLINES[rating];
 
   const basisLabel =
     cost.basis === "free"
@@ -205,6 +205,13 @@ function costDimension(result: EvalRunResult): Dimension {
   };
 }
 
+const OBSERVABILITY_HEADLINES: Record<Exclude<Rating, "not-assessed">, string> = {
+  strong: "Every step the agent takes is captured as one connected, inspectable trace.",
+  adequate: "Most of the agent's path is traced, but some steps aren't yet visible.",
+  "at-risk": "Traces exist but don't connect into one picture of a run — hard to debug.",
+  critical: "The agent emits no traces — its behavior can't be observed after the fact.",
+};
+
 /**
  * Observability coverage — can a team *see* what the agent did? Computed from
  * real trace coverage (Phase 2D): a connected plan → model → validation trace
@@ -226,14 +233,7 @@ function observabilityDimension(coverage: TraceCoverage): Dimension {
     rating = "at-risk";
   }
 
-  const headline =
-    rating === "strong"
-      ? "Every step the agent takes is captured as one connected, inspectable trace."
-      : rating === "adequate"
-        ? "Most of the agent's path is traced, but some steps aren't yet visible."
-        : rating === "at-risk"
-          ? "Traces exist but don't connect into one picture of a run — hard to debug."
-          : "The agent emits no traces — its behavior can't be observed after the fact.";
+  const headline = OBSERVABILITY_HEADLINES[rating];
 
   const phases = coverage.observedPhases.length > 0 ? coverage.observedPhases.join(" → ") : "none";
   const evidence = [
@@ -257,45 +257,78 @@ function observabilityDimension(coverage: TraceCoverage): Dimension {
   };
 }
 
-/** Map a weighted OWASP coverage score in [0,1] to a guardrail band. */
-function guardrailBand(score: number): Exclude<Rating, "not-assessed"> {
+/**
+ * The standard 0–1 → band mapping shared by the mechanism-property dimensions
+ * (Guardrail coverage and Governance readiness): strong ≥0.9, adequate ≥0.7,
+ * at-risk ≥0.5, else critical. Reliability and Cost use their own thresholds.
+ */
+function standardBand(score: number): Exclude<Rating, "not-assessed"> {
   if (score >= 0.9) return "strong";
   if (score >= 0.7) return "adequate";
   if (score >= 0.5) return "at-risk";
   return "critical";
 }
 
+const GUARDRAIL_HEADLINES: Record<Exclude<Rating, "not-assessed">, string> = {
+  strong:
+    "The stack addresses nearly every applicable OWASP agentic threat with a named mechanism.",
+  adequate:
+    "Every applicable OWASP agentic threat has a mechanism, though several are only partly covered.",
+  "at-risk":
+    "Real guardrails exist, but coverage of the applicable OWASP agentic threats is incomplete — known gaps remain.",
+  critical: "Most applicable OWASP agentic threats have no mechanism in this stack.",
+};
+
 /**
  * Guardrail coverage — how much of the OWASP Agentic Top 10 the stack's
- * mechanisms actually address (Phase 3A). Computed from the committed
- * `governance/owasp` mapping: covered counts full, partial half, gaps nothing.
- * Every flagged gap is named in the evidence so the rating is never a black box,
- * and the OWASP edition is cited so the score is anchored to a known taxonomy.
+ * mechanisms actually address (Phase 3A; scoring revised per ADR 0013). Computed
+ * from the committed `governance/owasp` mapping over the **applicable** threats:
+ * covered counts full, partial half, gaps nothing. Threats out of architectural
+ * scope (no such capability in a single-agent, stateless stack) are reported as
+ * boundaries, never as gaps to close, and never drag the denominator. A "no true
+ * gaps" floor keeps the rating at least Adequate when every applicable threat has
+ * a mechanism — shallow coverage is not a hole. Every gap, partial, and out-of-
+ * scope id is named so the rating is never a black box, and the OWASP edition is
+ * cited so the score is anchored to a known taxonomy.
  */
 function guardrailsDimension(coverage: GuardrailCoverage): Dimension {
-  const rating = guardrailBand(coverage.score);
+  let rating = standardBand(coverage.score);
+  // "No true gaps" floor (ADR 0013): if every applicable threat has at least a
+  // named mechanism (zero unaddressed gaps), the stack cannot be worse than
+  // Adequate on guardrails. Partial (shallow) coverage is not the same as a hole.
+  const noTrueGaps = coverage.scoredCount > 0 && coverage.gaps === 0;
+  if (noTrueGaps && RATING_RANK[rating] < RATING_RANK.adequate) {
+    rating = "adequate";
+  }
 
-  const headline =
-    rating === "strong"
-      ? "The stack addresses nearly every OWASP agentic threat with a named mechanism."
-      : rating === "adequate"
-        ? "Most OWASP agentic threats have a mechanism, but several are only partly covered."
-        : rating === "at-risk"
-          ? "Real guardrails exist, but coverage of the OWASP agentic threats is incomplete — known gaps remain."
-          : "Most OWASP agentic threats have no mechanism in this stack.";
+  const headline = GUARDRAIL_HEADLINES[rating];
 
   const evidence = [
     `Mapped against the ${coverage.taxonomy} (${coverage.version}, published ${coverage.publishedAt}).`,
-    `${coverage.covered} of ${coverage.total} threats fully covered, ${coverage.partial} partial, ` +
-      `${coverage.gaps} flagged as gaps (weighted coverage ${pct(coverage.score)}).`,
+    `${coverage.scoredCount} of ${coverage.total} threats apply to this architecture; of those, ` +
+      `${coverage.covered} fully covered, ${coverage.partial} partial, ${coverage.gaps} unaddressed ` +
+      `(weighted coverage ${pct(coverage.score)}; bands: strong ≥90%, adequate ≥70%, at-risk ≥50%).`,
   ];
   if (coverage.gapIds.length > 0) {
     evidence.push(
-      `Explicit gaps to close before a fuller deployment: ${coverage.gapIds.join(", ")}.`,
+      `Unaddressed applicable threats to close before deployment: ${coverage.gapIds.join(", ")}.`,
+    );
+  } else if (coverage.scoredCount > 0) {
+    evidence.push(
+      "Zero applicable threats are unaddressed — every applicable threat has a named mechanism.",
     );
   }
   if (coverage.partialIds.length > 0) {
-    evidence.push(`Partially covered: ${coverage.partialIds.join(", ")}.`);
+    evidence.push(
+      `Partially covered (named residual gap each): ${coverage.partialIds.join(", ")}.`,
+    );
+  }
+  if (coverage.outOfScopeIds.length > 0) {
+    evidence.push(
+      `Out of architectural scope — not deficiencies: ${coverage.outOfScopeIds.join(", ")}. ` +
+        "These target capabilities a single-agent, stateless stack does not include; they become " +
+        "relevant only if a deployment adds them (e.g. persistent memory/RAG, multi-agent messaging).",
+    );
   }
 
   return {
@@ -308,13 +341,15 @@ function guardrailsDimension(coverage: GuardrailCoverage): Dimension {
   };
 }
 
-/** Map a weighted EU AI Act readiness score in [0,1] to a governance band. */
-function governanceBand(score: number): Exclude<Rating, "not-assessed"> {
-  if (score >= 0.9) return "strong";
-  if (score >= 0.7) return "adequate";
-  if (score >= 0.5) return "at-risk";
-  return "critical";
-}
+const GOVERNANCE_HEADLINES: Record<Exclude<Rating, "not-assessed">, string> = {
+  strong:
+    "The stack readies a deployer for nearly every supportable EU AI Act obligation — compliance itself stays the deployer's.",
+  adequate:
+    "The stack readies a deployer for the technical EU AI Act duties; the legal duties remain the deployer's.",
+  "at-risk":
+    "The stack covers some EU AI Act readiness, but much remains the deployer's program work.",
+  critical: "The stack provides little EU AI Act readiness on its own.",
+};
 
 /**
  * Governance readiness — how ready the stack makes a deployer for the EU AI Act
@@ -325,16 +360,9 @@ function governanceBand(score: number): Exclude<Rating, "not-assessed"> {
  * This rates *readiness*, never legal compliance — which is always the deployer's.
  */
 function governanceDimension(readiness: GovernanceReadiness): Dimension {
-  const rating = governanceBand(readiness.score);
+  const rating = standardBand(readiness.score);
 
-  const headline =
-    rating === "strong"
-      ? "The stack readies a deployer for nearly every supportable EU AI Act obligation — compliance itself stays the deployer's."
-      : rating === "adequate"
-        ? "The stack readies a deployer for the technical EU AI Act duties; the legal duties remain the deployer's."
-        : rating === "at-risk"
-          ? "The stack covers some EU AI Act readiness, but much remains the deployer's program work."
-          : "The stack provides little EU AI Act readiness on its own.";
+  const headline = GOVERNANCE_HEADLINES[rating];
 
   const evidence = [
     `Mapped against the ${readiness.framework} (${readiness.regulation}), re-verified ${readiness.retrievedAt}.`,
@@ -394,14 +422,16 @@ function overallVerdict(dimensions: Dimension[]): Scorecard["overall"] {
   const worst = assessed.reduce((acc, d) =>
     RATING_RANK[d.rating] < RATING_RANK[acc.rating] ? d : acc,
   );
+  // Name the dimension that set the verdict, so a reader knows where to look.
+  const driver = `Weakest dimension: ${worst.title} (${RATING_LABEL[worst.rating]}).`;
   const headline =
     worst.rating === "strong"
       ? "On the evidence available today, the agent looks production-ready."
       : worst.rating === "adequate"
-        ? "Workable, but with gaps a team should close before relying on it unsupervised."
+        ? `Workable, but with gaps a team should close before relying on it unsupervised. ${driver}`
         : worst.rating === "at-risk"
-          ? "Not ready for unsupervised production use — the weakest dimension needs work."
-          : "Not production-ready — a core dimension is failing.";
+          ? `Not ready for unsupervised production use — the weakest dimension needs work. ${driver}`
+          : `Not production-ready — a core dimension is failing. ${driver}`;
   return { rating: worst.rating, headline };
 }
 

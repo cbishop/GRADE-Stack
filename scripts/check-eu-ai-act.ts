@@ -19,53 +19,43 @@
  *      caveat.
  *
  * Wired into `bun run check`, which CI runs. "Mechanisms, not prose": this is what
- * keeps the EU AI Act readout honest and in-sync. It owns only this check.
+ * keeps the EU AI Act readout honest and in-sync. It delegates the shared flow to
+ * `checkGovernanceMapping` (ADR 0014) and owns only the EU-specific spec.
  */
 
 import { parseEuAiActModule } from "../packages/scorecard/src/eu-ai-act.ts";
+import { checkGovernanceMapping } from "./check-governance-mapping.ts";
 
-const JSON_PATH = "governance/eu-ai-act/eu-ai-act-deployer-2026.json";
-const README_PATH = "governance/eu-ai-act/README.md";
-
-function fail(message: string): never {
-  console.error(`✖ EU AI Act check failed — ${message}`);
-  console.error('\nSee docs/PLAN-Grade-Stack-v2.md → "Enforcement-mechanism register".');
-  process.exit(1);
-}
-
-let mod: ReturnType<typeof parseEuAiActModule>;
-try {
-  mod = parseEuAiActModule(await Bun.file(JSON_PATH).json());
-} catch (err) {
-  fail(`${JSON_PATH}: ${err instanceof Error ? err.message : String(err)}`);
-}
-
-// The credibility-critical facts that must survive into the human-readable readout.
-const readme = await Bun.file(README_PATH).text();
-const required = [
-  mod.regulation, // "Regulation (EU) 2024/1689"
-  "Digital Omnibus",
-  "2026-08-02",
-  "€35", // Tier 1 cap
-  "€15", // Tier 2 cap
-  "€7.5", // Tier 3 cap
-];
-const missing = required.filter((t) => !readme.includes(t));
-if (missing.length > 0) {
-  fail(`${README_PATH} is missing credibility-critical facts: ${missing.join(", ")}`);
-}
-if (
-  !/not legal advice|not a compliance certificate|legal compliance is the deploy|compliance is the deploy/i.test(
-    readme,
-  )
-) {
-  fail(
-    `${README_PATH} must state that the readout is not legal compliance (deployer's responsibility)`,
-  );
-}
-
-const scored = mod.obligations.filter((o) => o.scored);
-console.log(
-  `✓ EU AI Act check passed — ${mod.regulation} (deployer lens): ${mod.obligations.length} obligations ` +
-    `(${scored.length} scored), 3 penalty tiers intact, README states the re-verified facts.`,
+// Re-parse to read the regulation id for the required-token list (cheap; the
+// runner re-reads + validates the file itself — this just sources one fact).
+const mod = parseEuAiActModule(
+  await Bun.file("governance/eu-ai-act/eu-ai-act-deployer-2026.json").json(),
 );
+
+await checkGovernanceMapping({
+  label: "EU AI Act",
+  jsonPath: "governance/eu-ai-act/eu-ai-act-deployer-2026.json",
+  readmePath: "governance/eu-ai-act/README.md",
+  parse: parseEuAiActModule,
+  requiredReadmeTokens: [
+    mod.regulation, // "Regulation (EU) 2024/1689"
+    "Digital Omnibus",
+    "2026-08-02",
+    "€35", // Tier 1 cap
+    "€15", // Tier 2 cap
+    "€7.5", // Tier 3 cap
+  ],
+  extraReadmeCheck: (readme) =>
+    /not legal advice|not a compliance certificate|legal compliance is the deploy|compliance is the deploy/i.test(
+      readme,
+    )
+      ? null
+      : "must state that the readout is not legal compliance (deployer's responsibility)",
+  summary: (m) => {
+    const scored = m.obligations.filter((o) => o.scored);
+    return (
+      `${m.regulation} (deployer lens): ${m.obligations.length} obligations ` +
+      `(${scored.length} scored), 3 penalty tiers intact, README states the re-verified facts.`
+    );
+  },
+});

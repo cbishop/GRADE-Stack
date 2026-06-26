@@ -301,50 +301,107 @@ function guard(p: Partial<GuardrailCoverage> = {}): GuardrailCoverage {
     publishedAt: p.publishedAt ?? "2025-12-09",
     sourceUrl: p.sourceUrl ?? "https://genai.owasp.org/",
     total: p.total ?? 10,
+    scoredCount: p.scoredCount ?? 10,
     covered: p.covered ?? 9,
     partial: p.partial ?? 1,
     gaps: p.gaps ?? 0,
+    outOfScope: p.outOfScope ?? 0,
     score: p.score ?? 0.95,
     gapIds: p.gapIds ?? [],
     partialIds: p.partialIds ?? ["ASI09:2026"],
+    outOfScopeIds: p.outOfScopeIds ?? [],
   };
 }
 
-describe("Guardrail dimension (Phase 3A)", () => {
+describe("Guardrail dimension (Phase 3A; scoring revised — ADR 0013)", () => {
   test("stays a not-assessed stub when no coverage is supplied", () => {
     const d = dim(buildScorecard(makeResult(12, 12)), "guardrails");
     expect(d.assessed).toBe(false);
     expect(d.rating).toBe("not-assessed");
   });
 
-  test("bands track the weighted OWASP coverage score", () => {
+  test("bands track the weighted OWASP coverage score (when real gaps exist)", () => {
+    // A real gap present, so the no-true-gaps floor does not apply.
     const rating = (score: number) =>
-      dim(buildScorecard(makeResult(12, 12), { guardrails: guard({ score }) }), "guardrails")
-        .rating;
+      dim(
+        buildScorecard(makeResult(12, 12), {
+          guardrails: guard({ score, gaps: 1, gapIds: ["ASI01:2026"] }),
+        }),
+        "guardrails",
+      ).rating;
     expect(rating(0.95)).toBe("strong");
     expect(rating(0.8)).toBe("adequate");
     expect(rating(0.5)).toBe("at-risk");
     expect(rating(0.3)).toBe("critical");
   });
 
+  test("no-true-gaps floor: zero unaddressed applicable threats → at least Adequate", () => {
+    // The committed reference shape: 2 covered + 6 partial scored, 2 out of scope,
+    // 0 gaps → weighted 0.625 (at-risk band) but floored to Adequate because every
+    // applicable threat has a mechanism.
+    const d = dim(
+      buildScorecard(makeResult(12, 12), {
+        guardrails: guard({
+          score: 0.625,
+          scoredCount: 8,
+          covered: 2,
+          partial: 6,
+          gaps: 0,
+          outOfScope: 2,
+          partialIds: ["ASI01:2026"],
+          outOfScopeIds: ["ASI06:2026", "ASI07:2026"],
+        }),
+      }),
+      "guardrails",
+    );
+    expect(d.rating).toBe("adequate");
+    const text = d.evidence.join(" ");
+    expect(text).toContain("Zero applicable threats are unaddressed");
+  });
+
+  test("out-of-scope threats are reported as boundaries, not gaps to close", () => {
+    const d = dim(
+      buildScorecard(makeResult(12, 12), {
+        guardrails: guard({
+          score: 0.625,
+          scoredCount: 8,
+          covered: 2,
+          partial: 6,
+          gaps: 0,
+          outOfScope: 2,
+          outOfScopeIds: ["ASI06:2026", "ASI07:2026"],
+        }),
+      }),
+      "guardrails",
+    );
+    const text = d.evidence.join(" ");
+    expect(text).toContain("Out of architectural scope");
+    expect(text).toContain("ASI06:2026");
+    expect(text).toContain("ASI07:2026");
+    // The out-of-scope ids must NOT be presented as gaps to close.
+    expect(text).not.toContain("Unaddressed applicable threats to close");
+  });
+
   test("cites the OWASP edition and names every flagged gap in the evidence", () => {
     const card = buildScorecard(makeResult(12, 12), {
       guardrails: guard({
         score: 0.5,
+        scoredCount: 8,
         covered: 2,
-        partial: 6,
-        gaps: 2,
-        gapIds: ["ASI06:2026", "ASI07:2026"],
+        partial: 5,
+        gaps: 1,
+        outOfScope: 2,
+        gapIds: ["ASI04:2026"],
         partialIds: ["ASI01:2026"],
+        outOfScopeIds: ["ASI06:2026", "ASI07:2026"],
       }),
     });
     const d = dim(card, "guardrails");
     expect(d.assessed).toBe(true);
-    expect(d.rating).toBe("at-risk");
+    expect(d.rating).toBe("at-risk"); // a real gap → no floor
     const text = d.evidence.join(" ");
     expect(text).toContain("2026");
-    expect(text).toContain("ASI06:2026");
-    expect(text).toContain("ASI07:2026");
+    expect(text).toContain("ASI04:2026");
     // Lighting up guardrails alongside observability brings the count to four.
     expect(
       buildScorecard(makeResult(12, 12), { guardrails: guard(), observability: cov() }).meta
