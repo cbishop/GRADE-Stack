@@ -1,8 +1,15 @@
 # ADR 0009 — OWASP Agentic Top 10: taxonomy pin, mapping format, and guardrail-coverage scoring
 
-- **Status:** Accepted
+- **Status:** Accepted; **§4 (scoring) superseded by [ADR 0013](0013-owasp-guardrail-scoring-v2-applicability-and-no-true-gaps-floor.md)**
 - **Date:** 2026-06-23
 - **Phase:** 3A (OWASP Agentic Top 10 mapping)
+
+> **Superseded in part (2026-06-25).** The scoring in §4 below — a fixed 10-item
+> denominator with ASI06/ASI07 scored as `gap` — was found by the post-mortem to
+> present an architectural boundary as a deficiency. [ADR 0013](0013-owasp-guardrail-scoring-v2-applicability-and-no-true-gaps-floor.md)
+> replaces it with a `scored` applicability axis (score over applicable threats
+> only) and a "no true gaps" floor. The taxonomy pin (§1), mapping format (§2),
+> and "no silent omissions" mechanism (§3) below remain in force.
 
 ## Context
 

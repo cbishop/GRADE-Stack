@@ -379,6 +379,23 @@ The highest-leverage phase — the foundation everything else builds on.
 **Decisions during Phase 3D:** "no cloud dependency" is enforced as a **mechanism** — an in-process egress guard (`fetch`→non-loopback throws), armed by one env var and proven *live* by a cloud canary in `sovereign verify`, not asserted in prose; it composes with 2C credential isolation (guard covers `fetch`; the AWS SDK fails for lack of creds) rather than patching Node's HTTP layer; off by default so the CI gate and cloud path are untouched; no new package — the guard lives in `@grade-stack/core`, which owns the network seam. The OS-level network-off run is **documented** as an independent confirmation, not the binding mechanism ([ADR 0012](decisions/0012-airgap-egress-guard-and-sovereign-variant.md)).
 
 > **Phase 3 gate:** ✅ **Met at Phase 3C** (2026-06-24) — the full scorecard now produces an end-to-end, evidence-backed readout across **all five dimensions** (Reliability, Cost discipline, Observability, Guardrail coverage, Governance readiness); none stubbed. Guardrail coverage (3A) and Governance readiness (3C) compute from the committed OWASP/EU-AI-Act mappings; the overall verdict is **At risk**, driven honestly by Guardrail coverage. *(NIST/3B is a standalone procurement artifact, not a scorecard dimension.)* **Phase 3 complete** with **3D — sovereign/on-prem variant** (2026-06-24): the full pipeline runs air-gapped on Ollama (egress guard + 2C credential isolation), proven by `reliability sovereign verify`.
+>
+> **Post-mortem update (2026-06-25):** the Guardrail-coverage scoring was revised (see remediation below) — the overall verdict is now **Adequate**, driven by *shallow* (partial) coverage rather than by mislabelling out-of-scope threats as gaps. Every applicable OWASP threat has a named mechanism; zero are unaddressed.
+
+---
+
+### Post-mortem remediation (Cycle 12)
+
+**Branch:** `post-mortem-remediation`
+
+A post-mortem code review (`docs/post-mortem.md`) found three issues; all fixed on this branch (local gate green: typecheck, Biome + 4 governance checks, **174 tests**, build). See [ADR 0013](decisions/0013-owasp-guardrail-scoring-v2-applicability-and-no-true-gaps-floor.md) and [ADR 0014](decisions/0014-bundled-governance-data-and-unified-mapping-validation.md).
+
+- [x] **OWASP guardrail scoring presented an architectural boundary as a deficiency.** ASI06 (Memory & Context Poisoning) and ASI07 (Inter-Agent Communication) target capabilities a single-agent, stateless stack does not have, yet were scored as `gap` in a fixed 10-item denominator → forced *At risk* and dragged the whole scorecard. *Fix:* a `scored` applicability axis (score over the **8 applicable** threats; the 2 out-of-scope reported as boundaries, with the architectural reason enforced in the Zod schema) **+ a "no true gaps" floor** (≥ Adequate when no applicable threat is unaddressed). Guardrail coverage is now **Adequate** and the overall scorecard **Adequate** — honestly, because every applicable threat has a named mechanism and zero are unaddressed. ([ADR 0013](decisions/0013-owasp-guardrail-scoring-v2-applicability-and-no-true-gaps-floor.md).)
+- [x] **The built binary could not produce a scorecard** — governance JSON was read from a path relative to `import.meta.url` that overshoots the repo root once bundled to `dist/` (`ENOENT`); only source runs worked, and nothing tested the artifact. *Fix:* import the mappings with `with { type: "json" }` so they are bundled (self-contained binary) **+ a built-binary smoke test** (`packages/cli/src/cli.smoke.test.ts`) that builds and runs `scorecard` against the artifact. ([ADR 0014](decisions/0014-bundled-governance-data-and-unified-mapping-validation.md).)
+- [x] **Three near-identical governance checks had drifted** (NIST validated by hand while OWASP/EU used Zod). *Fix:* a real NIST Zod schema (`packages/scorecard/src/nist.ts`, unit-tested), one shared `scripts/check-governance-mapping.ts` runner the three `check-*` scripts delegate to, one shared `scored`-flag model across all three modules, plus scorecard cleanups (one `standardBand`, headline lookup tables, overall verdict names its weakest dimension, band thresholds shown inline).
+- [x] **Artifact:** post-mortem + remediation posts (`content/cycle-12/`), and the per-cycle sample scorecard regenerated under `content/cycle-12/` (older cycle samples kept as point-in-time snapshots).
+
+**Decisions during remediation:** out-of-scope ≠ deficiency, enforced as a mechanism (unscored items must justify the architectural absence; CI prints the applicable/out-of-scope split); the "no true gaps" floor keys off *zero gaps* so it cannot launder a real deficiency; governance data is **compiled into** the CLI (not read from disk) so the shippable artifact is self-contained; all three governance modules share one `scored`/status model and one check runner ([ADR 0013](decisions/0013-owasp-guardrail-scoring-v2-applicability-and-no-true-gaps-floor.md), [ADR 0014](decisions/0014-bundled-governance-data-and-unified-mapping-validation.md)).
 
 ---
 
@@ -403,6 +420,9 @@ Maintain a running table in `docs/` (created in Phase 0 with its first entries) 
 | Every TS file documented | File-header check (SPDX + `@module`) in `bun run check` + CI | Phase 1D |
 | Tracing can't flake CI or break the air gap | OTLP export off by default — no tracer registered unless opted in (`RELIABILITY_OTEL`/endpoint) | Phase 2D |
 | Sovereign variant has no cloud dependency | Egress guard — under `RELIABILITY_AIRGAP=1`, `fetch` to a non-loopback host throws `EgressBlockedError` (composes with 2C credential isolation); proven live by `sovereign verify` | Phase 3D |
+| Out-of-scope OWASP threat ≠ a silent escape hatch | Zod `.refine` — an unscored (`scored: false`) threat must state its architectural reason in `residualGap`; `check-owasp-coverage.ts` prints the applicable/out-of-scope split | Post-mortem |
+| Built CLI binary actually works | Built-binary smoke test (`cli.smoke.test.ts`) builds + runs `scorecard` against the bundled artifact; governance data is bundled, not read from disk | Post-mortem |
+| Governance mappings stay validated & in-sync (one model) | One `scripts/check-governance-mapping.ts` runner + per-module Zod schemas (OWASP/NIST/EU), in `bun run check` + CI | Post-mortem |
 
 ### ADR log (`docs/decisions/`)
 
@@ -434,5 +454,6 @@ Run these from a clean clone at each phase boundary:
 - **Phase 2D:** a full run produces a connected trace in the OTLP backend; scorecard Observability rating is trace-derived.
 - **Phase 3A–C:** OWASP/NIST/EU mappings have no silent gaps and cite the versions/dates verified at build time; scorecard Guardrail coverage and Governance readiness are now computed, not stubbed.
 - **Phase 3D:** disable networking → full agent → evals → scorecard pipeline still completes on Ollama.
+- **Post-mortem:** `bun run build && bun dist/index.js scorecard --from <results.json>` produces a full five-dimension readout from the *built* binary (governance data bundled, not read from disk); Guardrail coverage scores over applicable threats with out-of-scope threats reported as boundaries (not gaps) and a no-true-gaps floor; `bun run check` runs all four governance checks through the shared runner.
 
 **Final gate — Global Definition of Done:** all sub-phase criteria checked; `bun run reliability` reflects every capability and the full suite passes CI; every cycle's artifact exists in `/content`; every deviation has an ADR; every "must never" is enforced by a mechanism.

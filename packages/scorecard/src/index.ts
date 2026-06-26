@@ -17,6 +17,14 @@ export {
   type StackSupport,
 } from "./eu-ai-act.ts";
 export {
+  NIST_FUNCTIONS,
+  NIST_RMF_IDS,
+  type NistCategory,
+  type NistMapping,
+  type NistSupport,
+  parseNistMapping,
+} from "./nist.ts";
+export {
   type CoverageStatus,
   computeGuardrailCoverage,
   type GuardrailCoverage,

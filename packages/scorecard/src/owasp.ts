@@ -7,10 +7,20 @@
  * Parses and validates the OWASP Agentic Top 10 → stack mapping
  * (`governance/owasp/owasp-agentic-top10-2026.json`) and reduces it to the
  * {@link GuardrailCoverage} summary the scorecard's Guardrail-coverage dimension
- * is computed from (Phase 3A). Pure: no I/O — callers read the JSON and hand the
- * parsed object in. The parse is strict on purpose: it is the "no silent
- * omissions" mechanism — every threat must be classified, every covered/partial
- * item must name a mechanism, and every partial/gap must state its residual gap.
+ * is computed from (Phase 3A; scoring revised post-mortem — see ADR 0013). Pure:
+ * no I/O — callers read the JSON and hand the parsed object in. The parse is
+ * strict on purpose: it is the "no silent omissions" mechanism — every threat
+ * must be classified, every covered/partial item must name a mechanism, and every
+ * partial/gap must state its residual gap.
+ *
+ * Each threat also carries a `scored` flag (the model shared with the EU AI Act
+ * module's `scored`, ADR 0014). A threat is `scored: false` only when it targets
+ * a capability this single-agent, stateless architecture does not implement
+ * (e.g. a long-term memory store, an agent-to-agent channel) — such a threat is
+ * **out of architectural scope, not a deficiency**, so it is reported but excluded
+ * from the weighted score's denominator. The `residualGap` of an unscored item
+ * must state why the capability is absent (enforced below), so "out of scope"
+ * can never be a silent escape hatch for an inconvenient gap.
  */
 
 import { z } from "zod";
@@ -44,6 +54,12 @@ const ItemSchema = z
     title: z.string().min(1),
     summary: z.string().min(1),
     status: z.enum(["covered", "partial", "gap"]),
+    /**
+     * Whether this threat counts toward the weighted coverage score. `false` only
+     * for threats that are out of architectural scope (the capability they target
+     * does not exist in this single-agent, stateless stack). Defaults to `true`.
+     */
+    scored: z.boolean().default(true),
     mechanisms: z.array(MechanismSchema),
     residualGap: z.string().min(1).optional(),
   })
@@ -55,6 +71,12 @@ const ItemSchema = z
   .refine((it) => it.status === "covered" || (it.residualGap?.length ?? 0) > 0, {
     // A partial or a gap is only honest if it states what is left uncovered.
     message: "partial/gap items must state a residualGap",
+    path: ["residualGap"],
+  })
+  .refine((it) => it.scored || (it.residualGap?.length ?? 0) > 0, {
+    // "Out of scope" is not a free pass: an unscored threat must state, on the
+    // record, why the capability it targets is architecturally absent.
+    message: "unscored (out-of-scope) items must state why in residualGap",
     path: ["residualGap"],
   });
 
@@ -109,40 +131,60 @@ export interface GuardrailCoverage {
   sourceUrl: string;
   /** Total threats in the taxonomy (10). */
   total: number;
+  /**
+   * Threats that apply to this architecture and count toward the score (the
+   * score's denominator). `total - scoredCount` threats are out of scope.
+   */
+  scoredCount: number;
+  /** Covered/partial/gap counts — over scored (applicable) threats only. */
   covered: number;
   partial: number;
   gaps: number;
-  /** Weighted coverage in [0,1]: covered=1, partial=0.5, gap=0. */
+  /** Out-of-scope (unscored) threats — reported, never counted as deficiencies. */
+  outOfScope: number;
+  /** Weighted coverage in [0,1] over scored threats: covered=1, partial=0.5, gap=0. */
   score: number;
-  /** Ids flagged as gaps, for the evidence trail. */
+  /** Ids flagged as gaps (scored threats only), for the evidence trail. */
   gapIds: string[];
-  /** Ids only partially covered, for the evidence trail. */
+  /** Ids only partially covered (scored threats only), for the evidence trail. */
   partialIds: string[];
+  /** Ids out of architectural scope, for the evidence trail (not deficiencies). */
+  outOfScopeIds: string[];
 }
 
-/** Reduce a validated mapping to the coverage summary the scorecard rates. */
+/**
+ * Reduce a validated mapping to the coverage summary the scorecard rates. The
+ * weighted score is taken over **scored (applicable)** threats only — out-of-scope
+ * threats are reported via {@link GuardrailCoverage.outOfScopeIds} but never drag
+ * the denominator, so a threat the architecture cannot face is not mislabelled a
+ * gap to close (post-mortem fix; ADR 0013).
+ */
 export function computeGuardrailCoverage(mapping: OwaspMapping): GuardrailCoverage {
   const w = mapping.scoreWeights;
   const weightFor = (s: CoverageStatus): number =>
     s === "covered" ? w.covered : s === "partial" ? w.partial : w.gap;
 
-  const total = mapping.items.length;
-  const covered = mapping.items.filter((it) => it.status === "covered").length;
-  const partial = mapping.items.filter((it) => it.status === "partial").length;
-  const gaps = mapping.items.filter((it) => it.status === "gap").length;
-  const weight = mapping.items.reduce((s, it) => s + weightFor(it.status), 0);
+  const scored = mapping.items.filter((it) => it.scored);
+  const outOfScopeItems = mapping.items.filter((it) => !it.scored);
+  const covered = scored.filter((it) => it.status === "covered").length;
+  const partial = scored.filter((it) => it.status === "partial").length;
+  const gaps = scored.filter((it) => it.status === "gap").length;
+  const weight = scored.reduce((s, it) => s + weightFor(it.status), 0);
 
   return {
     taxonomy: mapping.taxonomy,
     version: mapping.version,
     publishedAt: mapping.publishedAt,
     sourceUrl: mapping.sourceUrl,
-    total,
+    total: mapping.items.length,
+    scoredCount: scored.length,
     covered,
     partial,
     gaps,
-    score: total === 0 ? 0 : weight / total,
-    gapIds: mapping.items.filter((it) => it.status === "gap").map((it) => it.id),
-    partialIds: mapping.items.filter((it) => it.status === "partial").map((it) => it.id),
+    outOfScope: outOfScopeItems.length,
+    score: scored.length === 0 ? 0 : weight / scored.length,
+    gapIds: scored.filter((it) => it.status === "gap").map((it) => it.id),
+    partialIds: scored.filter((it) => it.status === "partial").map((it) => it.id),
+    outOfScopeIds: outOfScopeItems.map((it) => it.id),
   };
 }
