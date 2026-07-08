@@ -18,6 +18,7 @@ import {
   type GatewayGenerateResponse,
 } from "@grade-stack/core";
 import { GatewayService, type GatewayServiceOptions } from "./gateway.ts";
+import { resolveRouterFromEnv } from "./router.ts";
 
 export interface GatewayServeOptions extends GatewayServiceOptions {
   /** Port to bind; 0 (default) picks a free port — handy for tests. */
@@ -44,7 +45,10 @@ function json(body: GatewayGenerateResponse, status: number): Response {
  * runs the full guardrail pipeline before any model call.
  */
 export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
-  const service = new GatewayService(opts);
+  // An explicitly-injected router wins (tests); otherwise opt in from the env
+  // (`RELIABILITY_ROUTER=1`), leaving the default forward-only path untouched.
+  const router = opts.router ?? resolveRouterFromEnv();
+  const service = new GatewayService({ ...opts, router });
 
   const server = Bun.serve({
     port: opts.port ?? 0,

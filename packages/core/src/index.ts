@@ -54,6 +54,7 @@ export {
   type GatewayGenerateResponse,
   GatewayProvider,
   type GatewayProviderOptions,
+  type GatewayRouting,
   type GatewayViolation,
   GuardrailError,
 } from "./providers/gateway.ts";

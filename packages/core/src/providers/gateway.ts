@@ -37,9 +37,28 @@ export interface GatewayViolation {
   stage: "input" | "output";
 }
 
+/**
+ * Observability for a confidence-routed request (Week 3 router, ADR 0015).
+ * Present only when the gateway ran the self-consistency router; absent for a
+ * plain single-provider forward. Carries no model output — just the decision —
+ * so cost/reliability tooling (the scorecard) can read the escalation rate.
+ */
+export interface GatewayRouting {
+  /** Whether the low-confidence tail was escalated to the frontier provider. */
+  escalated: boolean;
+  /** Modal-agreement fraction of the local votes, in [0, 1] (invalid dilute). */
+  confidence: number;
+  /** How many local votes were drawn (N). */
+  samples: number;
+  /** How many of those votes parsed to a valid consensus key. */
+  validSamples: number;
+  /** Which real provider actually served the returned result. */
+  servedBy: ProviderName;
+}
+
 /** The gateway's response: either a (possibly redacted) result, or a violation. */
 export type GatewayGenerateResponse =
-  | { ok: true; result: GenerateResult; redactions: string[] }
+  | { ok: true; result: GenerateResult; redactions: string[]; routing?: GatewayRouting }
   | { ok: false; violation: GatewayViolation };
 
 /**
