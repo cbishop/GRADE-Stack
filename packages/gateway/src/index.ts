@@ -31,6 +31,14 @@ export {
   type InputDecision,
   type OutputDecision,
 } from "./policy.ts";
+export {
+  ConfidenceRouter,
+  DEFAULT_ROUTER_CONFIG,
+  type RouterConfig,
+  type RouterDecision,
+  type RouterProviders,
+  resolveRouterFromEnv,
+} from "./router.ts";
 export { isolatedAgentEnv, STRIPPED_CREDENTIAL_VARS } from "./sandbox.ts";
 
 /** Absolute path to the gateway server launcher — `bun <SERVER_BIN>` runs it. */

@@ -44,6 +44,50 @@ gateway automatically (the default from 2C). `RELIABILITY_GATEWAY=off` is a
 local-dev escape back to the direct provider. The hermetic `stub` provider is
 always direct, so the CI eval gate is untouched.
 
+## Confidence router (optional — reliability/cost routing)
+
+Off by default. When enabled, the gateway stops being a single-provider forwarder
+and becomes a **max-reliability / min-cost router** (see
+[ADR 0015](../../docs/decisions/0015-confidence-router-self-consistency-escalation.md)):
+a cheap **local** model handles the confident bulk of traffic and only the
+low-confidence tail escalates to a **frontier** provider. The guardrails still
+wrap whatever the router returns.
+
+The confidence signal is **self-consistency**, not log-probs: the local model is
+sampled N times at a non-zero temperature and the votes are checked for agreement
+on a *consensus key* — a configurable list of JSON fields (for triage, the three
+closed enums). High agreement keeps the local answer for \$0; agreement below the
+threshold escalates. In the Week 3 sweep this matched the frontier's enum
+exact-match while escalating ~15% of traffic — an 85% cost reduction.
+
+```bash
+# A routing gateway: local Ollama first, escalate the low-confidence tail to Bedrock.
+RELIABILITY_ROUTER=1 \
+RELIABILITY_ROUTER_LOCAL=ollama \
+RELIABILITY_ROUTER_ESCALATE_TO=bedrock \
+RELIABILITY_ROUTER_SAMPLES=5 \
+RELIABILITY_ROUTER_TEMPERATURE=0.7 \
+RELIABILITY_ROUTER_THRESHOLD=0.5 \
+RELIABILITY_ROUTER_CONSENSUS_FIELDS=category,priority,sentiment \
+  reliability gateway serve
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RELIABILITY_ROUTER` | *(off)* | `1`/`true`/`on` enables routing |
+| `RELIABILITY_ROUTER_LOCAL` | `ollama` | cheap first-pass tier (sampled N×) |
+| `RELIABILITY_ROUTER_ESCALATE_TO` | `bedrock` | frontier tier for the low-confidence tail |
+| `RELIABILITY_ROUTER_SAMPLES` | `5` | N self-consistency votes |
+| `RELIABILITY_ROUTER_TEMPERATURE` | `0.7` | sampling temperature (must be > 0) |
+| `RELIABILITY_ROUTER_THRESHOLD` | `0.5` | keep local when agreement ≥ this, else escalate |
+| `RELIABILITY_ROUTER_CONSENSUS_FIELDS` | `category,priority,sentiment` | JSON fields that define agreement (empty ⇒ whole-text) |
+
+Each response carries a `routing` block (`escalated`, `confidence`,
+`validSamples`, `servedBy`) so the scorecard can read the live escalation rate.
+Both tiers must clear the model allowlist. Routing fits classification/extraction
+(structured consensus); for free-text generation the fallback whole-text
+agreement rarely agrees and mostly escalates — hence opt-in.
+
 ## Prove both halves of the contract
 
 ```bash
