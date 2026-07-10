@@ -9,6 +9,22 @@ production. It is being built **in public**, one increment at a time: a naive
 reference agent first, then the reliability, observability, and governance layers
 that turn it into something a board can trust.
 
+## What GRADE stands for
+
+Five pillars, one per letter — the checks that separate a demo from a system in
+durable production:
+
+- **G — Governed.** You can show a board, an auditor, or a regulator who owns
+  the agent, what it is allowed to do, and how those limits are enforced.
+- **R — Reliable.** The agent behaves consistently under real conditions and
+  volume, not just in the one path that looked good in the demo.
+- **A — Agentic.** Right-sized agency: the agent has exactly the autonomy and
+  tool access its job requires, and nothing more.
+- **D — Deployed.** The system ships onto infrastructure a mid-market firm can
+  actually run and operate — observable end to end, not a black box.
+- **E — Evaluated.** Quality is measured before and after every change, so
+  improvement is provable and a regression cannot ship quietly.
+
 The CLI binary is named **`reliability`** — the product name (`GRADE-Stack`) and
 the command name (`reliability`) are intentionally different.
 
