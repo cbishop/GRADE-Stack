@@ -116,11 +116,11 @@ reliability-stack/
 - Commit the secret-scanning hook and verify it fires on a test secret.
 
 **Acceptance criteria**
-- [ ] `bun install && bun run reliability --help` works from a clean clone.
-- [ ] Reference agent completes its one task against both Bedrock and Ollama.
-- [ ] Secret-scan hook blocks a deliberately planted test secret.
-- [ ] Repo is public; README states the POV.
-- [ ] **Build-in-public artifact:** launch post ("I'm building the open reference stack for getting mid-market AI agents to production, in public — here's the repo and why") in `/content/cycle-00/`.
+- [x] `bun install && bun run reliability --help` works from a clean clone.
+- [x] Reference agent completes its one task against both Bedrock and Ollama.
+- [x] Secret-scan hook blocks a deliberately planted test secret.
+- [x] Repo is public; README states the POV.
+- [x] **Build-in-public artifact:** launch post ("I'm building the open reference stack for getting mid-market AI agents to production, in public — here's the repo and why") in `/content/cycle-00/`.
 
 **Out of scope:** any evals, tracing, MCP, gateway, governance. Resist all of it.
 
@@ -141,10 +141,10 @@ The highest-leverage phase. This is the foundation everything else builds on.
 - `reliability eval run` CLI subcommand.
 
 **Acceptance criteria**
-- [ ] `reliability eval run` executes the suite and emits structured (JSON) results.
-- [ ] Suite includes ≥1 null/refusal case and cases structurally identical to production inputs.
-- [ ] Results are reproducible across two runs (seeded / deterministic where possible).
-- [ ] **Artifact:** post on "the cheapest reliability win is making your agent measurable — here's a 10-case harness."
+- [x] `reliability eval run` executes the suite and emits structured (JSON) results.
+- [x] Suite includes ≥1 null/refusal case and cases structurally identical to production inputs.
+- [x] Results are reproducible across two runs (seeded / deterministic where possible).
+- [x] **Artifact:** post on "the cheapest reliability win is making your agent measurable — here's a 10-case harness."
 
 ### Phase 1B — CI gating + cost-per-success (Weeks 5–6)
 
@@ -156,10 +156,10 @@ The highest-leverage phase. This is the foundation everything else builds on.
 - `--max-turns` / loop-bounding on the reference agent to prevent runaway cost.
 
 **Acceptance criteria**
-- [ ] A PR that degrades agent quality below threshold is blocked by CI automatically.
-- [ ] `reliability eval run` reports cost-per-success per scenario.
-- [ ] Runaway loops are bounded and the bound is enforced, not suggested.
-- [ ] **Artifact:** post on "cost-per-success is the metric your board actually understands — why cost-per-call lies."
+- [x] A PR that degrades agent quality below threshold is blocked by CI automatically.
+- [x] `reliability eval run` reports cost-per-success per scenario.
+- [x] Runaway loops are bounded and the bound is enforced, not suggested.
+- [x] **Artifact:** post on "cost-per-success is the metric your board actually understands — why cost-per-call lies."
 
 ### Phase 1C — AI Reliability Scorecard v1 (Weeks 7–8) · *the executive-facing deliverable*
 
@@ -171,10 +171,10 @@ The highest-leverage phase. This is the foundation everything else builds on.
 - `reliability scorecard` CLI subcommand.
 
 **Acceptance criteria**
-- [ ] Running the scorecard against the reference agent produces a one-page readout an executive could read in 3 minutes.
-- [ ] Every rating traces to underlying eval evidence (no unsupported scores).
-- [ ] Ratings degrade honestly (a worse agent produces a worse scorecard).
-- [ ] **Artifact:** publish a sample scorecard + post: "How a board can tell if its AI agent is trustworthy — without reading a single trace." This is the flagship public artifact.
+- [x] Running the scorecard against the reference agent produces a one-page readout an executive could read in 3 minutes.
+- [x] Every rating traces to underlying eval evidence (no unsupported scores).
+- [x] Ratings degrade honestly (a worse agent produces a worse scorecard).
+- [x] **Artifact:** publish a sample scorecard + post: "How a board can tell if its AI agent is trustworthy — without reading a single trace." This is the flagship public artifact.
 
 **Phase 1 gate:** Do not proceed to Phase 2 until the scorecard has been published. *If the executive narrative isn't landing after ~8 weeks of consistent posting, the framing is too technical — refine the scorecard/narrative for the executive reader before adding any architecture scope.*
 

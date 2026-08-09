@@ -70,12 +70,12 @@ This is the step-by-step build runbook that turns the PRD's phases into ordered,
 
 These unblock the hooks, eval-gate, and CI that later phases assume.
 
-- [ ] Confirm **Bun** is installed (`bun --version`); install if absent.
-- [ ] **`git init`** — the repo is not yet under version control, and the secret-scan hook, eval-gate, and GitHub Actions CI all assume git. (A `.gitignore` is already present — node_modules, `.env*`, build output, `docs/internal/`, `.DS_Store`.)
-- [ ] **Activate the repo's git hooks:** `git config core.hooksPath .githooks`. This turns on the tracked `pre-commit` guard that blocks committing anything under `docs/internal/` (the internal-only strategy docs) — belt-and-suspenders alongside `.gitignore`.
-- [ ] Decide the **GitHub remote** and confirm **public** visibility (PRD requires a public repo). Create it but keep the first push for the end of Phase 0.
-- [ ] Confirm local model access: **Bedrock** credentials available via env (AWS profile / keys, region with Claude access) and **Ollama** running with at least one pulled model (e.g. `qwen3.5`, `deepseek-r1`, or `llama3.3`).
-- [ ] Decide the single **reference-agent task** to commit to for the whole build — recommended: *"triage an inbound support email and draft a structured response."* Everything downstream evaluates this one task.
+- [x] Confirm **Bun** is installed (`bun --version`); install if absent.
+- [x] **`git init`** — the repo is not yet under version control, and the secret-scan hook, eval-gate, and GitHub Actions CI all assume git. (A `.gitignore` is already present — node_modules, `.env*`, build output, `docs/internal/`, `.DS_Store`.)
+- [x] **Activate the repo's git hooks:** `git config core.hooksPath .githooks`. This turns on the tracked `pre-commit` guard that blocks committing anything under `docs/internal/` (the internal-only strategy docs) — belt-and-suspenders alongside `.gitignore`.
+- [x] Decide the **GitHub remote** and confirm **public** visibility (PRD requires a public repo). Create it but keep the first push for the end of Phase 0.
+- [x] Confirm local model access: **Bedrock** credentials available via env (AWS profile / keys, region with Claude access) and **Ollama** running with at least one pulled model (e.g. `qwen3.5`, `deepseek-r1`, or `llama3.3`).
+- [x] Decide the single **reference-agent task** to commit to for the whole build — recommended: *"triage an inbound support email and draft a structured response."* Everything downstream evaluates this one task.
 
 ---
 
@@ -109,11 +109,11 @@ These unblock the hooks, eval-gate, and CI that later phases assume.
 10. Make the repo public; push.
 
 **Acceptance criteria (PRD contract):**
-- [ ] `bun install && bun run reliability --help` works from a clean clone.
-- [ ] Reference agent completes its one task against **both** Bedrock and Ollama.
-- [ ] Secret-scan hook blocks a deliberately planted test secret.
-- [ ] Repo is public; README states the POV.
-- [ ] **Artifact:** launch post in `content/cycle-00/`.
+- [x] `bun install && bun run reliability --help` works from a clean clone.
+- [x] Reference agent completes its one task against **both** Bedrock and Ollama.
+- [x] Secret-scan hook blocks a deliberately planted test secret.
+- [x] Repo is public; README states the POV.
+- [x] **Artifact:** launch post in `content/cycle-00/`.
 
 ---
 
@@ -134,10 +134,10 @@ The highest-leverage phase — the foundation everything else builds on.
 6. **ADR checkpoint:** only if a named metric proves genuinely unavailable in promptfoo, record an ADR before reaching for the Python escape hatch. Otherwise stay TS-only.
 
 **Acceptance criteria:**
-- [ ] `reliability eval run` executes the suite and emits structured JSON results.
-- [ ] Suite includes ≥1 null/refusal case and cases structurally identical to production inputs.
-- [ ] Results reproducible across two runs (seeded/deterministic where possible).
-- [ ] **Artifact:** post — *"the cheapest reliability win is making your agent measurable — here's a 10-case harness."* (in `content/cycle-01/`).
+- [x] `reliability eval run` executes the suite and emits structured JSON results.
+- [x] Suite includes ≥1 null/refusal case and cases structurally identical to production inputs.
+- [x] Results reproducible across two runs (seeded/deterministic where possible).
+- [x] **Artifact:** post — *"the cheapest reliability win is making your agent measurable — here's a 10-case harness."* (in `content/cycle-01/`).
 
 ### Phase 1B — CI gating + cost-per-success (Weeks 5–6)
 
@@ -150,10 +150,10 @@ The highest-leverage phase — the foundation everything else builds on.
 4. **`--max-turns` / loop-bounding** on the reference agent; the bound is **enforced**, not suggested.
 
 **Acceptance criteria:**
-- [ ] A PR that degrades agent quality below threshold is **blocked by CI automatically**.
-- [ ] `reliability eval run` reports cost-per-success per scenario.
-- [ ] Runaway loops are bounded and the bound is enforced, not suggested.
-- [ ] **Artifact:** post — *"cost-per-success is the metric your board actually understands — why cost-per-call lies."* (in `content/cycle-02/`).
+- [x] A PR that degrades agent quality below threshold is **blocked by CI automatically**.
+- [x] `reliability eval run` reports cost-per-success per scenario.
+- [x] Runaway loops are bounded and the bound is enforced, not suggested.
+- [x] **Artifact:** post — *"cost-per-success is the metric your board actually understands — why cost-per-call lies."* (in `content/cycle-02/`).
 
 ### Phase 1C — AI Reliability Scorecard v1 (Weeks 7–8) · *the executive-facing deliverable*
 
@@ -167,10 +167,10 @@ The highest-leverage phase — the foundation everything else builds on.
 5. **Honest degradation:** verify a deliberately worsened agent produces a worse scorecard.
 
 **Acceptance criteria:**
-- [ ] Running the scorecard against the reference agent produces a one-page readout an executive could read in 3 minutes.
-- [ ] Every rating traces to underlying eval evidence (no unsupported scores).
-- [ ] Ratings degrade honestly (a worse agent → a worse scorecard).
-- [ ] **Artifact:** publish a sample scorecard + post — *"How a board can tell if its AI agent is trustworthy — without reading a single trace."* (the flagship public artifact; in `content/cycle-03/`).
+- [x] Running the scorecard against the reference agent produces a one-page readout an executive could read in 3 minutes.
+- [x] Every rating traces to underlying eval evidence (no unsupported scores).
+- [x] Ratings degrade honestly (a worse agent → a worse scorecard).
+- [x] **Artifact:** publish a sample scorecard + post — *"How a board can tell if its AI agent is trustworthy — without reading a single trace."* (the flagship public artifact; in `content/cycle-03/`).
 
 > **Phase 1 gate:** Do not proceed to Phase 2 until the scorecard is published. *If the executive narrative isn't landing after ~8 weeks of consistent posting, the framing is too technical — refine the scorecard/narrative for the executive reader before adding any architecture scope.*
 
@@ -189,9 +189,9 @@ The highest-leverage phase — the foundation everything else builds on.
 4. Verify the Phase 1A trace-level scoring still maps onto the now-explicit steps.
 
 **Acceptance:**
-- [ ] The pattern is documented as a reusable blueprint.
-- [ ] Eval scores **hold or improve** through the refactor.
-- [ ] **Artifact:** post on the planner/executor/validator pattern as the mid-market default (`content/cycle-04/`).
+- [x] The pattern is documented as a reusable blueprint.
+- [x] Eval scores **hold or improve** through the refactor.
+- [x] **Artifact:** post on the planner/executor/validator pattern as the mid-market default (`content/cycle-04/`).
 
 ### Phase 2B — MCP integration layer (Weeks 11–12)
 
@@ -202,9 +202,9 @@ The highest-leverage phase — the foundation everything else builds on.
 4. Document **transports**: stdio (local) and HTTP (remote).
 
 **Acceptance:**
-- [ ] Tool-vs-resource choice is defensible per the control model.
-- [ ] Tool descriptions drive selection; transports documented.
-- [ ] **Artifact:** post — *"the tool-vs-resource mistake every team makes with MCP."* (`content/cycle-05/`).
+- [x] Tool-vs-resource choice is defensible per the control model.
+- [x] Tool descriptions drive selection; transports documented.
+- [x] **Artifact:** post — *"the tool-vs-resource mistake every team makes with MCP."* (`content/cycle-05/`).
 
 ### Phase 2C — LLM gateway / guardrails (Weeks 13–14)
 
@@ -213,8 +213,8 @@ The highest-leverage phase — the foundation everything else builds on.
 2. **Prove server-side enforcement:** a guardrail violation is blocked at the gateway **even when the agent prompt is manipulated to bypass it** (this is the acceptance test, not a nice-to-have).
 
 **Acceptance:**
-- [ ] A guardrail violation is blocked at the gateway even under a bypass-attempt prompt.
-- [ ] **Artifact:** post on why guardrails belong in the gateway, not the prompt (`content/cycle-06/`).
+- [x] A guardrail violation is blocked at the gateway even under a bypass-attempt prompt.
+- [x] **Artifact:** post on why guardrails belong in the gateway, not the prompt (`content/cycle-06/`).
 
 ### Phase 2D — OpenTelemetry tracing (Weeks 15–16)
 
@@ -224,9 +224,9 @@ The highest-leverage phase — the foundation everything else builds on.
 3. Verify a full run yields a **connected trace**: plan → tool calls → validation.
 
 **Acceptance:**
-- [ ] A full agent run produces a connected trace (plan → tool calls → validation).
-- [ ] Observability rating is evidence-backed.
-- [ ] **Artifact:** post on observability vs. evals — *"you can see failures or prevent them; you need both."* (`content/cycle-07/`).
+- [x] A full agent run produces a connected trace (plan → tool calls → validation).
+- [x] Observability rating is evidence-backed.
+- [x] **Artifact:** post on observability vs. evals — *"you can see failures or prevent them; you need both."* (`content/cycle-07/`).
 
 > **Phase 2 milestone:** Package the assessment flow (run evals → generate scorecard → review architecture/guardrail/observability gaps) as a documented, repeatable **"Production-Readiness Assessment"** workflow in `docs/`.
 
@@ -244,8 +244,8 @@ The highest-leverage phase — the foundation everything else builds on.
 3. **No silent omissions:** each item is either covered (mechanism named) or explicitly flagged as a gap.
 
 **Acceptance:**
-- [ ] Each OWASP item is covered (with mechanism named) or explicitly flagged as a gap.
-- [ ] **Artifact:** post mapping the OWASP Agentic Top 10 to a real mid-market stack (`content/cycle-08/`).
+- [x] Each OWASP item is covered (with mechanism named) or explicitly flagged as a gap.
+- [x] **Artifact:** post mapping the OWASP Agentic Top 10 to a real mid-market stack (`content/cycle-08/`).
 
 ### Phase 3B — NIST AI RMF mapping (Weeks 19–20)
 
@@ -254,8 +254,8 @@ The highest-leverage phase — the foundation everything else builds on.
 2. Be **honest** about what the stack does and doesn't cover; frame for a **procurement reviewer**.
 
 **Acceptance:**
-- [ ] The mapping is honest about coverage gaps; framed for procurement.
-- [ ] **Artifact:** post — *"NIST AI RMF without the 100-page slog"* for mid-market (`content/cycle-09/`).
+- [x] The mapping is honest about coverage gaps; framed for procurement.
+- [x] **Artifact:** post — *"NIST AI RMF without the 100-page slog"* for mid-market (`content/cycle-09/`).
 
 ### Phase 3C — EU AI Act deployer readout (Weeks 21–22)
 
@@ -269,9 +269,9 @@ The highest-leverage phase — the foundation everything else builds on.
 3. The scorecard's **Governance readiness** dimension is now **computed from this module** (un-stub the last dimension).
 
 **Acceptance:**
-- [ ] The readout distinguishes current vs. deferred obligations and flags that the Omnibus is not yet law.
-- [ ] A mid-market CTO could act on the basics without a lawyer.
-- [ ] **Artifact:** post — *"What the EU AI Act actually requires of you in 2026 vs. 2027 (most advice gets this wrong)."* (`content/cycle-10/`).
+- [x] The readout distinguishes current vs. deferred obligations and flags that the Omnibus is not yet law.
+- [x] A mid-market CTO could act on the basics without a lawyer.
+- [x] **Artifact:** post — *"What the EU AI Act actually requires of you in 2026 vs. 2027 (most advice gets this wrong)."* (`content/cycle-10/`).
 
 ### Phase 3D — Sovereign / on-prem variant (Weeks 23–24)
 
@@ -281,9 +281,9 @@ The highest-leverage phase — the foundation everything else builds on.
 3. Document the cost/effort trade-off **honestly** — self-hosting carries materially more engineering effort and only pencils out above meaningful token volume; present as **directional, not a guarantee**.
 
 **Acceptance:**
-- [ ] The full pipeline runs with no cloud dependency.
-- [ ] The cost/effort trade-off is documented honestly (directional).
-- [ ] **Artifact:** post on the regulated/sovereign mid-market variant (`content/cycle-11/`).
+- [x] The full pipeline runs with no cloud dependency.
+- [x] The cost/effort trade-off is documented honestly (directional).
+- [x] **Artifact:** post on the regulated/sovereign mid-market variant (`content/cycle-11/`).
 
 > **Phase 3 gate:** the full scorecard (all five dimensions) now produces an end-to-end, evidence-backed readout. This is the complete reference stack.
 
