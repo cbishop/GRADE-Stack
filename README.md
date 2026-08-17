@@ -2,7 +2,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
-> **I help mid-market companies ship AI agents that are reliable, observable, and governed — the enterprise-grade version, right-sized for a company without an ML platform team.**
+> **I help mid-market companies ship AI agents that are reliable, observable, and governed: the enterprise-grade version, right-sized for a company without an ML platform team.**
 
 GRADE-Stack is the open reference stack for getting mid-market AI agents to
 production. It was built **in public** over 13 increments: a naive reference
@@ -13,26 +13,26 @@ walkthrough series is now running on
 
 ## What GRADE stands for
 
-Five pillars, one per letter — the checks that separate a demo from a system in
-durable production:
+Five pillars, one per letter, and the checks that separate a demo from a system
+in durable production:
 
-- **G — Governed.** You can show a board, an auditor, or a regulator who owns
+- **G · Governed.** You can show a board, an auditor, or a regulator who owns
   the agent, what it is allowed to do, and how those limits are enforced.
-- **R — Reliable.** The agent behaves consistently under real conditions and
-  volume, not just in the one path that looked good in the demo.
-- **A — Agentic.** Right-sized agency: the agent has exactly the autonomy and
+- **R · Reliable.** The agent behaves consistently under real conditions and
+  volume, not only in the one path that looked good in the demo.
+- **A · Agentic.** Right-sized agency: the agent has exactly the autonomy and
   tool access its job requires, and nothing more.
-- **D — Deployed.** The system ships onto infrastructure a mid-market firm can
-  actually run and operate — observable end to end, not a black box.
-- **E — Evaluated.** Quality is measured before and after every change, so
+- **D · Deployed.** The system ships onto infrastructure a mid-market firm can
+  actually run and operate: observable end to end, not a black box.
+- **E · Evaluated.** Quality is measured before and after every change, so
   improvement is provable and a regression cannot ship quietly.
 
-The CLI binary is named **`reliability`** — the product name (`GRADE-Stack`) and
+The CLI binary is named **`reliability`**: the product name (`GRADE-Stack`) and
 the command name (`reliability`) are intentionally different.
 
 ## Status
 
-✅ **Build complete — 13 cycles, all five pillars live.** What works today:
+✅ **Build complete: 13 cycles, all five pillars live.** What works today:
 
 - A provider abstraction (`@grade-stack/core`) through which **all** model calls
   flow, with **Amazon Bedrock** and **Ollama** implementations.
@@ -42,7 +42,7 @@ the command name (`reliability`) are intentionally different.
   [`docs/blueprint-planner-executor-validator.md`](docs/blueprint-planner-executor-validator.md)).
 - A **12-case eval harness** with an LLM judge, cost-per-success tracking, and a
   **CI gate** that fails the build on quality regressions (`packages/evals/`).
-- The **AI Reliability Scorecard** — a board-legible, evidence-backed rating
+- The **AI Reliability Scorecard**: a board-legible, evidence-backed rating
   across all five dimensions, rendered as CLI, Markdown, or printable HTML
   ([sample](content/cycle-12/sample-scorecard.md)) (`packages/scorecard/`).
 - An **LLM gateway** with server-side guardrails and structural credential
@@ -52,7 +52,7 @@ the command name (`reliability`) are intentionally different.
 - **OpenTelemetry tracing** (GenAI conventions; Phoenix by default) so every
   agent run is one connected, inspectable trace.
 - **Governance mappings with teeth**: OWASP Agentic Top 10 (2026), NIST AI RMF
-  1.0, and an EU AI Act deployer readout — each threat or obligation mapped to
+  1.0, and an EU AI Act deployer readout. Each threat or obligation maps to
   a concrete mechanism in this repo or an honest gap, enforced by CI checks
   (`governance/`).
 - A **sovereign / air-gapped variant** with a live egress-verification proof
