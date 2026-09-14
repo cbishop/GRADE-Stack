@@ -399,6 +399,18 @@ A post-mortem code review (`docs/post-mortem.md`) found three issues; all fixed 
 
 ---
 
+## Phase 4 — Agent kill switch & runtime revocation (planned)
+
+Net-new scope beyond this plan, opened after the OWASP mapping flagged the
+runtime gap (ASI08 "no circuit-breakers", ASI10 "no runtime kill-switch").
+Design accepted in [ADR 0015](decisions/0015-agent-identity-session-revocation-and-kill-switch.md);
+plan of record: [`PLAN-Phase-4-Kill-Switch.md`](PLAN-Phase-4-Kill-Switch.md)
+(sub-phases 4A identity/sessions → 4B kill lever/fire drill → 4C abort seam →
+4D tripwires). No cloud-specific implementation — the 2C gateway session is the
+revocable credential. Enforcement-register rows land here as each sub-phase ships.
+
+---
+
 ## Cross-cutting tracks (do not drop between phases)
 
 ### Enforcement-mechanism register
