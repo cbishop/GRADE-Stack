@@ -20,11 +20,39 @@ import type { GenerateRequest, GenerateResult, ModelProvider, ProviderName } fro
 /** The single endpoint the gateway exposes; the client and server share it. */
 export const GATEWAY_GENERATE_PATH = "/v1/generate";
 
+/** Header carrying the request id (Phase 4B); the gateway echoes it on every response. */
+export const REQUEST_ID_HEADER = "x-request-id";
+/** Header carrying the caller id (Phase 4B: trusted and logged as unverified; 4E authenticates it). */
+export const CALLER_ID_HEADER = "x-caller-id";
+
+/**
+ * Allowed shape for request, caller and session ids: short, and safe as a file
+ * name and inside a log line. Anything else is refused at the HTTP adapter.
+ */
+export const IDENTITY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
+
+/**
+ * Who and which request a gateway call belongs to (Phase 4B, ADR 0017). The
+ * request id links a decision-log line to its trace. In 4B the caller id is a
+ * self-asserted header, logged as unverified; Phase 4E authenticates it.
+ */
+export interface RequestContext {
+  requestId: string;
+  callerId?: string;
+  sessionId?: string;
+}
+
 /** The request envelope: which real provider to use, and the generation request. */
 export interface GatewayGenerateBody {
   /** The provider the gateway should call on the agent's behalf. */
   target: ProviderName;
   request: GenerateRequest;
+  /**
+   * Optional request identity in the body. The `x-request-id` / `x-caller-id`
+   * headers take precedence; the gateway generates a request id when neither
+   * supplies one.
+   */
+  context?: Partial<RequestContext>;
 }
 
 /** A guardrail decision the gateway refused to forward or return. */
@@ -86,6 +114,11 @@ export interface GatewayProviderOptions {
   target: ProviderName;
   /** Injectable for tests; defaults to global `fetch`. */
   fetchFn?: typeof fetch;
+  /**
+   * Caller id sent as `x-caller-id` on every request (Phase 4B), so the
+   * gateway's decision log can attribute the call. Unverified until 4E.
+   */
+  callerId?: string;
 }
 
 /**
@@ -101,6 +134,7 @@ export class GatewayProvider implements ModelProvider {
   readonly model: string;
   private readonly url: string;
   private readonly fetchFn: typeof fetch;
+  private readonly callerId?: string;
 
   constructor(opts: GatewayProviderOptions) {
     this.name = opts.target;
@@ -108,6 +142,7 @@ export class GatewayProvider implements ModelProvider {
     this.model = `gateway:${opts.target}`;
     this.url = opts.url.replace(/\/+$/, "");
     this.fetchFn = opts.fetchFn ?? fetch;
+    this.callerId = opts.callerId;
   }
 
   async generate(request: GenerateRequest): Promise<GenerateResult> {
@@ -117,7 +152,10 @@ export class GatewayProvider implements ModelProvider {
     try {
       res = await this.fetchFn(`${this.url}${GATEWAY_GENERATE_PATH}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(this.callerId ? { [CALLER_ID_HEADER]: this.callerId } : {}),
+        },
         body: JSON.stringify(body),
       });
     } catch (err) {
