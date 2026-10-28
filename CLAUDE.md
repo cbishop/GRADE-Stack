@@ -21,6 +21,11 @@ Current enforcement mechanisms:
   under `docs/internal/`; `.gitignore` keeps it from being staged by accident.
 - **Eval gate** — a placeholder no-op `Stop` hook today; wired to block on eval
   regressions in Phase 1B.
+- **Scorecard honesty (v3 4A)**: every scorecard criterion is either computed
+  with a cited record or stubbed with the v3 sub-phase that fills it in; the
+  closed `Criterion` union and `packages/scorecard/src/scorecard.test.ts` fail on
+  a third state, and the built-binary smoke test checks the five letters render
+  (ADR 0016).
 
 ## Stack & conventions
 

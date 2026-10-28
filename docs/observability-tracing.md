@@ -65,7 +65,7 @@ endpoint — no code change to switch.
 
 ## How the scorecard uses it
 
-The scorecard's **Observability coverage** dimension is computed from real trace
+The scorecard's **Observability coverage** criterion (under D · Deployed) is computed from real trace
 coverage, measured hermetically (in-memory, network-free) over a deterministic
 `stub` run — so the scorecard stays runnable offline. The rating reflects whether
 a run is **connected** (one root, one trace id) and how many of plan/execute/

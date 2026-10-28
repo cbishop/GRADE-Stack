@@ -24,11 +24,11 @@ Steps:
    - `--format md|html|both` and `--out <path>` — write Markdown and/or a
      printable HTML page instead of printing to stdout.
 
-2. Read the readout: an **Overall** verdict, then five executive dimensions —
-   **Reliability** and **Cost discipline** are computed from eval evidence in
-   Phase 1C; **Observability coverage**, **Guardrail coverage**, and
-   **Governance readiness** are honestly shown as *not yet assessed* until the
-   later phases that compute them (2D / 3A / 3C).
+2. Read the readout: an **Overall** verdict (the weakest letter, named), then
+   the five GRADE letters (G · Governed, R · Reliable, A · Agentic,
+   D · Deployed, E · Evaluated). Each letter lists its criteria: computed ones
+   cite their source, threshold, and what would change the grade; the rest say
+   "Not yet assessed; fills in Phase 4X." (ADR 0016).
 
 3. Every rating traces to the evidence beneath it — if the user questions a
    score, point them at the bullet evidence, not at a model opinion. No rating

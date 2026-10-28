@@ -88,19 +88,24 @@ obligations** (weighted `supported=1.0`, `partial=0.5`). The pure-legal duties
 |---|---|---|---|
 | Art 5 — avoid prohibited practices | in force | 🟡 Partial | Gateway guardrails (use-case call is yours) |
 | Art 4 — AI literacy | in force | 🟡 Partial | Scorecard + docs as material (training is yours) |
-| Art 50 — transparency | 2026-08-02 | 🟡 Partial | Structured output + human-reviewed drafts |
-| Art 26 — human oversight (high-risk) | conditional | 🟢 Supported | PEV + human-in-loop + bounded turns |
-| Art 26(6)/Art 12 — logs & record-keeping (high-risk) | conditional | 🟢 Supported | OpenTelemetry traces |
+| Art 50 — transparency | 2026-08-02 | 🟡 Partial | Structured output (draft reply as its own field); disclosure policy and any human review are yours |
+| Art 26 — human oversight (high-risk) | conditional | 🟡 Partial | PEV + bounded turns + gateway policies; human-in-the-loop is your process until Phase 4D ships the review queue |
+| Art 26(6)/Art 12 — logs & record-keeping (high-risk) | conditional | 🟡 Partial | OpenTelemetry traces (opt-in, no caller id, no content); Phase 4B ships the gateway decision log |
 | Art 26 — monitoring & accuracy/robustness (high-risk) | conditional | 🟢 Supported | Eval-gate vs baseline + scorecard |
 | Art 27 — FRIA (high-risk) | conditional | ⚪ Deployer-owned | Legal assessment (traces/scorecard are inputs) |
 | Art 49 — registration / conformity | conditional | ⚪ Deployer-owned | Legal/administrative process |
 | Art 50(2) — synthetic-content marking | provider-only | — | You rely on your model provider |
 | Art 53 — GPAI provider duties | provider-only | — | On the foundation-model vendor |
 
-**Readiness ≈ 0.75 → Adequate.** The honest reading: the stack makes you genuinely
-ready on the *technical* obligations (oversight, logging, monitoring) and partially
-on transparency/literacy; the *legal* duties (don't be prohibited, run a FRIA,
-register) remain yours. Governance readiness ≠ legal compliance.
+**Readiness ≈ 0.58 → At risk** (1 supported, 5 partial over 6 scored obligations).
+The honest reading: the stack makes you ready on *monitoring* (eval gate against a
+baseline, plus the scorecard) and contributes real but partial inputs everywhere
+else. Human oversight and record-keeping were rated supported until 2026-10-28;
+they are partial because no review queue holds an output for a named person and
+no durable, attributable log of gateway decisions exists yet. Phase 4B (decision
+log) and Phase 4D (review queue) are the mechanisms that would move them back.
+The *legal* duties (don't be prohibited, run a FRIA, register) remain yours.
+Governance readiness ≠ legal compliance.
 
 ## Per-obligation detail
 

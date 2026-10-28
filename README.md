@@ -43,8 +43,11 @@ the command name (`reliability`) are intentionally different.
 - A **12-case eval harness** with an LLM judge, cost-per-success tracking, and a
   **CI gate** that fails the build on quality regressions (`packages/evals/`).
 - The **AI Reliability Scorecard**: a board-legible, evidence-backed rating
-  across all five dimensions, rendered as CLI, Markdown, or printable HTML
-  ([sample](content/cycle-12/sample-scorecard.md)) (`packages/scorecard/`).
+  graded under the five GRADE letters above. Each letter holds named criteria;
+  each criterion is either computed from a cited record or marked "not yet
+  assessed" with the v3 sub-phase that fills it in (ADR 0016). Rendered as CLI,
+  Markdown, or printable HTML ([sample](content/cycle-13/sample-scorecard.md))
+  (`packages/scorecard/`).
 - An **LLM gateway** with server-side guardrails and structural credential
   isolation (the agent process holds zero provider credentials), plus an **MCP
   integration layer** with description-driven tool selection

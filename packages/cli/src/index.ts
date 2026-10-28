@@ -377,6 +377,7 @@ sovereign
           runReferenceAgent(new StubProvider(), SAMPLE_EMAIL, {}),
         );
         const card = buildScorecard(evalResult, {
+          resultsSource: "sovereign verify eval run",
           observability: coverage,
           guardrails: loadGuardrailCoverage(),
           governance: loadGovernanceReadiness(),
@@ -659,14 +660,15 @@ program
         runReferenceAgent(new StubProvider(), SAMPLE_EMAIL, {}),
       );
 
-      // Guardrail coverage (OWASP, Phase 3A) and Governance readiness (EU AI Act,
-      // Phase 3C) are derived from the committed governance mappings — properties of
-      // the stack's mechanisms, independent of which model answered.
+      // Guardrail coverage (OWASP, graded under A) and Governance readiness (EU AI
+      // Act, graded under G) are derived from the committed governance mappings:
+      // properties of the stack's mechanisms, independent of which model answered.
       const guardrails = loadGuardrailCoverage();
       const governance = loadGovernanceReadiness();
 
       const card = buildScorecard(result, {
         degraded: opts.degraded,
+        resultsSource: opts.from ?? `live eval run (${result.provider})`,
         observability: coverage,
         guardrails,
         governance,

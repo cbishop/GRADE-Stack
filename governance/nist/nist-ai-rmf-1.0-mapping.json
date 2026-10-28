@@ -183,15 +183,15 @@
       "id": "MEASURE 3",
       "function": "MEASURE",
       "title": "Mechanisms for tracking identified AI risks over time are in place.",
-      "status": "supported",
+      "status": "partial",
       "mechanisms": [
         {
           "name": "Eval-gate vs committed baseline + permanent degraded canary + OTel traces",
           "ref": ".github/workflows/ci.yml; @grade-stack/core (tracing.ts)",
-          "note": "Risk is tracked across every commit against a baseline within a tolerance band; traces make each run inspectable over time."
+          "note": "Risk is tracked across every commit against a baseline within a tolerance band, and the degraded canary proves the gate bites. Traces make a single run inspectable when export is switched on."
         }
       ],
-      "note": "Supported: continuous, automated tracking is built in, not a periodic manual review."
+      "note": "Partial: tracking across commits is automated, but nothing records what happens at runtime over time. Residual: traces are opt-in and unretained, the gateway logs none of its decisions, and the CI gate runs on the stub provider, not a real model. Phase 4B ships the append-only gateway decision log; Phase 4F adds the real-model run and post-deployment re-scoring."
     },
     {
       "id": "MEASURE 4",
@@ -253,15 +253,15 @@
       "id": "MANAGE 4",
       "function": "MANAGE",
       "title": "Risk treatments, including response and recovery and communication plans, for identified and measured AI risks are documented and monitored regularly.",
-      "status": "supported",
+      "status": "partial",
       "mechanisms": [
         {
-          "name": "OTel tracing (monitoring) + AI Reliability Scorecard (documentation) + eval-gate CI (continuous monitoring) + enforcement-mechanism register",
-          "ref": "@grade-stack/core (tracing.ts); packages/scorecard; .github/workflows/ci.yml; docs/PLAN-Grade-Stack-v2.md",
-          "note": "Risk treatments are documented (register + scorecard) and monitored continuously (CI gate + traces) rather than reviewed ad hoc."
+          "name": "AI Reliability Scorecard (documentation) + eval-gate CI (pre-merge monitoring) + enforcement-mechanism register + OTel tracing",
+          "ref": "packages/scorecard; .github/workflows/ci.yml; docs/PLAN-Grade-Stack-v2.md; @grade-stack/core (tracing.ts)",
+          "note": "Risk treatments are documented (register + scorecard) and re-checked on every change by the CI gate; traces show a run when export is switched on."
         }
       ],
-      "note": "Supported for documentation and monitoring of treatments; recovery/communication plans for a specific deployment remain the deployer's to formalize."
+      "note": "Partial: treatments are documented and checked before merge, but response and recovery are not mechanized. Residual: there is no durable runtime log of gateway decisions (Phase 4B), no kill switch or recorded rollback drill (Phase 4C), and no human review queue for escalation (Phase 4D). Communication plans for a specific deployment remain the deployer's."
     }
   ]
 }

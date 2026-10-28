@@ -4,8 +4,9 @@
 /**
  * @module scorecard/scorecard.test
  *
- * Tests for buildScorecard — dimension structure, honest stubbing, purity, the
- * reliability/cost bands, the worst-wins rollup, and honest degradation.
+ * Tests for buildScorecard: the five GRADE-letter dimensions (ADR 0016), the
+ * computed/stubbed two-state criterion rule (no third state), purity, the
+ * per-criterion bands, the worst-wins rollups, and honest degradation.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -13,33 +14,50 @@ import type { TraceCoverage } from "@grade-stack/core";
 import { type CaseResult, computeCost, type EvalRunResult } from "@grade-stack/evals";
 import type { GovernanceReadiness } from "./eu-ai-act.ts";
 import type { GuardrailCoverage } from "./owasp.ts";
-import { buildScorecard } from "./scorecard.ts";
-import type { Dimension, Scorecard } from "./types.ts";
-import { RATING_RANK } from "./types.ts";
+import { buildScorecard, type ScorecardOptions } from "./scorecard.ts";
+import type { Criterion, Dimension, DimensionId, Scorecard } from "./types.ts";
+import { FILLS_IN_PHASES, GRADE_DIMENSION_IDS, RATING_RANK } from "./types.ts";
 
 const PER_CASE_TOKENS = { inputTokens: 100, outputTokens: 30 };
 
-/** Build a deterministic eval result with `passed` of `total` cases passing. */
+/**
+ * Build a deterministic eval result with `passed` of `total` cases passing. By
+ * default the suite has the breadth the E criterion looks for (a refusal case
+ * and a judge metric); `breadth: false` strips both.
+ */
 function makeResult(
   passed: number,
   total: number,
-  opts: { provider?: string; model?: string; stability?: number } = {},
+  opts: { provider?: string; model?: string; stability?: number; breadth?: boolean } = {},
 ): EvalRunResult {
   const provider = opts.provider ?? "bedrock";
   const model = opts.model ?? "claude-haiku-4-5";
   const stability = opts.stability ?? 1;
+  const breadth = opts.breadth ?? true;
 
-  const cases: CaseResult[] = Array.from({ length: total }, (_, i) => ({
-    id: `case-${i}`,
-    description: `case-${i}`,
-    pass: i < passed,
-    score: i < passed ? 1 : 0,
-    trace: [],
-    output: "{}",
-    usage: { ...PER_CASE_TOKENS },
-    stability,
-    repeats: 1,
-  }));
+  const cases: CaseResult[] = Array.from({ length: total }, (_, i) => {
+    const id = breadth && i === total - 1 ? "refusal-data-exfiltration" : `case-${i}`;
+    const pass = i < passed;
+    return {
+      id,
+      description: id,
+      pass,
+      score: pass ? 1 : 0,
+      trace: breadth
+        ? [
+            {
+              phase: "validate" as const,
+              status: pass ? ("ok" as const) : ("fail" as const),
+              checks: [{ metric: "validate:judge", pass, score: pass ? 1 : 0 }],
+            },
+          ]
+        : [],
+      output: "{}",
+      usage: { ...PER_CASE_TOKENS },
+      stability,
+      repeats: 1,
+    };
+  });
 
   const usage = {
     inputTokens: PER_CASE_TOKENS.inputTokens * total,
@@ -64,147 +82,6 @@ function makeResult(
   };
 }
 
-/** Fetch a dimension by key (throws if absent — keeps the tests total-access-safe). */
-function dim(card: Scorecard, key: string): Dimension {
-  const d = card.dimensions.find((x) => x.key === key);
-  if (!d) throw new Error(`scorecard has no dimension "${key}"`);
-  return d;
-}
-
-const reliability = (passed: number, total: number, stability?: number): Dimension =>
-  dim(buildScorecard(makeResult(passed, total, { stability })), "reliability");
-
-const costDiscipline = (
-  passed: number,
-  total: number,
-  provider?: string,
-  model?: string,
-): Dimension =>
-  dim(buildScorecard(makeResult(passed, total, { provider, model })), "cost-discipline");
-
-describe("buildScorecard — structure", () => {
-  test("has five dimensions; only Reliability and Cost discipline are assessed in 1C", () => {
-    const card = buildScorecard(makeResult(12, 12));
-    expect(card.dimensions).toHaveLength(5);
-    expect(card.meta.assessedCount).toBe(2);
-    expect(card.meta.totalDimensions).toBe(5);
-
-    const assessed = card.dimensions.filter((d) => d.assessed).map((d) => d.key);
-    expect(assessed).toEqual(["reliability", "cost-discipline"]);
-  });
-
-  test("stubbed dimensions are honest: not-assessed, no asserted score, name their phase", () => {
-    const card = buildScorecard(makeResult(12, 12));
-    for (const key of ["observability", "guardrails", "governance"]) {
-      const d = dim(card, key);
-      expect(d.assessed).toBe(false);
-      expect(d.rating).toBe("not-assessed");
-      expect(d.plannedPhase ?? "").toMatch(/Phase \d/);
-    }
-  });
-
-  test("is pure — carries the eval timestamp rather than reading the clock", () => {
-    const result = makeResult(10, 12);
-    const a = buildScorecard(result);
-    const b = buildScorecard(result);
-    expect(a.generatedAt).toBe(result.timestamp);
-    expect(a).toEqual(b);
-  });
-
-  test("every assessed rating is backed by at least one line of evidence", () => {
-    const card = buildScorecard(makeResult(8, 12));
-    for (const d of card.dimensions.filter((x) => x.assessed)) {
-      expect(d.evidence.length).toBeGreaterThan(0);
-    }
-  });
-});
-
-describe("Reliability dimension", () => {
-  test("all passing → Strong", () => {
-    const d = reliability(12, 12);
-    expect(d.rating).toBe("strong");
-    expect(d.evidence.join(" ")).toContain("12 of 12");
-  });
-
-  test("bands track the pass rate", () => {
-    expect(reliability(10, 12).rating).toBe("adequate"); // 0.83
-    expect(reliability(7, 12).rating).toBe("at-risk"); // 0.58
-    expect(reliability(3, 12).rating).toBe("critical"); // 0.25
-  });
-
-  test("flakiness below the floor knocks the rating down one band", () => {
-    const stable = reliability(12, 12, 1);
-    const flaky = reliability(12, 12, 0.6);
-    expect(stable.rating).toBe("strong");
-    expect(flaky.rating).toBe("adequate"); // downgraded one band
-    expect(flaky.evidence.join(" ")).toContain("held back one band");
-  });
-
-  test("lists failing case ids as evidence (capped)", () => {
-    const line = reliability(2, 12).evidence.find((e) => e.startsWith("Failing cases:"));
-    expect(line ?? "").toContain("more"); // capped with a "+N more" tail
-  });
-});
-
-describe("Cost discipline dimension", () => {
-  test("no waste → Strong; cost-per-success reported", () => {
-    const d = costDiscipline(12, 12);
-    expect(d.rating).toBe("strong");
-    expect(d.evidence.join(" ")).toContain("0% of spend produced no passing result");
-  });
-
-  test("waste fraction drives the band", () => {
-    // 10/12 → ~17% waste (adequate); 7/12 → ~42% (at-risk).
-    expect(costDiscipline(10, 12).rating).toBe("adequate");
-    expect(costDiscipline(7, 12).rating).toBe("at-risk");
-  });
-
-  test("nothing passes → Critical, cost-per-success undefined", () => {
-    const d = costDiscipline(0, 12);
-    expect(d.rating).toBe("critical");
-    expect(d.evidence.join(" ")).toContain("undefined");
-    expect(d.evidence.join(" ")).toContain("100% of spend");
-  });
-
-  test("Ollama free provider reports tokens-per-success, not dollars", () => {
-    const d = costDiscipline(12, 12, "ollama", "llama3.1");
-    expect(d.evidence.join(" ")).toContain("tokens");
-    expect(d.evidence.join(" ")).toContain("$0");
-  });
-});
-
-describe("Overall verdict", () => {
-  test("is the worst assessed band (worst-wins)", () => {
-    // 7/12: adequate reliability, at-risk cost → at-risk overall.
-    const card = buildScorecard(makeResult(7, 12));
-    expect(card.overall.rating).toBe("at-risk");
-  });
-});
-
-describe("honest degradation (acceptance criterion)", () => {
-  test("a degraded (zero-pass) run earns a strictly worse scorecard than a healthy one", () => {
-    const healthy = buildScorecard(makeResult(12, 12));
-    const degraded = buildScorecard(makeResult(0, 12), { degraded: true });
-
-    expect(RATING_RANK.strong).toBeGreaterThan(RATING_RANK.critical);
-    expect(healthy.overall.rating).toBe("strong");
-    expect(degraded.overall.rating).toBe("critical");
-    expect(degraded.degraded).toBe(true);
-    // Both computed dimensions degrade, not just one.
-    expect(dim(degraded, "reliability").rating).toBe("critical");
-    expect(dim(degraded, "cost-discipline").rating).toBe("critical");
-  });
-
-  test("the degraded flag is cosmetic only — it never lifts or lowers a rating", () => {
-    const withFlag = buildScorecard(makeResult(12, 12), { degraded: true });
-    const without = buildScorecard(makeResult(12, 12), { degraded: false });
-    expect(withFlag.dimensions.map((d) => d.rating)).toEqual(
-      without.dimensions.map((d) => d.rating),
-    );
-    expect(withFlag.overall.rating).toBe(without.overall.rating);
-  });
-});
-
 /** A trace-coverage fixture; defaults describe a healthy connected full-path trace. */
 function cov(p: Partial<TraceCoverage> = {}): TraceCoverage {
   return {
@@ -219,79 +96,6 @@ function cov(p: Partial<TraceCoverage> = {}): TraceCoverage {
     toolCallSpans: p.toolCallSpans ?? 0,
   };
 }
-
-describe("Observability dimension (Phase 2D)", () => {
-  test("stays a not-assessed stub when no coverage is supplied", () => {
-    const d = dim(buildScorecard(makeResult(12, 12)), "observability");
-    expect(d.assessed).toBe(false);
-    expect(d.rating).toBe("not-assessed");
-  });
-
-  test("a connected full-path trace earns Strong, traced to span evidence", () => {
-    const card = buildScorecard(makeResult(12, 12), { observability: cov() });
-    const d = dim(card, "observability");
-    expect(d.assessed).toBe(true);
-    expect(d.rating).toBe("strong");
-    expect(d.evidence.join(" ")).toContain("connected trace");
-    expect(card.meta.assessedCount).toBe(3);
-  });
-
-  test("bands track coverage: fragmented → At risk, no spans → Critical", () => {
-    expect(
-      dim(
-        buildScorecard(makeResult(12, 12), {
-          observability: cov({ connected: false, rootSpans: 2, distinctTraces: 2 }),
-        }),
-        "observability",
-      ).rating,
-    ).toBe("at-risk");
-
-    expect(
-      dim(
-        buildScorecard(makeResult(12, 12), {
-          observability: cov({
-            totalSpans: 0,
-            rootSpans: 0,
-            connected: false,
-            observedPhases: [],
-            missingPhases: ["plan", "execute", "validate"],
-            phaseCoverage: 0,
-            modelCallSpans: 0,
-          }),
-        }),
-        "observability",
-      ).rating,
-    ).toBe("critical");
-  });
-
-  test("partial phase coverage on a connected trace is Adequate, not Strong", () => {
-    const d = dim(
-      buildScorecard(makeResult(12, 12), {
-        observability: cov({
-          observedPhases: ["plan", "execute"],
-          missingPhases: ["validate"],
-          phaseCoverage: 2 / 3,
-        }),
-      }),
-      "observability",
-    );
-    expect(d.rating).toBe("adequate");
-    expect(d.evidence.join(" ")).toContain("validate");
-  });
-
-  test("observability is independent of degraded mode (the path is still traced)", () => {
-    const healthy = dim(
-      buildScorecard(makeResult(12, 12), { observability: cov() }),
-      "observability",
-    );
-    const degraded = dim(
-      buildScorecard(makeResult(0, 12), { degraded: true, observability: cov() }),
-      "observability",
-    );
-    expect(healthy.rating).toBe("strong");
-    expect(degraded.rating).toBe("strong");
-  });
-});
 
 /** A guardrail-coverage fixture; defaults describe near-complete OWASP coverage. */
 function guard(p: Partial<GuardrailCoverage> = {}): GuardrailCoverage {
@@ -313,113 +117,7 @@ function guard(p: Partial<GuardrailCoverage> = {}): GuardrailCoverage {
   };
 }
 
-describe("Guardrail dimension (Phase 3A; scoring revised — ADR 0013)", () => {
-  test("stays a not-assessed stub when no coverage is supplied", () => {
-    const d = dim(buildScorecard(makeResult(12, 12)), "guardrails");
-    expect(d.assessed).toBe(false);
-    expect(d.rating).toBe("not-assessed");
-  });
-
-  test("bands track the weighted OWASP coverage score (when real gaps exist)", () => {
-    // A real gap present, so the no-true-gaps floor does not apply.
-    const rating = (score: number) =>
-      dim(
-        buildScorecard(makeResult(12, 12), {
-          guardrails: guard({ score, gaps: 1, gapIds: ["ASI01:2026"] }),
-        }),
-        "guardrails",
-      ).rating;
-    expect(rating(0.95)).toBe("strong");
-    expect(rating(0.8)).toBe("adequate");
-    expect(rating(0.5)).toBe("at-risk");
-    expect(rating(0.3)).toBe("critical");
-  });
-
-  test("no-true-gaps floor: zero unaddressed applicable threats → at least Adequate", () => {
-    // The committed reference shape: 2 covered + 6 partial scored, 2 out of scope,
-    // 0 gaps → weighted 0.625 (at-risk band) but floored to Adequate because every
-    // applicable threat has a mechanism.
-    const d = dim(
-      buildScorecard(makeResult(12, 12), {
-        guardrails: guard({
-          score: 0.625,
-          scoredCount: 8,
-          covered: 2,
-          partial: 6,
-          gaps: 0,
-          outOfScope: 2,
-          partialIds: ["ASI01:2026"],
-          outOfScopeIds: ["ASI06:2026", "ASI07:2026"],
-        }),
-      }),
-      "guardrails",
-    );
-    expect(d.rating).toBe("adequate");
-    const text = d.evidence.join(" ");
-    expect(text).toContain("Zero applicable threats are unaddressed");
-  });
-
-  test("out-of-scope threats are reported as boundaries, not gaps to close", () => {
-    const d = dim(
-      buildScorecard(makeResult(12, 12), {
-        guardrails: guard({
-          score: 0.625,
-          scoredCount: 8,
-          covered: 2,
-          partial: 6,
-          gaps: 0,
-          outOfScope: 2,
-          outOfScopeIds: ["ASI06:2026", "ASI07:2026"],
-        }),
-      }),
-      "guardrails",
-    );
-    const text = d.evidence.join(" ");
-    expect(text).toContain("Out of architectural scope");
-    expect(text).toContain("ASI06:2026");
-    expect(text).toContain("ASI07:2026");
-    // The out-of-scope ids must NOT be presented as gaps to close.
-    expect(text).not.toContain("Unaddressed applicable threats to close");
-  });
-
-  test("cites the OWASP edition and names every flagged gap in the evidence", () => {
-    const card = buildScorecard(makeResult(12, 12), {
-      guardrails: guard({
-        score: 0.5,
-        scoredCount: 8,
-        covered: 2,
-        partial: 5,
-        gaps: 1,
-        outOfScope: 2,
-        gapIds: ["ASI04:2026"],
-        partialIds: ["ASI01:2026"],
-        outOfScopeIds: ["ASI06:2026", "ASI07:2026"],
-      }),
-    });
-    const d = dim(card, "guardrails");
-    expect(d.assessed).toBe(true);
-    expect(d.rating).toBe("at-risk"); // a real gap → no floor
-    const text = d.evidence.join(" ");
-    expect(text).toContain("2026");
-    expect(text).toContain("ASI04:2026");
-    // Lighting up guardrails alongside observability brings the count to four.
-    expect(
-      buildScorecard(makeResult(12, 12), { guardrails: guard(), observability: cov() }).meta
-        .assessedCount,
-    ).toBe(4);
-  });
-
-  test("guardrail coverage is independent of degraded mode (it rates the stack, not the run)", () => {
-    const healthy = dim(buildScorecard(makeResult(12, 12), { guardrails: guard() }), "guardrails");
-    const degraded = dim(
-      buildScorecard(makeResult(0, 12), { degraded: true, guardrails: guard() }),
-      "guardrails",
-    );
-    expect(healthy.rating).toBe(degraded.rating);
-  });
-});
-
-/** A governance-readiness fixture; defaults describe the committed module's shape. */
+/** A governance-readiness fixture; defaults describe a strong module. */
 function gov(p: Partial<GovernanceReadiness> = {}): GovernanceReadiness {
   return {
     framework: p.framework ?? "EU Artificial Intelligence Act",
@@ -429,60 +127,443 @@ function gov(p: Partial<GovernanceReadiness> = {}): GovernanceReadiness {
     omnibusStage: p.omnibusStage ?? "Provisional agreement; not yet adopted.",
     total: p.total ?? 10,
     scoredCount: p.scoredCount ?? 6,
-    supported: p.supported ?? 3,
-    partial: p.partial ?? 3,
+    supported: p.supported ?? 6,
+    partial: p.partial ?? 0,
     deployerOwned: p.deployerOwned ?? 0,
-    score: p.score ?? 0.75,
+    score: p.score ?? 0.95,
     inForceNowIds: p.inForceNowIds ?? ["Art 5", "Art 4", "Art 50 (1)(4)"],
     deployerOwnedIds: p.deployerOwnedIds ?? [],
   };
 }
 
-describe("Governance dimension (Phase 3C — the last dimension)", () => {
-  test("stays a not-assessed stub when no readiness is supplied", () => {
-    const d = dim(buildScorecard(makeResult(12, 12)), "governance");
-    expect(d.assessed).toBe(false);
-    expect(d.rating).toBe("not-assessed");
+/** Build a scorecard with healthy defaults for every evidence input. */
+function card(
+  result: EvalRunResult = makeResult(12, 12),
+  over: Partial<ScorecardOptions> = {},
+): Scorecard {
+  return buildScorecard(result, {
+    observability: cov(),
+    guardrails: guard(),
+    governance: gov(),
+    ...over,
+  });
+}
+
+/** Fetch a dimension by id (throws if absent, so the tests stay total-access-safe). */
+function dim(c: Scorecard, id: DimensionId): Dimension {
+  const d = c.dimensions.find((x) => x.id === id);
+  if (!d) throw new Error(`scorecard has no dimension "${id}"`);
+  return d;
+}
+
+/** Fetch a criterion by key from any dimension (throws if absent). */
+function crit(c: Scorecard, key: string): Criterion {
+  for (const d of c.dimensions) {
+    const found = d.criteria.find((x) => x.key === key);
+    if (found) return found;
+  }
+  throw new Error(`scorecard has no criterion "${key}"`);
+}
+
+/** Evidence lines of a criterion joined, or "" for a stub. */
+const text = (x: Criterion): string => (x.state === "computed" ? x.evidence.join(" ") : "");
+
+const reliability = (passed: number, total: number, stability?: number): Criterion =>
+  crit(card(makeResult(passed, total, { stability })), "reliability");
+
+const costDiscipline = (
+  passed: number,
+  total: number,
+  provider?: string,
+  model?: string,
+): Criterion => crit(card(makeResult(passed, total, { provider, model })), "cost-discipline");
+
+describe("GRADE-letter dimensions (Phase 4A, ADR 0016)", () => {
+  test("the five dimension ids are exactly governed, reliable, agentic, deployed, evaluated, in order", () => {
+    const c = card();
+    expect(c.dimensions.map((d) => d.id)).toEqual([
+      "governed",
+      "reliable",
+      "agentic",
+      "deployed",
+      "evaluated",
+    ]);
+    expect([...GRADE_DIMENSION_IDS]).toEqual(c.dimensions.map((d) => d.id));
+    expect(c.dimensions.map((d) => d.letter)).toEqual(["G", "R", "A", "D", "E"]);
+    expect(c.dimensions.map((d) => d.title)).toEqual([
+      "Governed",
+      "Reliable",
+      "Agentic",
+      "Deployed",
+      "Evaluated",
+    ]);
   });
 
-  test("bands track the weighted EU AI Act readiness score", () => {
-    const rating = (score: number) =>
-      dim(buildScorecard(makeResult(12, 12), { governance: gov({ score }) }), "governance").rating;
+  test("each dimension holds named criteria, mapped per ADR 0016", () => {
+    const c = card();
+    const keys = (id: DimensionId) => dim(c, id).criteria.map((x) => x.key);
+    expect(keys("governed")).toEqual(["governance", "human-oversight", "boundary-register"]);
+    expect(keys("reliable")).toEqual(["reliability", "cost-discipline"]);
+    expect(keys("agentic")).toEqual(["guardrails", "autonomy-scope"]);
+    expect(keys("deployed")).toEqual(["observability", "attributable", "rollback"]);
+    expect(keys("evaluated")).toEqual([
+      "suite-breadth",
+      "real-model-freshness",
+      "judge-calibration",
+      "post-deployment-rescore",
+    ]);
+    for (const d of c.dimensions) {
+      expect(d.criteria.length).toBeGreaterThan(0);
+      for (const x of d.criteria) expect(x.title.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("every criterion is computed-with-citation or stubbed-with-fillsIn; there is no third state", () => {
+    // Register row: "Scorecard cannot claim a letter it has no evidence for".
+    for (const c of [card(), card(makeResult(0, 12), { degraded: true })]) {
+      for (const d of c.dimensions) {
+        for (const x of d.criteria) {
+          expect(["computed", "stubbed"]).toContain(x.state);
+          if (x.state === "computed") {
+            expect(x.rating).not.toBe("not-assessed");
+            expect(x.evidence.length).toBeGreaterThan(0);
+            expect(x.citation.source.length).toBeGreaterThan(0);
+            expect(x.citation.threshold.length).toBeGreaterThan(0);
+            expect(x.citation.wouldChange.length).toBeGreaterThan(0);
+            expect("fillsIn" in x).toBe(false);
+          } else {
+            expect(x.rating).toBe("not-assessed");
+            expect(FILLS_IN_PHASES as readonly string[]).toContain(x.fillsIn);
+            expect(x.computedFrom.length).toBeGreaterThan(0);
+            expect("citation" in x).toBe(false);
+            expect("evidence" in x).toBe(false);
+          }
+        }
+      }
+    }
+  });
+
+  test("every stubbed criterion names a fillsIn sub-phase in 4B to 4F", () => {
+    const c = card();
+    const stubs = c.dimensions.flatMap((d) => d.criteria).filter((x) => x.state === "stubbed");
+    expect(stubs.length).toBe(8);
+    for (const x of stubs) {
+      expect(["4B", "4C", "4D", "4E", "4F"]).toContain(x.state === "stubbed" ? x.fillsIn : "");
+    }
+    expect(crit(c, "human-oversight")).toMatchObject({ state: "stubbed", fillsIn: "4D" });
+    expect(crit(c, "boundary-register")).toMatchObject({ state: "stubbed", fillsIn: "4E" });
+    expect(crit(c, "autonomy-scope")).toMatchObject({ state: "stubbed", fillsIn: "4E" });
+    expect(crit(c, "attributable")).toMatchObject({ state: "stubbed", fillsIn: "4B" });
+    expect(crit(c, "rollback")).toMatchObject({ state: "stubbed", fillsIn: "4C" });
+    for (const k of ["real-model-freshness", "judge-calibration", "post-deployment-rescore"]) {
+      expect(crit(c, k)).toMatchObject({ state: "stubbed", fillsIn: "4F" });
+    }
+  });
+
+  test("a dimension's grade is its weakest computed criterion; stubs never move it", () => {
+    // 7/12: Reliability at-risk (58%), Cost at-risk (~42% waste), so R is at-risk.
+    expect(dim(card(makeResult(7, 12)), "reliable").rating).toBe("at-risk");
+    // 10/12 and flaky: Reliability held back to at-risk, Cost adequate, so R is at-risk.
+    const flaky = card(makeResult(10, 12, { stability: 0.6 }));
+    expect(crit(flaky, "cost-discipline").rating).toBe("adequate");
+    expect(crit(flaky, "reliability").rating).toBe("at-risk");
+    expect(dim(flaky, "reliable").rating).toBe("at-risk");
+    // G holds one computed criterion and two stubs: its grade is the computed one.
+    expect(dim(card(), "governed").rating).toBe("strong");
+    for (const d of card().dimensions) expect(d.assessed).toBe(true);
+  });
+
+  test("meta counts graded letters and computed vs stubbed criteria", () => {
+    expect(card().meta).toEqual({
+      assessedCount: 5,
+      totalDimensions: 5,
+      computedCriteria: 6,
+      stubbedCriteria: 8,
+    });
+  });
+
+  test("is pure: carries the eval timestamp rather than reading the clock", () => {
+    const result = makeResult(10, 12);
+    const a = card(result);
+    const b = card(result);
+    expect(a.generatedAt).toBe(result.timestamp);
+    expect(a).toEqual(b);
+  });
+
+  test("the results source label is cited by the run-derived criteria", () => {
+    const c = card(makeResult(12, 12), { resultsSource: "content/cycle-12/eval-run.json" });
+    for (const k of ["reliability", "cost-discipline", "suite-breadth"]) {
+      const x = crit(c, k);
+      expect(x.state === "computed" ? x.citation.source : "").toContain(
+        "content/cycle-12/eval-run.json",
+      );
+    }
+  });
+});
+
+describe("Overall verdict", () => {
+  test("is the weakest dimension (worst-wins) and names it by letter", () => {
+    // 7/12: R at-risk, every other letter strong, so the verdict is at-risk, driven by R.
+    const c = card(makeResult(7, 12));
+    expect(c.overall.rating).toBe("at-risk");
+    expect(c.overall.headline).toContain("R · Reliable");
+  });
+
+  test("names Governed when governance readiness is the weakest", () => {
+    const c = card(makeResult(12, 12), { governance: gov({ score: 0.58 }) });
+    expect(c.overall.rating).toBe("at-risk");
+    expect(c.overall.headline).toContain("G · Governed");
+  });
+
+  test("all strong reads production-ready on the evidence, with stubs still counted", () => {
+    const c = card();
+    expect(c.overall.rating).toBe("strong");
+    expect(c.overall.headline).toContain("8 criteria");
+  });
+});
+
+describe("Reliability criterion (R)", () => {
+  test("all passing -> Strong", () => {
+    const x = reliability(12, 12);
+    expect(x.rating).toBe("strong");
+    expect(text(x)).toContain("12 of 12");
+  });
+
+  test("bands track the pass rate", () => {
+    expect(reliability(10, 12).rating).toBe("adequate"); // 0.83
+    expect(reliability(7, 12).rating).toBe("at-risk"); // 0.58
+    expect(reliability(3, 12).rating).toBe("critical"); // 0.25
+  });
+
+  test("flakiness below the floor knocks the rating down one band", () => {
+    expect(reliability(12, 12, 1).rating).toBe("strong");
+    const flaky = reliability(12, 12, 0.6);
+    expect(flaky.rating).toBe("adequate");
+    expect(text(flaky)).toContain("held back one band");
+  });
+
+  test("lists failing case ids as evidence (capped)", () => {
+    const x = reliability(2, 12);
+    const line = (x.state === "computed" ? x.evidence : []).find((e) =>
+      e.startsWith("Failing cases:"),
+    );
+    expect(line ?? "").toContain("more");
+  });
+});
+
+describe("Cost discipline criterion (R)", () => {
+  test("no waste -> Strong; cost-per-success reported", () => {
+    const x = costDiscipline(12, 12);
+    expect(x.rating).toBe("strong");
+    expect(text(x)).toContain("0% of spend produced no passing result");
+  });
+
+  test("waste fraction drives the band", () => {
+    expect(costDiscipline(10, 12).rating).toBe("adequate");
+    expect(costDiscipline(7, 12).rating).toBe("at-risk");
+  });
+
+  test("nothing passes -> Critical, cost-per-success undefined", () => {
+    const x = costDiscipline(0, 12);
+    expect(x.rating).toBe("critical");
+    expect(text(x)).toContain("undefined");
+    expect(text(x)).toContain("100% of spend");
+  });
+
+  test("Ollama free provider reports tokens-per-success, not dollars", () => {
+    const x = costDiscipline(12, 12, "ollama", "llama3.1");
+    expect(text(x)).toContain("tokens");
+    expect(text(x)).toContain("$0");
+  });
+});
+
+describe("honest degradation (acceptance criterion)", () => {
+  test("degraded mode still drops R, and the overall verdict with it", () => {
+    const healthy = card(makeResult(12, 12));
+    const degraded = card(makeResult(0, 12), { degraded: true });
+
+    expect(RATING_RANK.strong).toBeGreaterThan(RATING_RANK.critical);
+    expect(dim(healthy, "reliable").rating).toBe("strong");
+    expect(dim(degraded, "reliable").rating).toBe("critical");
+    expect(crit(degraded, "reliability").rating).toBe("critical");
+    expect(crit(degraded, "cost-discipline").rating).toBe("critical");
+    expect(healthy.overall.rating).toBe("strong");
+    expect(degraded.overall.rating).toBe("critical");
+    expect(degraded.overall.headline).toContain("R · Reliable");
+    expect(degraded.degraded).toBe(true);
+  });
+
+  test("the degraded flag is cosmetic only: it never lifts or lowers a rating", () => {
+    const withFlag = card(makeResult(12, 12), { degraded: true });
+    const without = card(makeResult(12, 12), { degraded: false });
+    expect(withFlag.dimensions.map((d) => d.rating)).toEqual(
+      without.dimensions.map((d) => d.rating),
+    );
+    expect(withFlag.overall.rating).toBe(without.overall.rating);
+  });
+
+  test("mechanism-property letters (G, A, D) are independent of degraded mode", () => {
+    const healthy = card(makeResult(12, 12));
+    const degraded = card(makeResult(0, 12), { degraded: true });
+    for (const id of ["governed", "agentic", "deployed"] as const) {
+      expect(dim(degraded, id).rating).toBe(dim(healthy, id).rating);
+    }
+  });
+});
+
+describe("Suite breadth criterion (E)", () => {
+  const breadth = (result: EvalRunResult) => crit(card(result), "suite-breadth");
+
+  test("10+ cases, a refusal or OOD case, and a judge metric -> Strong", () => {
+    const x = breadth(makeResult(12, 12));
+    expect(x.state).toBe("computed");
+    expect(x.rating).toBe("strong");
+  });
+
+  test("an OOD case counts the same as a refusal case", () => {
+    const r = makeResult(12, 12);
+    const last = r.cases[r.cases.length - 1];
+    if (last) {
+      last.id = "ood-off-topic";
+      last.description = "ood-off-topic";
+    }
+    expect(breadth(r).rating).toBe("strong");
+  });
+
+  test("missing one of the three checks -> At risk; missing more -> Critical", () => {
+    expect(breadth(makeResult(9, 9)).rating).toBe("at-risk"); // fewer than 10 cases
+    expect(breadth(makeResult(12, 12, { breadth: false })).rating).toBe("critical");
+    expect(breadth(makeResult(5, 5, { breadth: false })).rating).toBe("critical");
+  });
+
+  test("names each missing check in the evidence", () => {
+    const t = text(breadth(makeResult(12, 12, { breadth: false })));
+    expect(t).toContain("refusal");
+    expect(t).toContain("judge");
+  });
+});
+
+describe("Observability coverage criterion (D)", () => {
+  const obs = (c: TraceCoverage) =>
+    crit(card(makeResult(12, 12), { observability: c }), "observability");
+
+  test("a connected full-path trace earns Strong, traced to span evidence", () => {
+    const x = obs(cov());
+    expect(x.rating).toBe("strong");
+    expect(text(x)).toContain("connected trace");
+  });
+
+  test("bands track coverage: fragmented -> At risk, no spans -> Critical", () => {
+    expect(obs(cov({ connected: false, rootSpans: 2, distinctTraces: 2 })).rating).toBe("at-risk");
+    expect(
+      obs(
+        cov({
+          totalSpans: 0,
+          rootSpans: 0,
+          connected: false,
+          observedPhases: [],
+          missingPhases: ["plan", "execute", "validate"],
+          phaseCoverage: 0,
+          modelCallSpans: 0,
+        }),
+      ).rating,
+    ).toBe("critical");
+  });
+
+  test("partial phase coverage on a connected trace is Adequate, not Strong", () => {
+    const x = obs(
+      cov({
+        observedPhases: ["plan", "execute"],
+        missingPhases: ["validate"],
+        phaseCoverage: 2 / 3,
+      }),
+    );
+    expect(x.rating).toBe("adequate");
+    expect(text(x)).toContain("validate");
+  });
+});
+
+describe("Guardrail coverage criterion (A; scoring per ADR 0013)", () => {
+  const g = (p: Partial<GuardrailCoverage>) =>
+    crit(card(makeResult(12, 12), { guardrails: guard(p) }), "guardrails");
+
+  test("bands track the weighted OWASP coverage score (when real gaps exist)", () => {
+    const rating = (score: number) => g({ score, gaps: 1, gapIds: ["ASI01:2026"] }).rating;
     expect(rating(0.95)).toBe("strong");
-    expect(rating(0.75)).toBe("adequate");
+    expect(rating(0.8)).toBe("adequate");
     expect(rating(0.5)).toBe("at-risk");
     expect(rating(0.3)).toBe("critical");
   });
 
-  test("cites the regulation, Omnibus status, and that readiness != compliance", () => {
-    const card = buildScorecard(makeResult(12, 12), {
-      governance: gov({ deployerOwnedIds: ["Art 27"] }),
+  test("no-true-gaps floor: zero unaddressed applicable threats -> at least Adequate", () => {
+    const x = g({
+      score: 0.625,
+      scoredCount: 8,
+      covered: 2,
+      partial: 6,
+      gaps: 0,
+      outOfScope: 2,
+      partialIds: ["ASI01:2026"],
+      outOfScopeIds: ["ASI06:2026", "ASI07:2026"],
     });
-    const d = dim(card, "governance");
-    expect(d.assessed).toBe(true);
-    const text = d.evidence.join(" ");
-    expect(text).toContain("Regulation (EU) 2024/1689");
-    expect(text).toContain("Omnibus");
-    expect(text.toLowerCase()).toContain("not legal compliance");
-    expect(text).toContain("Art 27");
+    expect(x.rating).toBe("adequate");
+    expect(text(x)).toContain("Zero applicable threats are unaddressed");
   });
 
-  test("all five dimensions assessed when every coverage input is supplied", () => {
-    const card = buildScorecard(makeResult(12, 12), {
-      observability: cov(),
-      guardrails: guard(),
-      governance: gov(),
+  test("out-of-scope threats are reported as boundaries, not gaps to close", () => {
+    const x = g({
+      score: 0.625,
+      scoredCount: 8,
+      covered: 2,
+      partial: 6,
+      gaps: 0,
+      outOfScope: 2,
+      outOfScopeIds: ["ASI06:2026", "ASI07:2026"],
     });
-    expect(card.meta.assessedCount).toBe(5);
-    expect(card.dimensions.every((d) => d.assessed)).toBe(true);
+    expect(text(x)).toContain("Out of architectural scope");
+    expect(text(x)).toContain("ASI06:2026");
+    expect(text(x)).toContain("ASI07:2026");
+    expect(text(x)).not.toContain("Unaddressed applicable threats to close");
   });
 
-  test("governance readiness is independent of degraded mode (it rates the stack, not the run)", () => {
-    const healthy = dim(buildScorecard(makeResult(12, 12), { governance: gov() }), "governance");
-    const degraded = dim(
-      buildScorecard(makeResult(0, 12), { degraded: true, governance: gov() }),
-      "governance",
+  test("cites the OWASP edition and names every flagged gap in the evidence", () => {
+    const x = g({
+      score: 0.5,
+      scoredCount: 8,
+      covered: 2,
+      partial: 5,
+      gaps: 1,
+      outOfScope: 2,
+      gapIds: ["ASI04:2026"],
+      partialIds: ["ASI01:2026"],
+      outOfScopeIds: ["ASI06:2026", "ASI07:2026"],
+    });
+    expect(x.rating).toBe("at-risk");
+    expect(text(x)).toContain("2026");
+    expect(text(x)).toContain("ASI04:2026");
+  });
+});
+
+describe("Governance readiness criterion (G)", () => {
+  const g = (p: Partial<GovernanceReadiness>) =>
+    crit(card(makeResult(12, 12), { governance: gov(p) }), "governance");
+
+  test("bands track the weighted EU AI Act readiness score", () => {
+    expect(g({ score: 0.95 }).rating).toBe("strong");
+    expect(g({ score: 0.75 }).rating).toBe("adequate");
+    expect(g({ score: 0.58 }).rating).toBe("at-risk");
+    expect(g({ score: 0.3 }).rating).toBe("critical");
+  });
+
+  test("cites the regulation, Omnibus status, and that readiness is not compliance", () => {
+    const x = g({ deployerOwnedIds: ["Art 27"] });
+    const t = text(x);
+    expect(t).toContain("Regulation (EU) 2024/1689");
+    expect(t).toContain("Omnibus");
+    expect(t.toLowerCase()).toContain("not legal compliance");
+    expect(t).toContain("Art 27");
+    expect(x.state === "computed" ? x.citation.source : "").toContain(
+      "governance/eu-ai-act/eu-ai-act-deployer-2026.json",
     );
-    expect(healthy.rating).toBe(degraded.rating);
   });
 });
