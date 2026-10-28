@@ -79,3 +79,18 @@ never penalize the rating (MCP is opt-in).
 | `RELIABILITY_OTEL=1` | Turn on OTLP export (defaults endpoint to Phoenix). `0` forces off. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Export to this OTLP/HTTP endpoint (also turns export on). |
 | `--trace` (on `agent run`) | In-memory capture + printed span tree; no backend, no export. |
+
+## Request identity and content (Phase 4B)
+
+The gateway wraps each request in a `gateway.generate` root span. That span and
+every `chat` span carry `grade_stack.request_id`, plus `grade_stack.caller_id`
+and `enduser.id` when the caller sent `x-caller-id`. The same request id is on
+the request's line in the gateway decision log, so a log line and its trace
+join on it (ADR 0017).
+
+Prompt and output content stay off spans by default. `RELIABILITY_TRACE_CONTENT=1`
+records them on `chat` spans as `gen_ai.input.messages` and
+`gen_ai.output.messages`. The output there is the raw model text, before the
+gateway's output redaction, so with capture on a trace backend holds personal
+data. See [`docs/logging-and-retention.md`](logging-and-retention.md).
+

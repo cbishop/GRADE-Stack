@@ -479,7 +479,9 @@ function reconstructableCriterion(log: DecisionLogEvidence): ComputedCriterion {
   const evidence = [
     n === 0
       ? "The decision log has no records."
-      : `${captured} of ${n} decisions (${pct(share)}) have content captured; the rest hold input and output hashes only.`,
+      : captured === n
+        ? `All ${n} decisions have content captured (RELIABILITY_TRACE_CONTENT=1).`
+        : `${captured} of ${n} decisions (${pct(share)}) have content captured; the rest hold input and output hashes only.`,
     retention === null
       ? `No retention period is stated in ${log.retention.source}.`
       : `Retention period stated in ${log.retention.source}: ${retention}.`,
@@ -518,7 +520,7 @@ function reconstructableCriterion(log: DecisionLogEvidence): ComputedCriterion {
  * placeholder (`<...>`, `TBD`, `fill in`).
  */
 export function parseRetentionPeriod(markdown: string): string | null {
-  const m = /^[\s>*-]*\**Retention period:?\**:?\s*(.*)$/im.exec(markdown);
+  const m = /^[\s>*-]*\**Retention period(?::\**|\**:)[ \t]*(.*)$/im.exec(markdown);
   const value = m?.[1]?.replace(/\*+/g, "").trim() ?? "";
   if (value === "" || value.startsWith("<") || /\b(tbd|fill in)\b/i.test(value)) return null;
   return value;

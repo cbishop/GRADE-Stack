@@ -1,6 +1,6 @@
 # Build Plan v3 — Grade Stack: the assurance loop
 
-**Owner:** Clarke Bishop · **Status:** in progress. Written 2026-10-28 at commit `e5882b1`; Phase 4A complete 2026-10-28 (branch `v3-4a-honesty-grade-dimensions`) · **Source of truth for what:** [`docs/PRD-Grade-Stack-v2.md`](./PRD-Grade-Stack-v2.md) (product context, stack, non-goals) plus [`docs/gap-analysis-assurance-loop-2026-10-28.md`](./gap-analysis-assurance-loop-2026-10-28.md) (the gaps v3 closes) · **Predecessor:** [`docs/PLAN-Grade-Stack-v2.md`](./PLAN-Grade-Stack-v2.md) (complete, 13 cycles)
+**Owner:** Clarke Bishop · **Status:** in progress. Written 2026-10-28 at commit `e5882b1`; Phase 4A complete 2026-10-28 (branch `v3-4a-honesty-grade-dimensions`); Phase 4B complete 2026-10-28 (branch `v3-4b-decision-log`) · **Source of truth for what:** [`docs/PRD-Grade-Stack-v2.md`](./PRD-Grade-Stack-v2.md) (product context, stack, non-goals) plus [`docs/gap-analysis-assurance-loop-2026-10-28.md`](./gap-analysis-assurance-loop-2026-10-28.md) (the gaps v3 closes) · **Predecessor:** [`docs/PLAN-Grade-Stack-v2.md`](./PLAN-Grade-Stack-v2.md) (complete, 13 cycles)
 
 v2 built the stack. v3 closes the four-pillar assurance loop the gap analysis measured it against: trusted evaluation, full traceability, rollback, and a human review queue, plus explicit boundaries as autonomy rises. Every sub-phase turns one "missing" or "partial" row of the gap table into a mechanism with a test that proves it bites, a readback that explains it in plain language, and a scorecard criterion computed from its record.
 
@@ -113,13 +113,13 @@ The gap analysis found two pillars with no code at all (rollback, human review),
 9. **Governance:** revisit Art 12 / 26(6) and NIST MEASURE 3 / MANAGE 4. Upgrade to `supported` only if the check script's "names a mechanism" rule is satisfied by the decision log and the residual (retention is the deployer's policy) is stated.
 
 **Acceptance criteria:**
-- [ ] A blocked injection, a PII redaction, and a frontier escalation each produce one log line that `reliability gateway log` explains in a sentence.
-- [ ] A log line and its trace share a request id; `enduser.id` appears on spans when a caller id is supplied.
-- [ ] No prompt or output text in the log by default; with `RELIABILITY_TRACE_CONTENT=1` a run is fully reconstructable from the capture directory.
-- [ ] Scorecard D shows *attributable* and *reconstructable* as computed criteria citing the log file.
-- [ ] `docs/logging-and-retention.md` exists with one reconstructed run.
-- [ ] **ADR 0017** records the JSONL, append-only, hashes-by-default decision.
-- [ ] **Artifact:** post draft in `content/cycle-14/`: "what your gateway refused today, and why, in one file."
+- [x] A blocked injection, a PII redaction, and a frontier escalation each produce one log line that `reliability gateway log` explains in a sentence. *Evidence: `gateway.test.ts` (one line per allow, input-block, output-redact, router-escalate and error path); built-binary smoke test drives `gateway serve` and reads three lines back; manual run against Ollama in `content/cycle-14/sample-decision-log.jsonl`.*
+- [x] A log line and its trace share a request id; `enduser.id` appears on spans when a caller id is supplied. *Evidence: `gateway.test.ts` "a log line and its trace share a request id"; `tracing.test.ts` identity tests; sample spans in `docs/logging-and-retention.md`.*
+- [x] No prompt or output text in the log by default; with `RELIABILITY_TRACE_CONTENT=1` a run is fully reconstructable from the capture directory. *Evidence: strict `DecisionRecordSchema` refuses text fields; `gateway.test.ts` content-capture tests (default leaves no content anywhere; capture hashes back to the log line); smoke test greps the log for prompt text.*
+- [x] Scorecard D shows *attributable* and *reconstructable* as computed criteria citing the log file. *Evidence: `reliability scorecard --decision-log <file>`; `scorecard.test.ts` D criteria tests and degraded canary; smoke test; `content/cycle-14/sample-scorecard.md`.*
+- [x] `docs/logging-and-retention.md` exists with one reconstructed run. *Evidence: fill-in template plus a real 2026-10-28 Ollama run (log line, span attributes, capture, hash check).*
+- [x] **ADR 0017** records the JSONL, append-only, hashes-by-default decision. *Evidence: `docs/decisions/0017-decision-log-jsonl-append-only-hashes-by-default.md`.*
+- [x] **Artifact:** post draft in `content/cycle-14/`: "what your gateway refused today, and why, in one file." *Evidence: `content/cycle-14/endofcycle-post.md`.*
 
 ---
 

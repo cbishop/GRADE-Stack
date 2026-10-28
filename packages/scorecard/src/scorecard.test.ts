@@ -699,5 +699,9 @@ describe("parseRetentionPeriod", () => {
     expect(parseRetentionPeriod("Retention period: TBD")).toBeNull();
     expect(parseRetentionPeriod("Retention period:")).toBeNull();
     expect(parseRetentionPeriod("# Logging\nnothing here")).toBeNull();
+    // A mention of the field in prose is not the field.
+    expect(
+      parseRetentionPeriod("> reads the\n> **Retention period** line: while it is a placeholder"),
+    ).toBeNull();
   });
 });
