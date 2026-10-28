@@ -32,7 +32,7 @@ weakest computed criterion; the overall verdict is the weakest letter.
 | **G · Governed** | Governance readiness: EU AI Act deployer module | Human oversight record (4D); Boundary register (4E) |
 | **R · Reliable** | Reliability: eval pass rate + run-to-run stability. Cost discipline: cost-per-success + waste fraction | none |
 | **A · Agentic** | Guardrail coverage: OWASP Agentic Top 10 mapping | Declared vs observed autonomy and tool scope (4E) |
-| **D · Deployed** | Observability coverage: real OTel trace coverage (connected? phases captured?) | Attributable and reconstructable (4B); Rollback verified (4C) |
+| **D · Deployed** | Observability coverage: real OTel trace coverage (connected? phases captured?). Attributable and Reconstructable: the gateway decision log, when `--decision-log <file>` is given | Attributable and Reconstructable without a log (4B); Rollback verified (4C) |
 | **E · Evaluated** | Suite breadth: case count, a refusal or OOD case, a judge metric | Last real-model run freshness; Judge calibration; Post-deployment re-score (4F) |
 
 A criterion that is not yet assessed renders "Not yet assessed; fills in Phase
@@ -162,9 +162,12 @@ the scorecard with the sub-phase that fills it in:
 - **Boundary register** (G, 4E) and **declared vs observed autonomy and tool
   scope** (A, 4E): policy is global today; per-agent limits are not declared or
   enforced.
-- **Attributable and reconstructable** (D, 4B): traces are opt-in, carry no
-  caller id, and the gateway records none of its decisions. Art 12 / Art 26(6)
-  logging is rated *partial* for this reason.
+- **Attributable and Reconstructable** (D, 4B): computed only when the client's
+  gateway decision log is passed with `reliability scorecard --decision-log
+  <file>`. Without it they stay not assessed. Read the log back with
+  `reliability gateway log`. Reconstructable stays low until the client turns on
+  content capture (`RELIABILITY_TRACE_CONTENT=1`) and states a retention period
+  in `docs/logging-and-retention.md`.
 - **Rollback verified** (D, 4C): there is no kill switch and no recorded drill.
 - **Last real-model run freshness, judge calibration, post-deployment re-score**
   (E, 4F): the CI gate runs on the stub provider and the judge is not calibrated

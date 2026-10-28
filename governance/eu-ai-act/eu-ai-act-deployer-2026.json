@@ -128,15 +128,20 @@
       "deferralNote": "Deferred to 2026-12-02 if the Digital Omnibus is adopted (not yet law).",
       "penaltyTier": "Tier 2",
       "scored": true,
-      "stackSupport": "partial",
+      "stackSupport": "supported",
       "mechanisms": [
+        {
+          "name": "Gateway decision log (append-only JSONL, one schema-validated line per request)",
+          "ref": "packages/gateway/src/decision-log.ts; docs/decisions/0017-decision-log-jsonl-append-only-hashes-by-default.md; docs/logging-and-retention.md",
+          "note": "Every request through the gateway is recorded automatically: request id, caller id, action, the policy that fired and why, model served, routing, input and output SHA-256, tokens, latency and an ISO timestamp. The file is opened append-only and never truncated by the stack; a failed write fails the request. `reliability gateway log` reads it back in plain language. Opt-in content capture (RELIABILITY_TRACE_CONTENT=1) makes a run reconstructable."
+        },
         {
           "name": "OpenTelemetry tracing (connected plan→tool→validate trace per run)",
           "ref": "@grade-stack/core (tracing.ts); docs/observability-tracing.md",
-          "note": "Produces one connected, inspectable trace per run when export is switched on: the technical substrate a record-keeping process can build on."
+          "note": "Produces one connected, inspectable trace per run when export is switched on; root and chat spans carry the same request id and caller id as the decision log, so a log line and its trace join."
         }
       ],
-      "note": "Partial. Residual: export is opt-in, spans carry no caller or request id and no inputs or outputs, the gateway records none of its allow, block, redact or route decisions, and nothing sets retention. Phase 4B ships the append-only gateway decision log that makes a request attributable and reconstructable; retention policy stays the deployer's."
+      "note": "Supported for the stack's part: the gateway records every decision automatically, attributable and, with capture on, reconstructable. Residual: retention is the deployer's policy (Art 26(6) asks for at least six months; the stack never deletes and never enforces a period; state it in docs/logging-and-retention.md), caller ids are self-asserted headers until Phase 4E authenticates them, trace export stays opt-in, and only requests through the gateway are logged. Legally required only for Annex III high-risk systems."
     },
     {
       "id": "Art 26 (monitoring)",
