@@ -1,21 +1,25 @@
 # @grade-stack/scorecard
 
 The **AI Reliability Scorecard** — a one-page, board-legible trust/risk readout
-built entirely from eval evidence. Phase 1C.
+built entirely from eval evidence. Phase 1C; regrouped under the GRADE letters in Phase 4A.
 
-It turns a `reliability eval run` result into five executive dimensions:
+It turns a `reliability eval run` result, the measured trace coverage, and the
+committed governance mappings into a rating under each of the five GRADE letters
+(ADR 0016):
 
-| Dimension | Source | Status in 1C |
+| Letter | Computed criteria | Not yet assessed (fills in) |
 |---|---|---|
-| **Reliability** | pass rate + run-to-run stability | computed |
-| **Cost discipline** | cost-per-success + waste fraction | computed |
-| **Observability coverage** | OpenTelemetry trace coverage | stubbed → Phase 2D |
-| **Guardrail coverage** | OWASP Agentic Top 10 mapping | stubbed → Phase 3A |
-| **Governance readiness** | EU AI Act deployer module | stubbed → Phase 3C |
+| **G · Governed** | Governance readiness (EU AI Act deployer module) | Human oversight record (4D); Boundary register (4E) |
+| **R · Reliable** | Reliability (pass rate + stability); Cost discipline (cost-per-success + waste) | none |
+| **A · Agentic** | Guardrail coverage (OWASP Agentic Top 10) | Declared vs observed autonomy and tool scope (4E) |
+| **D · Deployed** | Observability coverage (OpenTelemetry trace coverage) | Attributable and reconstructable (4B); Rollback verified (4C) |
+| **E · Evaluated** | Suite breadth (case count, refusal or OOD case, judge metric) | Real-model run freshness; Judge calibration; Post-deployment re-score (4F) |
 
-Every rating traces to the numbers beneath it — there are **no unsupported
-scores**. Stubbed dimensions say "not yet assessed" and name the phase that
-computes them, rather than guessing.
+Every criterion is in one of two states: **computed**, with evidence and a
+citation (source record, threshold, what would change the grade), or **stubbed**,
+with the sub-phase that fills it in. There is no third state; the tests assert
+it. A letter's grade is its weakest computed criterion, and the overall verdict
+is the weakest letter.
 
 ## Use
 
@@ -30,5 +34,5 @@ bun run reliability scorecard --from results.json --format both --out scorecard
 bun run reliability scorecard --provider stub --degraded
 ```
 
-`buildScorecard(result)` is pure — it carries the eval run's timestamp rather
+`buildScorecard(result, inputs)` is pure — it carries the eval run's timestamp rather
 than reading the clock, so the same eval input always yields the same scorecard.

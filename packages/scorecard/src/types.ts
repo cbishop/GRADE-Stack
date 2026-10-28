@@ -4,23 +4,28 @@
 /**
  * @module scorecard/types
  *
- * The scorecard's data model — the board-legible Rating scale, the per-dimension
- * and whole-card shapes, and the rating rank/label tables.
+ * The scorecard's data model: the board-legible Rating scale, the five
+ * GRADE-letter dimensions (ADR 0016), the two-state criterion union (computed
+ * with a citation, or stubbed with the v3 sub-phase that fills it in), the
+ * whole-card shape, and the rating rank/label tables.
  */
 
 /**
- * Plain-language ratings. Deliberately a short, board-legible scale — a CFO can
- * read "At risk" without a glossary. `not-assessed` is honest about dimensions
- * that no eval evidence supports yet (they land in later phases).
+ * Plain-language ratings. Deliberately a short, board-legible scale: a CFO can
+ * read "At risk" without a glossary. `not-assessed` is honest about criteria
+ * that no evidence supports yet (they land in later sub-phases).
  */
 export type Rating = "strong" | "adequate" | "at-risk" | "critical" | "not-assessed";
 
+/** A rating backed by evidence (every rating except `not-assessed`). */
+export type AssessedRating = Exclude<Rating, "not-assessed">;
+
 /**
- * Orders ratings worst→best for comparison (used to roll up an overall verdict
- * and to prove honest degradation). `not-assessed` has no rank — it is excluded
- * from the rollup rather than treated as good or bad.
+ * Orders ratings worst to best for comparison (used to roll up the dimension
+ * and overall verdicts and to prove honest degradation). `not-assessed` has no
+ * rank: it is excluded from every rollup rather than treated as good or bad.
  */
-export const RATING_RANK: Record<Exclude<Rating, "not-assessed">, number> = {
+export const RATING_RANK: Record<AssessedRating, number> = {
   critical: 0,
   "at-risk": 1,
   adequate: 2,
@@ -36,25 +41,97 @@ export const RATING_LABEL: Record<Rating, string> = {
   "not-assessed": "Not yet assessed",
 };
 
-/** One executive dimension of the scorecard. */
-export interface Dimension {
+/** The five GRADE dimension ids, in letter order (ADR 0016). */
+export const GRADE_DIMENSION_IDS = [
+  "governed",
+  "reliable",
+  "agentic",
+  "deployed",
+  "evaluated",
+] as const;
+
+/** One of the five GRADE dimension ids. */
+export type DimensionId = (typeof GRADE_DIMENSION_IDS)[number];
+
+/** The letter each dimension is named for. */
+export type GradeLetter = "G" | "R" | "A" | "D" | "E";
+
+/**
+ * The v3 sub-phases a stubbed criterion may name (PLAN v3). A stub must say
+ * which of these fills it in; there is no open-ended "later".
+ */
+export const FILLS_IN_PHASES = ["4B", "4C", "4D", "4E", "4F"] as const;
+
+/** One v3 sub-phase that fills in a stubbed criterion. */
+export type FillsInPhase = (typeof FILLS_IN_PHASES)[number];
+
+/**
+ * Where a computed criterion's grade comes from: the record it was computed
+ * from (file and id), the threshold applied, and what would change the grade.
+ * PLAN v3 explainability rule 3.
+ */
+export interface EvidenceCitation {
+  /** The record the grade was computed from, e.g. a results file or governance JSON. */
+  source: string;
+  /** The bands or floor applied to that record. */
+  threshold: string;
+  /** One sentence naming what would move the grade up (or down, when already Strong). */
+  wouldChange: string;
+}
+
+/** A criterion graded from evidence. */
+export interface ComputedCriterion {
+  state: "computed";
   /** Stable machine key, e.g. "reliability". */
   key: string;
   /** Display title, e.g. "Reliability". */
   title: string;
-  rating: Rating;
+  rating: AssessedRating;
   /** One plain-language sentence a non-technical reader can act on. */
   headline: string;
-  /**
-   * The eval evidence behind the rating — each line traces to numbers in the
-   * eval results. No rating is allowed without evidence (the contract: no
-   * unsupported scores). Stubbed dimensions carry the reason they're unassessed.
-   */
+  /** The numbers behind the rating; never empty. */
   evidence: string[];
-  /** False for dimensions that have no eval evidence yet (stubs). */
+  citation: EvidenceCitation;
+}
+
+/** A criterion with no evidence yet, honest about the sub-phase that fills it in. */
+export interface StubbedCriterion {
+  state: "stubbed";
+  key: string;
+  title: string;
+  rating: "not-assessed";
+  /** The v3 sub-phase that computes this criterion. */
+  fillsIn: FillsInPhase;
+  /** The record it will be computed from once that sub-phase ships. */
+  computedFrom: string;
+}
+
+/**
+ * Every criterion is in exactly one of two states (register row 4A: "Scorecard
+ * cannot claim a letter it has no evidence for"). The union is closed: there is
+ * no third state, and the scorecard tests assert it.
+ */
+export type Criterion = ComputedCriterion | StubbedCriterion;
+
+/** One GRADE-letter dimension of the scorecard. */
+export interface Dimension {
+  id: DimensionId;
+  letter: GradeLetter;
+  /** Full name, e.g. "Governed". */
+  title: string;
+  /** The question the letter answers, in plain language. */
+  question: string;
+  /**
+   * The weakest computed criterion's rating (ADR 0016). Stubs never move it;
+   * `not-assessed` only when the dimension has no computed criterion.
+   */
+  rating: Rating;
+  /** The weakest computed criterion's headline, so the reader sees what set the grade. */
+  headline: string;
+  /** The named criteria under this letter, computed ones first. */
+  criteria: Criterion[];
+  /** True when at least one criterion is computed. */
   assessed: boolean;
-  /** For unassessed dimensions, the phase that computes them. */
-  plannedPhase?: string;
 }
 
 /** A complete one-page scorecard built from a single eval run. */
@@ -65,15 +142,19 @@ export interface Scorecard {
   agentTask: string;
   provider: string;
   model: string;
-  /** Cosmetic banner only — never an input to any rating (ratings are evidence-derived). */
+  /** Cosmetic banner only; never an input to any rating (ratings are evidence-derived). */
   degraded: boolean;
   overall: {
     rating: Rating;
     headline: string;
   };
+  /** The five GRADE letters, in order. */
   dimensions: Dimension[];
   meta: {
+    /** Letters with at least one computed criterion. */
     assessedCount: number;
     totalDimensions: number;
+    computedCriteria: number;
+    stubbedCriteria: number;
   };
 }

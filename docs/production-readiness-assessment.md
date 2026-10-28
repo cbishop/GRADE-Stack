@@ -12,27 +12,32 @@ It produces two artifacts:
 2. **A one-page AI Reliability Scorecard** (Markdown + printable HTML) — the
    board-legible readout, every rating traced to that evidence.
 
-This is the **Phase 2 milestone deliverable**. It assumes the stack is built
-through Phase 2D; it does not require Phase 3 (two scorecard dimensions are
-honestly stubbed until then — see [What this assessment does *not* yet cover](#what-this-assessment-does-not-yet-cover)).
+This was the **Phase 2 milestone deliverable**, updated for v3 Phase 4A. Every
+one of the five GRADE letters is graded from evidence today; a few named
+criteria inside them are not yet assessed and say which v3 sub-phase fills them
+in (see [What this assessment does *not* yet cover](#what-this-assessment-does-not-yet-cover)).
 
 ---
 
-## What you get: the five dimensions
+## What you get: the five GRADE letters
 
-The scorecard rates an agent on five executive dimensions. Three are **computed
-from evidence** today; two are **honestly stubbed** until Phase 3.
+The scorecard rates an agent on the five GRADE letters (ADR 0016). Each letter
+holds named criteria. A criterion is either **computed** from a record, with the
+source, the threshold applied, and what would change the grade, or **not yet
+assessed**, with the v3 sub-phase that fills it in. A letter's grade is its
+weakest computed criterion; the overall verdict is the weakest letter.
 
-| Dimension | Status today | Computed from | Phase |
-|---|---|---|---|
-| **Reliability** | ✅ computed | eval pass rate + run-to-run stability | 1A/1B |
-| **Cost discipline** | ✅ computed | cost-per-success + waste fraction | 1B |
-| **Observability coverage** | ✅ computed | real OTel trace coverage (connected? phases captured?) | 2D |
-| **Guardrail coverage** | ⚪ stubbed | OWASP Agentic Top 10 mapping | 3A |
-| **Governance readiness** | ⚪ stubbed | EU AI Act deployer module | 3C |
+| Letter | Computed today, from | Not yet assessed (fills in) |
+|---|---|---|
+| **G · Governed** | Governance readiness: EU AI Act deployer module | Human oversight record (4D); Boundary register (4E) |
+| **R · Reliable** | Reliability: eval pass rate + run-to-run stability. Cost discipline: cost-per-success + waste fraction | none |
+| **A · Agentic** | Guardrail coverage: OWASP Agentic Top 10 mapping | Declared vs observed autonomy and tool scope (4E) |
+| **D · Deployed** | Observability coverage: real OTel trace coverage (connected? phases captured?) | Attributable and reconstructable (4B); Rollback verified (4C) |
+| **E · Evaluated** | Suite breadth: case count, a refusal or OOD case, a judge metric | Last real-model run freshness; Judge calibration; Post-deployment re-score (4F) |
 
-A stubbed dimension renders "not yet assessed" and names the phase that will
-compute it — it never asserts a score it can't back.
+A criterion that is not yet assessed renders "Not yet assessed; fills in Phase
+4X." It never asserts a score it can't back, and it never moves its letter's
+grade.
 
 ---
 
@@ -82,13 +87,13 @@ bun run reliability scorecard -p ollama --format both -o scorecard
 # writes scorecard.md and scorecard.html
 ```
 
-The scorecard turns the eval evidence into the five-dimension readout an executive
+The scorecard turns the eval evidence into the five-letter readout an executive
 can read in three minutes. Every rating carries the evidence behind it — no
 unsupported scores.
 
 - `-f, --from eval-results.json` builds from an existing run instead of re-running
   the suite (faster, and lets you assess a captured result).
-- The **Observability** dimension is measured automatically here: the scorecard
+- The **Observability coverage** criterion (under D) is measured automatically here: the scorecard
   runs a hermetic, in-memory trace probe (network-free) to compute trace coverage,
   so it works offline regardless of whether you've wired an OTLP backend.
 
@@ -113,7 +118,8 @@ bypass-attempt prompt**, and a direct-to-provider call from the credential-isola
 agent process failing for lack of credentials (the structural proof). See
 [ADR 0007](decisions/0007-gateway-policy-model-and-credential-isolation.md).
 *(Scope today: prompt-injection/override denial, secret-exfiltration denial, output
-PII redaction, token/model caps. The full OWASP mapping lands in Phase 3A.)*
+PII redaction, token/model caps. The full OWASP mapping is in
+[`governance/owasp/`](../governance/owasp/) and grades Guardrail coverage under A.)*
 
 **Observability (tracing).** Confirm a full run produces one **connected** trace —
 plan → tool calls → validation:
@@ -129,15 +135,17 @@ endpoint incl. Braintrust via one env var) — see
 
 ## Step 4 — Interpret and decide
 
-Read the **Overall verdict** (the worst assessed dimension wins — a single failing
-core dimension means "not production-ready"), then the per-dimension headlines and
-evidence. For each dimension that isn't **Strong**, the evidence lines name the
-failing cases, the wasted spend, or the missing trace coverage to fix.
+Read the **Overall verdict** (the weakest letter wins, and the headline names it;
+a single failing letter means "not production-ready"), then each letter's
+criteria. For each computed criterion that isn't **Strong**, the evidence lines
+name the failing cases, the wasted spend, the missing trace coverage, or the
+partial obligations to fix, and the "what would change the grade" line says what
+moves it.
 
-A reasonable bar for "ready for supervised production": **Reliability** and
-**Observability** at least *Adequate* and **Cost discipline** not *Critical*, with
-the gateway enforcing guardrails server-side and a known plan for the two stubbed
-governance dimensions.
+A reasonable bar for "ready for supervised production": **R · Reliable** and
+**D · Deployed** at least *Adequate*, Cost discipline not *Critical*, the gateway
+enforcing guardrails server-side, and a named owner for each criterion that is
+not yet assessed (human oversight and rollback above all).
 
 ---
 
@@ -145,14 +153,24 @@ governance dimensions.
 
 Be explicit about the boundary — silent omissions are the credibility risk:
 
-- **Guardrail coverage** is not yet scored against a published threat taxonomy. The
-  gateway enforces a concrete (but partial) guardrail set today; the
-  covered-or-flagged mapping to the **OWASP Agentic Top 10** lands in **Phase 3A**,
-  at which point this dimension is computed.
-- **Governance readiness** (NIST AI RMF framing, **EU AI Act** deployer
-  obligations) is not yet assessed; it is computed from the Phase 3C module.
+Every letter is graded, but these criteria are not yet assessed. Each is shown on
+the scorecard with the sub-phase that fills it in:
 
-Until then, treat those two dimensions as "not assessed," not as "passed."
+- **Human oversight record** (G, 4D): no review queue holds an output for a named
+  approver yet, so human-in-the-loop is the deployer's process. The EU AI Act
+  Art 26 oversight obligation is rated *partial* for this reason.
+- **Boundary register** (G, 4E) and **declared vs observed autonomy and tool
+  scope** (A, 4E): policy is global today; per-agent limits are not declared or
+  enforced.
+- **Attributable and reconstructable** (D, 4B): traces are opt-in, carry no
+  caller id, and the gateway records none of its decisions. Art 12 / Art 26(6)
+  logging is rated *partial* for this reason.
+- **Rollback verified** (D, 4C): there is no kill switch and no recorded drill.
+- **Last real-model run freshness, judge calibration, post-deployment re-score**
+  (E, 4F): the CI gate runs on the stub provider and the judge is not calibrated
+  against human labels.
+
+Treat each of these as "not assessed," not as "passed."
 
 ---
 
@@ -167,4 +185,4 @@ bun run reliability gateway demo                               # guardrail enfor
 bun run reliability agent run -p ollama --mcp --trace          # connected-trace proof
 ```
 
-Open `scorecard.html`, read the overall verdict, and act on the weakest dimension.
+Open `scorecard.html`, read the overall verdict, and act on the weakest letter.

@@ -50,14 +50,14 @@ your organization.**
 
 ## Coverage by function
 
-**8 supported · 6 partial · 5 deployer-owned** across 19 categories.
+**6 supported · 8 partial · 5 deployer-owned** across 19 categories. (MEASURE 3 and MANAGE 4 moved from supported to partial on 2026-10-28: neither had a durable runtime record or a recovery mechanism behind it. Phases 4B to 4D add them.)
 
 | Function | Supported | Partial | Deployer-owned | Reading |
 |---|---|---|---|---|
 | **GOVERN** (6) | 0 | 2 | 4 | Mostly your organization's program work; the stack supplies a board-legible communication artifact and supply-chain controls. |
 | **MAP** (5) | 3 | 1 | 1 | The stack categorizes itself, benchmarks capability/cost, and ships a risk mapping (OWASP); societal-impact characterization is yours. |
-| **MEASURE** (4) | 3 | 1 | 0 | The stack's strongest function — config-as-code evals, scorecard, baseline tracking, all in CI. |
-| **MANAGE** (4) | 2 | 2 | 0 | Risk *response* is mechanized (gateway, eval-gate, turn bound); strategy and vendor due-diligence are yours. |
+| **MEASURE** (4) | 2 | 2 | 0 | The stack's strongest function: config-as-code evals and the scorecard, checked in CI. Tracking over time stops at merge; runtime records arrive in 4B. |
+| **MANAGE** (4) | 1 | 3 | 0 | Risk *response* in the request path is mechanized (gateway, eval-gate, turn bound); recovery (kill switch, rollback) arrives in 4C; strategy and vendor due-diligence are yours. |
 
 ### GOVERN
 
@@ -86,7 +86,7 @@ your organization.**
 |---|---|---|
 | MEASURE 1 — methods & metrics applied | 🟢 Supported | promptfoo harness + reproducibility band + cost-per-success + trace coverage |
 | MEASURE 2 — evaluated for trustworthy characteristics | 🟢 Supported | Scorecard dimensions + portable judge metric (fairness/privacy only partial — see note) |
-| MEASURE 3 — risks tracked over time | 🟢 Supported | Eval-gate vs baseline + degraded canary + OTel traces |
+| MEASURE 3 — risks tracked over time | 🟡 Partial | Eval-gate vs baseline + degraded canary; no durable runtime log until 4B, no real-model run until 4F |
 | MEASURE 4 — feedback on measurement efficacy | 🟡 Partial | Per-case flakiness / stability reporting + tolerance band |
 
 ### MANAGE
@@ -96,7 +96,7 @@ your organization.**
 | MANAGE 1 — risks prioritized, responded to | 🟢 Supported | Gateway guardrails + eval-gate + enforced `--max-turns` |
 | MANAGE 2 — strategies minimize negative impacts | 🟡 Partial | Guardrails + degraded canary + sovereign variant (strategy is yours) |
 | MANAGE 3 — third-party risks managed | 🟡 Partial | Pinned lockfile + secret scan + OWASP ASI04 (due-diligence is yours) |
-| MANAGE 4 — treatments documented & monitored | 🟢 Supported | OTel monitoring + scorecard + eval-gate CI + enforcement register |
+| MANAGE 4 — treatments documented & monitored | 🟡 Partial | Scorecard + eval-gate CI + enforcement register; recovery and decision records arrive in 4B to 4D |
 
 ## Per-category detail
 

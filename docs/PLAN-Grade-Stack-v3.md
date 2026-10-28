@@ -1,6 +1,6 @@
 # Build Plan v3 — Grade Stack: the assurance loop
 
-**Owner:** Clarke Bishop · **Status:** v3 draft, written 2026-10-28 at commit `e5882b1`, not yet started · **Source of truth for what:** [`docs/PRD-Grade-Stack-v2.md`](./PRD-Grade-Stack-v2.md) (product context, stack, non-goals) plus [`docs/gap-analysis-assurance-loop-2026-10-28.md`](./gap-analysis-assurance-loop-2026-10-28.md) (the gaps v3 closes) · **Predecessor:** [`docs/PLAN-Grade-Stack-v2.md`](./PLAN-Grade-Stack-v2.md) (complete, 13 cycles)
+**Owner:** Clarke Bishop · **Status:** in progress. Written 2026-10-28 at commit `e5882b1`; Phase 4A complete 2026-10-28 (branch `v3-4a-honesty-grade-dimensions`) · **Source of truth for what:** [`docs/PRD-Grade-Stack-v2.md`](./PRD-Grade-Stack-v2.md) (product context, stack, non-goals) plus [`docs/gap-analysis-assurance-loop-2026-10-28.md`](./gap-analysis-assurance-loop-2026-10-28.md) (the gaps v3 closes) · **Predecessor:** [`docs/PLAN-Grade-Stack-v2.md`](./PLAN-Grade-Stack-v2.md) (complete, 13 cycles)
 
 v2 built the stack. v3 closes the four-pillar assurance loop the gap analysis measured it against: trusted evaluation, full traceability, rollback, and a human review queue, plus explicit boundaries as autonomy rises. Every sub-phase turns one "missing" or "partial" row of the gap table into a mechanism with a test that proves it bites, a readback that explains it in plain language, and a scorecard criterion computed from its record.
 
@@ -86,12 +86,12 @@ The gap analysis found two pillars with no code at all (rollback, human review),
 6. **Regenerate** the sample scorecard under `content/cycle-13/` and leave older cycle samples as snapshots.
 
 **Acceptance criteria:**
-- [ ] `reliability scorecard` prints five dimensions named G, R, A, D, E; every stubbed criterion says which sub-phase fills it.
-- [ ] EU AI Act Art 26 and Art 12 / 26(6) read `partial`; `bun run check` (all governance checks) is green.
-- [ ] `docs/production-readiness-assessment.md` no longer calls any dimension stubbed.
-- [ ] Degraded mode still drops R; built-binary smoke test passes.
-- [ ] **ADR 0016** records the letter mapping and where Cost discipline lives.
-- [ ] **Artifact:** post draft in `content/cycle-13/`: "the scorecard now admits what it cannot grade yet."
+- [x] `reliability scorecard` prints five dimensions named G, R, A, D, E; every stubbed criterion says which sub-phase fills it.
+- [x] EU AI Act Art 26 and Art 12 / 26(6) read `partial`; `bun run check` (all governance checks) is green.
+- [x] `docs/production-readiness-assessment.md` no longer calls any dimension stubbed.
+- [x] Degraded mode still drops R; built-binary smoke test passes.
+- [x] **ADR 0016** records the letter mapping and where Cost discipline lives.
+- [x] **Artifact:** post draft in `content/cycle-13/`: "the scorecard now admits what it cannot grade yet."
 
 ---
 

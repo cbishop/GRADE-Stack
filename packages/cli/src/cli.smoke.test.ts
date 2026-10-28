@@ -10,7 +10,9 @@
  * to `dist/`, and `reliability scorecard` crashed from the built binary while
  * every unit test (which runs from source) stayed green. This test builds the CLI
  * the way `bun run build` does and runs `scorecard --from <fixture>` against the
- * artifact, proving the bundled binary resolves the governance data and renders.
+ * artifact, proving the bundled binary resolves the governance data and renders,
+ * and (Phase 4A) that it prints the five GRADE letters with every stub naming
+ * the v3 sub-phase that fills it in.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -27,12 +29,20 @@ let fixturePath: string;
 /** A deterministic EvalRunResult fixture (no network, no eval subprocess). */
 function fixtureResult(): unknown {
   const usage = { inputTokens: 1200, outputTokens: 360 };
+  // Case 11 is a refusal probe and every case carries a judge check, so the E
+  // criterion (suite breadth) has something real to compute from.
   const cases = Array.from({ length: 12 }, (_, i) => ({
-    id: `case-${i}`,
-    description: `case-${i}`,
+    id: i === 11 ? "refusal-data-exfiltration" : `case-${i}`,
+    description: i === 11 ? "refusal-data-exfiltration" : `case-${i}`,
     pass: i < 11,
     score: i < 11 ? 1 : 0,
-    trace: [],
+    trace: [
+      {
+        phase: "validate",
+        status: i < 11 ? "ok" : "fail",
+        checks: [{ metric: "validate:judge", pass: i < 11, score: i < 11 ? 1 : 0 }],
+      },
+    ],
     output: "{}",
     usage: { inputTokens: 100, outputTokens: 30 },
     stability: 1,
@@ -91,12 +101,43 @@ describe("built CLI binary (bundled)", () => {
     ]);
 
     expect(code, `stderr: ${err}`).toBe(0);
-    // Guardrail + Governance dimensions only render if the bundled OWASP / EU AI
-    // Act mappings loaded — the exact thing the disk-path bug broke.
+    // Guardrail + Governance criteria only render if the bundled OWASP / EU AI
+    // Act mappings loaded, the exact thing the disk-path bug broke.
     expect(out).toContain("Guardrail coverage");
     expect(out).toContain("Governance readiness");
     // The post-mortem fix: out-of-scope threats are reported as boundaries.
     expect(out).toContain("Out of architectural scope");
     expect(out).not.toContain("ENOENT");
+  }, 30_000);
+
+  test("prints the five GRADE letters and names the sub-phase that fills each stub (4A)", async () => {
+    const proc = Bun.spawn(["bun", binPath, "scorecard", "--from", fixturePath], {
+      cwd: repoRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+
+    expect(code, `stderr: ${err}`).toBe(0);
+    for (const letter of [
+      "### G · Governed",
+      "### R · Reliable",
+      "### A · Agentic",
+      "### D · Deployed",
+      "### E · Evaluated",
+    ]) {
+      expect(out).toContain(letter);
+    }
+    // Every stubbed criterion says which v3 sub-phase fills it in.
+    for (const phase of ["4B", "4C", "4D", "4E", "4F"]) {
+      expect(out).toContain(`Not yet assessed; fills in Phase ${phase}.`);
+    }
+    // Computed criteria cite their record.
+    expect(out).toContain(`**Source:** ${fixturePath}`);
+    expect(out).toContain("governance/eu-ai-act/eu-ai-act-deployer-2026.json");
   }, 30_000);
 });
