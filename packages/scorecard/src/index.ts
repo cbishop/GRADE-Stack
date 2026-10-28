@@ -34,11 +34,13 @@ export {
   parseOwaspMapping,
 } from "./owasp.ts";
 export { renderCli, renderHtml, renderMarkdown } from "./render.ts";
-export { buildScorecard, type ScorecardOptions } from "./scorecard.ts";
+export { buildScorecard, parseRetentionPeriod, type ScorecardOptions } from "./scorecard.ts";
 export {
   type AssessedRating,
   type ComputedCriterion,
   type Criterion,
+  type DecisionLogEntry,
+  type DecisionLogEvidence,
   type Dimension,
   type DimensionId,
   type EvidenceCitation,

@@ -14,8 +14,15 @@ import type { TraceCoverage } from "@grade-stack/core";
 import { type CaseResult, computeCost, type EvalRunResult } from "@grade-stack/evals";
 import type { GovernanceReadiness } from "./eu-ai-act.ts";
 import type { GuardrailCoverage } from "./owasp.ts";
-import { buildScorecard, type ScorecardOptions } from "./scorecard.ts";
-import type { Criterion, Dimension, DimensionId, Scorecard } from "./types.ts";
+import { buildScorecard, parseRetentionPeriod, type ScorecardOptions } from "./scorecard.ts";
+import type {
+  Criterion,
+  DecisionLogEntry,
+  DecisionLogEvidence,
+  Dimension,
+  DimensionId,
+  Scorecard,
+} from "./types.ts";
 import { FILLS_IN_PHASES, GRADE_DIMENSION_IDS, RATING_RANK } from "./types.ts";
 
 const PER_CASE_TOKENS = { inputTokens: 100, outputTokens: 30 };
@@ -205,7 +212,12 @@ describe("GRADE-letter dimensions (Phase 4A, ADR 0016)", () => {
     expect(keys("governed")).toEqual(["governance", "human-oversight", "boundary-register"]);
     expect(keys("reliable")).toEqual(["reliability", "cost-discipline"]);
     expect(keys("agentic")).toEqual(["guardrails", "autonomy-scope"]);
-    expect(keys("deployed")).toEqual(["observability", "attributable", "rollback"]);
+    expect(keys("deployed")).toEqual([
+      "observability",
+      "attributable",
+      "reconstructable",
+      "rollback",
+    ]);
     expect(keys("evaluated")).toEqual([
       "suite-breadth",
       "real-model-freshness",
@@ -246,7 +258,7 @@ describe("GRADE-letter dimensions (Phase 4A, ADR 0016)", () => {
   test("every stubbed criterion names a fillsIn sub-phase in 4B to 4F", () => {
     const c = card();
     const stubs = c.dimensions.flatMap((d) => d.criteria).filter((x) => x.state === "stubbed");
-    expect(stubs.length).toBe(8);
+    expect(stubs.length).toBe(9);
     for (const x of stubs) {
       expect(["4B", "4C", "4D", "4E", "4F"]).toContain(x.state === "stubbed" ? x.fillsIn : "");
     }
@@ -254,6 +266,7 @@ describe("GRADE-letter dimensions (Phase 4A, ADR 0016)", () => {
     expect(crit(c, "boundary-register")).toMatchObject({ state: "stubbed", fillsIn: "4E" });
     expect(crit(c, "autonomy-scope")).toMatchObject({ state: "stubbed", fillsIn: "4E" });
     expect(crit(c, "attributable")).toMatchObject({ state: "stubbed", fillsIn: "4B" });
+    expect(crit(c, "reconstructable")).toMatchObject({ state: "stubbed", fillsIn: "4B" });
     expect(crit(c, "rollback")).toMatchObject({ state: "stubbed", fillsIn: "4C" });
     for (const k of ["real-model-freshness", "judge-calibration", "post-deployment-rescore"]) {
       expect(crit(c, k)).toMatchObject({ state: "stubbed", fillsIn: "4F" });
@@ -278,7 +291,7 @@ describe("GRADE-letter dimensions (Phase 4A, ADR 0016)", () => {
       assessedCount: 5,
       totalDimensions: 5,
       computedCriteria: 6,
-      stubbedCriteria: 8,
+      stubbedCriteria: 9,
     });
   });
 
@@ -318,7 +331,7 @@ describe("Overall verdict", () => {
   test("all strong reads production-ready on the evidence, with stubs still counted", () => {
     const c = card();
     expect(c.overall.rating).toBe("strong");
-    expect(c.overall.headline).toContain("8 criteria");
+    expect(c.overall.headline).toContain("9 criteria");
   });
 });
 
@@ -565,5 +578,126 @@ describe("Governance readiness criterion (G)", () => {
     expect(x.state === "computed" ? x.citation.source : "").toContain(
       "governance/eu-ai-act/eu-ai-act-deployer-2026.json",
     );
+  });
+});
+
+// ── D · Deployed: decision-log criteria (Phase 4B, ADR 0017) ───────────────
+
+/** A decision-log fixture: n records, every one attributed and captured unless overridden. */
+function dlog(
+  n: number,
+  over: (i: number) => Partial<DecisionLogEntry> = () => ({}),
+  period: string | null = "13 months",
+): DecisionLogEvidence {
+  return {
+    source: "gateway-decisions.jsonl",
+    records: Array.from({ length: n }, (_, i) => ({
+      requestId: `req-${i}`,
+      callerId: "triage",
+      callerVerified: false,
+      contentCaptured: true,
+      ...over(i),
+    })),
+    retention: { source: "docs/logging-and-retention.md", period },
+  };
+}
+
+const withLog = (log: DecisionLogEvidence) => card(makeResult(12, 12), { decisionLog: log });
+
+describe("Attributable criterion (D, 4B)", () => {
+  test("without --decision-log both 4B criteria stay stubbed", () => {
+    expect(crit(card(), "attributable").state).toBe("stubbed");
+    expect(crit(card(), "reconstructable").state).toBe("stubbed");
+  });
+
+  test("computed from the log, citing the file, record ids, threshold and what would change it", () => {
+    const x = crit(withLog(dlog(4)), "attributable");
+    expect(x.state).toBe("computed");
+    if (x.state !== "computed") return;
+    expect(x.citation.source).toContain("gateway-decisions.jsonl");
+    expect(x.citation.source).toContain("req-0");
+    expect(x.citation.source).toContain("req-3");
+    expect(x.citation.threshold).toContain("Strong");
+    expect(x.citation.wouldChange.length).toBeGreaterThan(0);
+  });
+
+  test("every record attributed but caller ids unverified -> Adequate (4E verifies them)", () => {
+    const x = crit(withLog(dlog(4)), "attributable");
+    expect(x.rating).toBe("adequate");
+    expect(text(x)).toContain("unverified");
+  });
+
+  test("every record attributed with verified caller ids -> Strong", () => {
+    expect(crit(withLog(dlog(4, () => ({ callerVerified: true }))), "attributable").rating).toBe(
+      "strong",
+    );
+  });
+
+  test("bands track the share of records with a caller id; missing ids are cited", () => {
+    const missing = (k: number) => dlog(10, (i) => (i < k ? { callerId: null } : {}));
+    expect(crit(withLog(missing(1)), "attributable").rating).toBe("adequate"); // 90%
+    expect(crit(withLog(missing(4)), "attributable").rating).toBe("at-risk"); // 60%
+    expect(crit(withLog(missing(6)), "attributable").rating).toBe("critical"); // 40%
+    const x = crit(withLog(missing(4)), "attributable");
+    expect(x.state === "computed" ? x.citation.source : "").toContain("req-0");
+  });
+
+  test("an empty log is Critical", () => {
+    expect(crit(withLog(dlog(0)), "attributable").rating).toBe("critical");
+  });
+
+  test("degraded canary: a log with missing caller ids drops D", () => {
+    const healthy = dim(withLog(dlog(6, () => ({ callerVerified: true }))), "deployed");
+    const degraded = dim(withLog(dlog(6, () => ({ callerId: null }))), "deployed");
+    expect(healthy.rating).toBe("strong");
+    expect(degraded.rating).toBe("critical");
+    expect(RATING_RANK.critical).toBeLessThan(RATING_RANK.strong);
+  });
+});
+
+describe("Reconstructable criterion (D, 4B)", () => {
+  test("content captured on every record and a retention period stated -> Strong", () => {
+    const x = crit(withLog(dlog(5)), "reconstructable");
+    expect(x.rating).toBe("strong");
+    expect(x.state === "computed" ? x.citation.source : "").toContain(
+      "docs/logging-and-retention.md",
+    );
+    expect(text(x)).toContain("13 months");
+  });
+
+  test("hashes only (the default) -> Critical", () => {
+    expect(
+      crit(withLog(dlog(5, () => ({ contentCaptured: false }))), "reconstructable").rating,
+    ).toBe("critical");
+  });
+
+  test("no retention period stated drops one band", () => {
+    const x = crit(withLog(dlog(5, () => ({}), null)), "reconstructable");
+    expect(x.rating).toBe("adequate");
+    expect(text(x)).toContain("No retention period");
+  });
+
+  test("partial capture bands by share", () => {
+    const partial = (k: number) => dlog(10, (i) => (i < k ? { contentCaptured: false } : {}));
+    expect(crit(withLog(partial(2)), "reconstructable").rating).toBe("adequate"); // 80%
+    expect(crit(withLog(partial(4)), "reconstructable").rating).toBe("at-risk"); // 60%
+  });
+
+  test("computed criteria count moves from stubbed to computed", () => {
+    expect(withLog(dlog(3)).meta).toMatchObject({ computedCriteria: 8, stubbedCriteria: 7 });
+  });
+});
+
+describe("parseRetentionPeriod", () => {
+  test("reads a stated period, plain or bold", () => {
+    expect(parseRetentionPeriod("- **Retention period:** 13 months\n")).toBe("13 months");
+    expect(parseRetentionPeriod("Retention period: 400 days")).toBe("400 days");
+  });
+
+  test("a placeholder or a missing line is not a stated period", () => {
+    expect(parseRetentionPeriod("- **Retention period:** <fill in>\n")).toBeNull();
+    expect(parseRetentionPeriod("Retention period: TBD")).toBeNull();
+    expect(parseRetentionPeriod("Retention period:")).toBeNull();
+    expect(parseRetentionPeriod("# Logging\nnothing here")).toBeNull();
   });
 });
