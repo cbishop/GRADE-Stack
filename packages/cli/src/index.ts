@@ -19,12 +19,16 @@ import {
   AIRGAP_ENV,
   createDirectProvider,
   createProvider,
+  describeRelease,
+  diffReleases,
   EgressBlockedError,
   formatSpanTree,
   GuardrailError,
   initTracing,
   installEgressGuard,
   installEgressGuardFromEnv,
+  type ReleaseManifest,
+  releaseFromJson,
   StubProvider,
   withInMemoryTracing,
 } from "@grade-stack/core";
@@ -67,7 +71,13 @@ import {
   renderMarkdown,
 } from "@grade-stack/scorecard";
 import { Command } from "commander";
-import { connectSupportTools, runReferenceAgent, SAMPLE_EMAIL, selectTool } from "reference-agent";
+import {
+  connectSupportTools,
+  referenceAgentRelease,
+  runReferenceAgent,
+  SAMPLE_EMAIL,
+  selectTool,
+} from "reference-agent";
 // Governance mappings are imported (bundled into the build), not read from disk:
 // a relative path resolved against import.meta.url breaks once the CLI is bundled
 // to dist/ (it overshoots the repo root). Bundling the JSON makes the built
@@ -643,6 +653,57 @@ sovereign
       }
     },
   );
+
+const release = program
+  .command("release")
+  .description("Show and compare release manifests: which version was this? (Phase 4C)");
+
+release
+  .command("show")
+  .description("Print the reference agent's current release manifest")
+  .option("-p, --provider <provider>", "agent model provider: bedrock | ollama | stub")
+  .option("--json", "print the manifest as JSON")
+  .action((opts: { provider?: string; json?: boolean }) => {
+    const manifest = referenceAgentRelease(createProvider(opts.provider));
+    if (opts.json) {
+      console.log(JSON.stringify(manifest, null, 2));
+      return;
+    }
+    console.log("Release manifest (reference agent)");
+    for (const line of describeRelease(manifest)) console.log(`  ${line}`);
+  });
+
+/** Read the release manifest from an eval result (or a bare manifest) file; throws loudly. */
+async function readRelease(path: string): Promise<ReleaseManifest> {
+  return releaseFromJson(JSON.parse(await readFile(path, "utf8")) as unknown, path);
+}
+
+release
+  .command("diff")
+  .description("Explain what changed between two eval results' releases, in one sentence")
+  .argument("<a>", "the earlier eval result (or manifest) JSON")
+  .argument("<b>", "the later eval result (or manifest) JSON")
+  .option("--json", "print the field-by-field diff as JSON")
+  .action(async (a: string, b: string, opts: { json?: boolean }) => {
+    let from: ReleaseManifest;
+    let to: ReleaseManifest;
+    try {
+      from = await readRelease(a);
+      to = await readRelease(b);
+    } catch (err) {
+      console.error(
+        `Could not read a release: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const diff = diffReleases(from, to);
+    if (opts.json) {
+      console.log(JSON.stringify({ from: a, to: b, ...diff }, null, 2));
+      return;
+    }
+    console.log(`From ${a} to ${b}: ${diff.sentence}`);
+  });
 
 const evalCmd = program.command("eval").description("Run the reliability eval suite");
 

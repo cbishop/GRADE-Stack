@@ -6,7 +6,8 @@
  *
  * Runs the eval suite by spawning promptfoo against the provider bridge, then
  * normalizes its raw output into a structured EvalRunResult — folding repeats
- * into per-case stability and computing cost-per-success.
+ * into per-case stability and computing cost-per-success. Every result is
+ * stamped with the reference agent's release manifest (Phase 4C).
  */
 
 import { spawn } from "node:child_process";
@@ -14,6 +15,7 @@ import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createProvider, isAirgapEnabled, resolveProviderName } from "@grade-stack/core";
+import { referenceAgentRelease } from "reference-agent";
 import { computeCost } from "./pricing.ts";
 import {
   type CaseResult,
@@ -232,7 +234,10 @@ export async function runEvalSuite(opts: RunEvalOptions = {}): Promise<EvalRunRe
   const judgeProvider = resolveProviderName(opts.judgeProvider ?? opts.provider);
   // Resolve the agent model id through the abstraction (no network at
   // construction) so cost pricing has the exact model the run used.
-  const model = createProvider(provider).model;
+  const agentProvider = createProvider(provider);
+  const model = agentProvider.model;
+  // The version under test (4C), built before the run so it names what ran.
+  const release = referenceAgentRelease(agentProvider);
   const outPath = join(tmpdir(), `grade-stack-eval-${process.pid}.json`);
 
   try {
@@ -247,7 +252,7 @@ export async function runEvalSuite(opts: RunEvalOptions = {}): Promise<EvalRunRe
     }
     const parsed = JSON.parse(raw) as PromptfooOutput;
     const normalized = normalize(parsed, provider, model, judgeProvider);
-    return { ...normalized, timestamp: new Date().toISOString() };
+    return { ...normalized, timestamp: new Date().toISOString(), release };
   } finally {
     await rm(outPath, { force: true }).catch(() => {});
   }

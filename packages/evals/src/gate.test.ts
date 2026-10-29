@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { buildReleaseManifest, type ReleaseManifest } from "@grade-stack/core";
 import { baselineFromResult, evaluateGate, type GateBaseline } from "./gate.ts";
 import type { EvalRunResult } from "./types.ts";
 
@@ -84,5 +85,51 @@ describe("evaluateGate — cost cap", () => {
 describe("baselineFromResult", () => {
   test("extracts the comparable slice", () => {
     expect(baselineFromResult(result(12, 12))).toEqual(BASELINE);
+  });
+});
+
+describe("evaluateGate: the regression names the release change (4C)", () => {
+  const release = (prompt: string, tools: string[] = ["lookup_account"]): ReleaseManifest =>
+    buildReleaseManifest({
+      prompt,
+      model: "stub-deterministic-v1",
+      provider: "stub",
+      tools: tools.map((name) => ({ name, argSchema: { type: "object" } })),
+      policy: { maxTurns: 3 },
+      git: { gitSha: "a".repeat(40), dirty: false },
+      builtAt: new Date("2026-10-29T00:00:00Z"),
+    });
+
+  test("a regression names the diff between the baseline and run manifests", () => {
+    const base = { ...result(12, 12), release: release("v1") };
+    const run = { ...result(8, 12), release: release("v2", ["lookup_account", "lookup_order"]) };
+    const v = evaluateGate(run, baselineFromResult(base));
+    expect(v.pass).toBe(false);
+    expect(v.reasons).toContain(
+      "release change since baseline: Prompt hash changed; model unchanged; tool `lookup_order` added; policy hash unchanged; code at aaaaaaa.",
+    );
+  });
+
+  test("an unchanged manifest says the regression is not explained by it", () => {
+    const base = { ...result(12, 12), release: release("v1") };
+    const run = { ...result(8, 12), release: release("v1") };
+    const reason = evaluateGate(run, baselineFromResult(base)).reasons.find((r) =>
+      r.startsWith("release change"),
+    );
+    expect(reason).toContain("none recorded");
+  });
+
+  test("a pre-4C baseline without a manifest is named, not guessed at", () => {
+    const run = { ...result(8, 12), release: release("v1") };
+    const v = evaluateGate(run, baselineFromResult(result(12, 12)));
+    expect(v.reasons).toContain(
+      "release change since baseline: unknown, the baseline carries no release manifest.",
+    );
+  });
+
+  test("a passing run adds no release line", () => {
+    const base = { ...result(12, 12), release: release("v1") };
+    const v = evaluateGate({ ...result(12, 12), release: release("v2") }, baselineFromResult(base));
+    expect(v.reasons.some((r) => r.startsWith("release change"))).toBe(false);
   });
 });

@@ -50,6 +50,12 @@ export function formatRunResult(result: EvalRunResult): string {
     `tokens: in=${summary.usage.inputTokens} out=${summary.usage.outputTokens} (agent only)`,
   );
   lines.push(formatCost(summary.cost, result.provider, result.model));
+  if (result.release) {
+    const r = result.release;
+    lines.push(
+      `release: code ${r.gitSha.slice(0, 7)}${r.dirty ? " (dirty)" : ""}  prompt ${r.promptHash.slice(0, 12)}  policy ${r.policyHash.slice(0, 12)}  tools ${r.tools.map((t) => t.name).join(", ") || "(none)"}`,
+    );
+  }
   return lines.join("\n");
 }
 

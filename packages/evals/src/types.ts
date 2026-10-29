@@ -6,9 +6,10 @@
  *
  * The eval result schema — planner/executor/validator phases, per-case traces,
  * and the run summary — shaped now to survive the Phase 2A agent refactor.
+ * Phase 4C adds the release manifest that names the version a run measured.
  */
 
-import type { TokenUsage } from "@grade-stack/core";
+import type { ReleaseManifest, TokenUsage } from "@grade-stack/core";
 import type { CostBreakdown } from "./pricing.ts";
 
 /**
@@ -78,6 +79,12 @@ export interface EvalRunResult {
   timestamp: string;
   summary: EvalSummary;
   cases: CaseResult[];
+  /**
+   * The release this run measured (Phase 4C, ADR 0018): git state, prompt hash,
+   * model, provider, tools and policy hash. Optional only because results
+   * written before 4C lack it; every new run stamps one.
+   */
+  release?: ReleaseManifest;
 }
 
 export interface EvalSummary {

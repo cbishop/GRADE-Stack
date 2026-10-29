@@ -1,6 +1,7 @@
 // Copyright 2026 Inbound Team, LLC dba Clarke Bishop Consulting — https://clarkebishop.com
 // SPDX-License-Identifier: Apache-2.0
 
+import { diffReleases, type ReleaseManifest } from "@grade-stack/core";
 import type { EvalRunResult } from "./types.ts";
 
 /**
@@ -14,6 +15,10 @@ import type { EvalRunResult } from "./types.ts";
  * The CI gate runs against the deterministic `stub` provider (ADR 0003): the
  * baseline is exact, `--degraded` drops passing cases below the band, and the
  * build fails. A real-Bedrock job on `main` is added in Phase 2A.
+ *
+ * Phase 4C: on a regression the verdict names what changed between the
+ * baseline's release manifest and the run's ("prompt hash changed; model
+ * unchanged; ..."), or says plainly that one side has no manifest.
  */
 
 /** The slice of a baseline result the gate compares against. */
@@ -21,6 +26,8 @@ export interface GateBaseline {
   passed: number;
   total: number;
   passRate: number;
+  /** The release the baseline measured (4C); absent on a pre-4C baseline. */
+  release?: ReleaseManifest;
 }
 
 export interface GateOptions {
@@ -52,7 +59,20 @@ export function baselineFromResult(result: EvalRunResult): GateBaseline {
     passed: result.summary.passed,
     total: result.summary.total,
     passRate: result.summary.passRate,
+    ...(result.release ? { release: result.release } : {}),
   };
+}
+
+/** What changed between the baseline's release and the run's, as one reason line. */
+function releaseChange(baseline?: ReleaseManifest, current?: ReleaseManifest): string {
+  if (!baseline || !current) {
+    const missing = !baseline ? "the baseline" : "this run";
+    return `release change since baseline: unknown, ${missing} carries no release manifest.`;
+  }
+  const diff = diffReleases(baseline, current);
+  return diff.changed
+    ? `release change since baseline: ${diff.sentence}`
+    : `release change since baseline: none recorded (${diff.sentence}) The regression is not explained by the manifest; look at the environment (RELIABILITY_DEGRADED, the model host).`;
 }
 
 /** Compare a run against a baseline within tolerance, plus an optional cost cap. */
@@ -79,6 +99,7 @@ export function evaluateGate(
         `baseline floor of ${(rateFloor * 100).toFixed(0)}% ` +
         `(baseline ${(baseline.passRate * 100).toFixed(0)}% − ${toleranceCases}/${baseline.total} band).`,
     );
+    reasons.push(releaseChange(baseline.release, result.release));
   } else {
     reasons.push(
       `within tolerance: ${passed}/${total} passed (${(passRate * 100).toFixed(0)}%) vs ` +
