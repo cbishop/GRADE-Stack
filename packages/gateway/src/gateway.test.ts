@@ -373,14 +373,15 @@ describe("decision log: exactly one line per generate call (4B bite test)", () =
     expect(records[0]).toMatchObject({ requestId: "req-err", action: "error", servedBy: null });
   });
 
-  test("a request id is generated when absent; a missing caller id is recorded as null", async () => {
+  test("a request id is generated when absent; a missing caller id is logged as anonymous (4E)", async () => {
     const { record } = await oneCall(
       (log) =>
         new GatewayService({ decisionLog: log, resolveProvider: () => scriptedProvider("ok") }),
       BENIGN,
     );
     expect(record.requestId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(record.callerId).toBeNull();
+    expect(record.callerId).toBe("anonymous");
+    expect(record.callerVerified).toBe(false);
   });
 
   test("no prompt or output text reaches the log by default", async () => {

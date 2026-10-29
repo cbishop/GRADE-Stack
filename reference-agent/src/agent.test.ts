@@ -183,3 +183,24 @@ describe("runReferenceAgent — review hold (Phase 4D)", () => {
     expect(result.triage.category).toBe("billing");
   });
 });
+
+describe("one gateway session per run (Phase 4E)", () => {
+  test("a provider that can open sessions gets a fresh one for every run", async () => {
+    const sessions: string[] = [];
+    const base = new FakeProvider();
+    const provider: ModelProvider & { withSession(id: string): ModelProvider } = {
+      name: base.name,
+      model: base.model,
+      generate: (r) => base.generate(r),
+      withSession(id: string) {
+        sessions.push(id);
+        return base;
+      },
+    };
+    await runReferenceAgent(provider, SAMPLE_EMAIL, { degraded: false, mcp: false });
+    await runReferenceAgent(provider, SAMPLE_EMAIL, { degraded: false, mcp: false });
+    expect(sessions.length).toBe(2);
+    expect(sessions[0]).not.toBe(sessions[1]);
+    expect(base.calls).toBe(2);
+  });
+});

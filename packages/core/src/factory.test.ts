@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   createDirectProvider,
   createProvider,
+  AGENT_TOKEN_ENV,
   GATEWAY_TOGGLE_ENV,
   GATEWAY_URL_ENV,
   SANDBOX_ENV,
@@ -24,7 +25,7 @@ import { GatewayProvider } from "./providers/gateway.ts";
 import { OllamaProvider } from "./providers/ollama.ts";
 import { StubProvider } from "./providers/stub.ts";
 
-const TOUCHED = [SANDBOX_ENV, GATEWAY_URL_ENV, GATEWAY_TOGGLE_ENV] as const;
+const TOUCHED = [SANDBOX_ENV, GATEWAY_URL_ENV, GATEWAY_TOGGLE_ENV, AGENT_TOKEN_ENV] as const;
 let saved: Record<string, string | undefined> = {};
 
 beforeEach(() => {
@@ -93,5 +94,33 @@ describe("createDirectProvider — gateway-side only", () => {
   test("constructs the real provider outside the sandbox", () => {
     expect(createDirectProvider("bedrock")).toBeInstanceOf(BedrockProvider);
     expect(createDirectProvider("ollama")).toBeInstanceOf(OllamaProvider);
+  });
+});
+
+describe("createProvider — the agent's bearer token (Phase 4E)", () => {
+  test("RELIABILITY_AGENT_TOKEN is sent as a bearer token, so agent runs are authenticated", async () => {
+    process.env[GATEWAY_URL_ENV] = "http://gateway.test";
+    process.env[AGENT_TOKEN_ENV] = "tok-triage-0123456789abcdef";
+    let headers: Headers | undefined;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      headers = new Headers(init?.headers);
+      const result = {
+        text: "ok",
+        usage: { inputTokens: 1, outputTokens: 1 },
+        provider: "ollama",
+        model: "m",
+      };
+      return new Response(JSON.stringify({ ok: true, result, redactions: [] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const provider = createProvider("ollama");
+      expect(provider).toBeInstanceOf(GatewayProvider);
+      await provider.generate({ messages: [{ role: "user", content: "hi" }] });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(headers?.get("authorization")).toBe("Bearer tok-triage-0123456789abcdef");
+    expect(headers?.get("x-session-id")).toMatch(/^[0-9a-f-]{36}$/);
   });
 });
