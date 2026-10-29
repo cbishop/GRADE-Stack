@@ -34,7 +34,13 @@ export {
   parseOwaspMapping,
 } from "./owasp.ts";
 export { renderCli, renderHtml, renderMarkdown } from "./render.ts";
-export { buildScorecard, parseRetentionPeriod, type ScorecardOptions } from "./scorecard.ts";
+export {
+  buildScorecard,
+  parseRetentionPeriod,
+  ROLLBACK_MAX_AGE_DAYS,
+  ROLLBACK_MAX_TIME_TO_HALT_MS,
+  type ScorecardOptions,
+} from "./scorecard.ts";
 export {
   type AssessedRating,
   type ComputedCriterion,
@@ -43,6 +49,8 @@ export {
   type DecisionLogEvidence,
   type Dimension,
   type DimensionId,
+  type DrillEvidence,
+  type DrillEvidenceRecord,
   type EvidenceCitation,
   FILLS_IN_PHASES,
   type FillsInPhase,

@@ -52,6 +52,7 @@ import {
   isControlRecord,
   isolatedAgentEnv,
   readDecisionLog,
+  readLatestDrill,
   resolveDecisionLogPath,
   resolveHaltFilePath,
   resumeGateway,
@@ -63,6 +64,7 @@ import {
   computeGovernanceReadiness,
   computeGuardrailCoverage,
   type DecisionLogEvidence,
+  type DrillEvidence,
   parseEuAiActModule,
   parseOwaspMapping,
   parseRetentionPeriod,
@@ -140,6 +142,32 @@ async function loadDecisionLogEvidence(
       contentCaptured: r.contentCaptured,
     })),
     retention: { source, period },
+  };
+}
+
+/**
+ * Read the latest kill-switch drill in `dir` (every record schema-validated; a
+ * malformed one throws) for D's *rollback verified* criterion (Phase 4C).
+ */
+async function loadDrillEvidence(dir: string, asOf: string): Promise<DrillEvidence> {
+  const latest = await readLatestDrill(dir);
+  if (!latest) return { source: dir, record: null, asOf };
+  const r = latest.record;
+  return {
+    source: latest.path,
+    asOf,
+    record: {
+      date: r.date,
+      startedAt: r.startedAt,
+      actor: r.actor,
+      timeToHaltMs: r.timeToHaltMs,
+      thresholdMs: r.thresholdMs,
+      providerCallsAfterHalt: r.providerCallsAfterHalt,
+      requestsRefused: r.requestsRefused,
+      probes: r.probes,
+      resumeRestored: r.resumeRestored,
+      releaseGitSha: r.release.gitSha,
+    },
   };
 }
 
@@ -891,6 +919,14 @@ program
     "logging-and-retention record whose retention period the reconstructable criterion reads",
     DEFAULT_LOGGING_RECORD,
   )
+  .option(
+    "--drills <dir>",
+    "compute D's rollback verified criterion from the latest kill-switch drill record in <dir> (4C)",
+  )
+  .option(
+    "--as-of <iso>",
+    "date the drill's age is measured against (default: now); a later date shows a stale drill",
+  )
   .action(
     async (opts: {
       provider?: string;
@@ -902,6 +938,8 @@ program
       concurrency: string;
       decisionLog?: string;
       loggingRecord: string;
+      drills?: string;
+      asOf?: string;
     }) => {
       // Read the decision log first: a malformed line fails the command loudly
       // before any eval work, rather than grading from a partial log.
@@ -912,6 +950,25 @@ program
         } catch (err) {
           console.error(
             `Could not read decision log "${opts.decisionLog}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      }
+
+      let drill: DrillEvidence | undefined;
+      if (opts.drills) {
+        const asOf = opts.asOf ? new Date(opts.asOf) : new Date();
+        if (Number.isNaN(asOf.getTime())) {
+          console.error(`--as-of "${opts.asOf}" is not an ISO date or time`);
+          process.exitCode = 1;
+          return;
+        }
+        try {
+          drill = await loadDrillEvidence(opts.drills, asOf.toISOString());
+        } catch (err) {
+          console.error(
+            `Could not read drill records in "${opts.drills}": ${err instanceof Error ? err.message : String(err)}`,
           );
           process.exitCode = 1;
           return;
@@ -964,6 +1021,7 @@ program
         guardrails,
         governance,
         ...(decisionLog ? { decisionLog } : {}),
+        ...(drill ? { drill } : {}),
       });
 
       const wantMd = opts.format === "md" || opts.format === "both";

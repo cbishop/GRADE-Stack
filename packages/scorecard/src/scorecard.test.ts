@@ -21,6 +21,8 @@ import type {
   DecisionLogEvidence,
   Dimension,
   DimensionId,
+  DrillEvidence,
+  DrillEvidenceRecord,
   Scorecard,
 } from "./types.ts";
 import { FILLS_IN_PHASES, GRADE_DIMENSION_IDS, RATING_RANK } from "./types.ts";
@@ -703,5 +705,95 @@ describe("parseRetentionPeriod", () => {
     expect(
       parseRetentionPeriod("> reads the\n> **Retention period** line: while it is a placeholder"),
     ).toBeNull();
+  });
+});
+
+// ── D · Deployed: rollback verified (Phase 4C, ADR 0018) ───────────────────
+
+/** A passing drill on 2026-10-29, judged as of `asOf`; override any field. */
+function drill(
+  over: Partial<DrillEvidenceRecord> = {},
+  asOf = "2026-10-30T00:00:00.000Z",
+): DrillEvidence {
+  return {
+    source: "governance/drills/kill-switch-2026-10-29.json",
+    asOf,
+    record: {
+      date: "2026-10-29",
+      startedAt: "2026-10-29T13:22:28.745Z",
+      actor: "clarke",
+      timeToHaltMs: 143.2,
+      thresholdMs: 5000,
+      providerCallsAfterHalt: 0,
+      requestsRefused: 20,
+      probes: 20,
+      resumeRestored: true,
+      releaseGitSha: "f32dfec53c50ff961d854cb929b86f8e5dba267e",
+      ...over,
+    },
+  };
+}
+
+const withDrill = (d: DrillEvidence) => card(makeResult(12, 12), { drill: d });
+
+describe("Rollback verified criterion (D, 4C)", () => {
+  test("without --drills it stays stubbed with fillsIn 4C", () => {
+    expect(crit(card(), "rollback")).toMatchObject({ state: "stubbed", fillsIn: "4C" });
+  });
+
+  test("a fresh passing drill is Strong and cites the file, threshold and what would change it", () => {
+    const x = crit(withDrill(drill()), "rollback");
+    expect(x.state).toBe("computed");
+    if (x.state !== "computed") return;
+    expect(x.rating).toBe("strong");
+    expect(x.citation.source).toContain("governance/drills/kill-switch-2026-10-29.json");
+    expect(x.citation.threshold).toContain("90 days");
+    expect(x.citation.threshold).toContain("5000 ms");
+    expect(x.citation.wouldChange).toContain("2027-01-27");
+    expect(text(x)).toContain("143.2 ms");
+    expect(text(x)).toContain("0 provider call(s) after the halt");
+  });
+
+  test("degraded canary: a stale drill (over 90 days) drops D to At risk", () => {
+    const fresh = dim(withDrill(drill()), "deployed");
+    const stale = dim(withDrill(drill({}, "2027-02-15T00:00:00.000Z")), "deployed");
+    expect(fresh.rating).toBe("strong");
+    expect(crit(withDrill(drill({}, "2027-02-15T00:00:00.000Z")), "rollback").rating).toBe(
+      "at-risk",
+    );
+    expect(RATING_RANK[stale.rating as "at-risk"]).toBeLessThan(RATING_RANK.strong);
+  });
+
+  test("degraded canary: a missing drill is Critical and drops D", () => {
+    const missing = withDrill({
+      source: "governance/drills",
+      record: null,
+      asOf: "2026-10-30T00:00:00Z",
+    });
+    const x = crit(missing, "rollback");
+    expect(x.rating).toBe("critical");
+    expect(x.state === "computed" ? x.citation.source : "").toContain("governance/drills");
+    expect(dim(missing, "deployed").rating).toBe("critical");
+  });
+
+  test("a drill with provider calls after halt, a slow halt, or no halt is Critical", () => {
+    expect(crit(withDrill(drill({ providerCallsAfterHalt: 1 })), "rollback").rating).toBe(
+      "critical",
+    );
+    expect(crit(withDrill(drill({ timeToHaltMs: 7000 })), "rollback").rating).toBe("critical");
+    expect(crit(withDrill(drill({ timeToHaltMs: null })), "rollback").rating).toBe("critical");
+    expect(crit(withDrill(drill({ resumeRestored: false })), "rollback").rating).toBe("critical");
+    expect(crit(withDrill(drill({ requestsRefused: 19 })), "rollback").rating).toBe("critical");
+  });
+
+  test("a lax stated threshold is capped at 5 seconds", () => {
+    const x = crit(withDrill(drill({ thresholdMs: 60_000, timeToHaltMs: 6000 })), "rollback");
+    expect(x.rating).toBe("critical");
+    expect(text(x)).toContain("threshold 5000 ms");
+  });
+
+  test("the union stays closed: the computed criterion has no fillsIn", () => {
+    const x = crit(withDrill(drill()), "rollback");
+    expect("fillsIn" in x).toBe(false);
   });
 });
