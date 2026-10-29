@@ -9,6 +9,9 @@
  * eval run, eval gate, and scorecard subcommands to the GRADE-Stack packages.
  * Phase 4B adds `gateway log` (the decision-log readback) and
  * `scorecard --decision-log` (D's attributable and reconstructable criteria).
+ * Phase 4C adds `gateway halt` / `gateway resume` (the kill switch), `release
+ * show` / `release diff` (the release manifest), and `scorecard --drills` (D's
+ * rollback verified criterion).
  */
 
 import { readFile } from "node:fs/promises";
@@ -16,11 +19,16 @@ import {
   AIRGAP_ENV,
   createDirectProvider,
   createProvider,
+  describeRelease,
+  diffReleases,
   EgressBlockedError,
   formatSpanTree,
+  GuardrailError,
   initTracing,
   installEgressGuard,
   installEgressGuardFromEnv,
+  type ReleaseManifest,
+  releaseFromJson,
   StubProvider,
   withInMemoryTracing,
 } from "@grade-stack/core";
@@ -35,12 +43,19 @@ import {
   runEvalSuite,
 } from "@grade-stack/evals";
 import {
+  DecisionLog,
   type DecisionRecord,
   describeDecision,
+  HALT_ENV,
+  haltGateway,
   ISOLATION_PROBE_BIN,
+  isControlRecord,
   isolatedAgentEnv,
   readDecisionLog,
+  readLatestDrill,
   resolveDecisionLogPath,
+  resolveHaltFilePath,
+  resumeGateway,
   serveGateway,
 } from "@grade-stack/gateway";
 import { serveHttp, serveStdio } from "@grade-stack/mcp-server";
@@ -49,6 +64,7 @@ import {
   computeGovernanceReadiness,
   computeGuardrailCoverage,
   type DecisionLogEvidence,
+  type DrillEvidence,
   parseEuAiActModule,
   parseOwaspMapping,
   parseRetentionPeriod,
@@ -57,7 +73,13 @@ import {
   renderMarkdown,
 } from "@grade-stack/scorecard";
 import { Command } from "commander";
-import { connectSupportTools, runReferenceAgent, SAMPLE_EMAIL, selectTool } from "reference-agent";
+import {
+  connectSupportTools,
+  referenceAgentRelease,
+  runReferenceAgent,
+  SAMPLE_EMAIL,
+  selectTool,
+} from "reference-agent";
 // Governance mappings are imported (bundled into the build), not read from disk:
 // a relative path resolved against import.meta.url breaks once the CLI is bundled
 // to dist/ (it overshoots the repo root). Bundling the JSON makes the built
@@ -101,7 +123,9 @@ async function loadDecisionLogEvidence(
   logPath: string,
   recordPath: string,
 ): Promise<DecisionLogEvidence> {
-  const records = await readDecisionLog(logPath);
+  // Kill-switch control lines (4C) are operator actions, not requests: the D
+  // request criteria grade request lines only.
+  const records = (await readDecisionLog(logPath)).flatMap((r) => (isControlRecord(r) ? [] : [r]));
   let period: string | null = null;
   let source = recordPath;
   try {
@@ -118,6 +142,32 @@ async function loadDecisionLogEvidence(
       contentCaptured: r.contentCaptured,
     })),
     retention: { source, period },
+  };
+}
+
+/**
+ * Read the latest kill-switch drill in `dir` (every record schema-validated; a
+ * malformed one throws) for D's *rollback verified* criterion (Phase 4C).
+ */
+async function loadDrillEvidence(dir: string, asOf: string): Promise<DrillEvidence> {
+  const latest = await readLatestDrill(dir);
+  if (!latest) return { source: dir, record: null, asOf };
+  const r = latest.record;
+  return {
+    source: latest.path,
+    asOf,
+    record: {
+      date: r.date,
+      startedAt: r.startedAt,
+      actor: r.actor,
+      timeToHaltMs: r.timeToHaltMs,
+      thresholdMs: r.thresholdMs,
+      providerCallsAfterHalt: r.providerCallsAfterHalt,
+      requestsRefused: r.requestsRefused,
+      probes: r.probes,
+      resumeRestored: r.resumeRestored,
+      releaseGitSha: r.release.gitSha,
+    },
   };
 }
 
@@ -185,6 +235,12 @@ agent
         if (tracing.enabled) {
           console.log(`\ntrace exported via OTLP to ${tracing.endpoint}`);
         }
+      } catch (err) {
+        // A gateway refusal (a guardrail, or the 4C kill switch) is an answer,
+        // not a crash: say which policy refused and exit non-zero.
+        if (!(err instanceof GuardrailError)) throw err;
+        console.error(`refused by the gateway: policy ${err.policy}: ${err.message}`);
+        process.exitCode = 1;
       } finally {
         await tracing.shutdown();
       }
@@ -250,6 +306,9 @@ gateway
     });
     console.error(`gateway listening at ${handle.url}`);
     console.error(`set RELIABILITY_GATEWAY_URL=${handle.url} in the agent process`);
+    console.error(
+      `kill switch: halt file ${handle.haltFile} or ${HALT_ENV}=1, checked on every request`,
+    );
     console.error(`decision log: ${handle.decisionLogPath} (append-only)`);
   });
 
@@ -262,7 +321,7 @@ gateway
   )
   .option("--since <iso>", "only decisions at or after this ISO time")
   .option("--request <id>", "only this request id")
-  .option("--caller <id>", "only this caller id")
+  .option("--caller <id>", "only this caller id (or, for halt and resume lines, this actor)")
   .option("--json", "print the matching records as JSON")
   .action(
     async (opts: {
@@ -294,7 +353,8 @@ gateway
         (r) =>
           (since === undefined || Date.parse(r.at) >= since) &&
           (opts.request === undefined || r.requestId === opts.request) &&
-          (opts.caller === undefined || r.callerId === opts.caller),
+          (opts.caller === undefined ||
+            (isControlRecord(r) ? r.actor : r.callerId) === opts.caller),
       );
       if (opts.json) {
         console.log(JSON.stringify(matching, null, 2));
@@ -307,6 +367,89 @@ gateway
       for (const r of matching) console.log(describeDecision(r));
     },
   );
+
+/** Shared options for `gateway halt` and `gateway resume`. */
+interface KillSwitchCliOptions {
+  by: string;
+  reason?: string;
+  haltFile?: string;
+  log?: string;
+  json?: boolean;
+}
+
+/** Run a kill-switch action and report it; a failure exits 1 with the reason. */
+async function killSwitchAction(
+  action: "halt" | "resume",
+  opts: KillSwitchCliOptions,
+): Promise<void> {
+  const haltFile = opts.haltFile ?? resolveHaltFilePath();
+  const decisionLog = new DecisionLog(opts.log ?? resolveDecisionLogPath());
+  const args = { by: opts.by, reason: opts.reason, haltFile, decisionLog };
+  try {
+    const res = action === "halt" ? await haltGateway(args) : await resumeGateway(args);
+    if (opts.json) {
+      console.log(JSON.stringify({ ...res, decisionLog: decisionLog.path }, null, 2));
+      return;
+    }
+    switch (res.status) {
+      case "halted":
+        console.log(describeDecision(res.logLine));
+        console.log(`halt file: ${res.haltFile}; logged to ${decisionLog.path}`);
+        console.log(
+          "Every gateway watching this halt file refuses new requests with policy kill-switch, without a restart.",
+        );
+        break;
+      case "already-halted":
+        console.log(
+          `Already halted by ${res.record.by} at ${res.record.at}: ${res.record.reason}. Nothing changed; no line logged.`,
+        );
+        break;
+      case "resumed":
+        console.log(describeDecision(res.logLine));
+        console.log(`removed ${res.haltFile}; logged to ${decisionLog.path}`);
+        console.log(
+          `If the gateway was started with ${HALT_ENV}=1 it stays halted until restarted without it.`,
+        );
+        break;
+      case "not-halted":
+        console.log(
+          `Not halted: no halt file at ${res.haltFile}. Nothing changed; no line logged.`,
+        );
+        break;
+    }
+  } catch (err) {
+    console.error(
+      `Could not ${action} the gateway: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exitCode = 1;
+  }
+}
+
+gateway
+  .command("halt")
+  .description("Pull the kill switch: every request is refused until resume, no restart (4C)")
+  .requiredOption("--by <name>", "who is halting the gateway (recorded as the actor)")
+  .requiredOption("--reason <text>", "why (recorded in the decision log)")
+  .option("--halt-file <path>", "halt file (default: RELIABILITY_HALT_FILE or .reliability-halt)")
+  .option(
+    "--log <path>",
+    "decision log (default: RELIABILITY_DECISION_LOG or ./gateway-decisions.jsonl)",
+  )
+  .option("--json", "print the result as JSON")
+  .action((opts: KillSwitchCliOptions) => killSwitchAction("halt", opts));
+
+gateway
+  .command("resume")
+  .description("Release the kill switch and restore service (4C)")
+  .requiredOption("--by <name>", "who is resuming the gateway (recorded as the actor)")
+  .option("--reason <text>", "why (recorded in the decision log)", "operator resumed service")
+  .option("--halt-file <path>", "halt file (default: RELIABILITY_HALT_FILE or .reliability-halt)")
+  .option(
+    "--log <path>",
+    "decision log (default: RELIABILITY_DECISION_LOG or ./gateway-decisions.jsonl)",
+  )
+  .option("--json", "print the result as JSON")
+  .action((opts: KillSwitchCliOptions) => killSwitchAction("resume", opts));
 
 gateway
   .command("demo")
@@ -539,6 +682,57 @@ sovereign
     },
   );
 
+const release = program
+  .command("release")
+  .description("Show and compare release manifests: which version was this? (Phase 4C)");
+
+release
+  .command("show")
+  .description("Print the reference agent's current release manifest")
+  .option("-p, --provider <provider>", "agent model provider: bedrock | ollama | stub")
+  .option("--json", "print the manifest as JSON")
+  .action((opts: { provider?: string; json?: boolean }) => {
+    const manifest = referenceAgentRelease(createProvider(opts.provider));
+    if (opts.json) {
+      console.log(JSON.stringify(manifest, null, 2));
+      return;
+    }
+    console.log("Release manifest (reference agent)");
+    for (const line of describeRelease(manifest)) console.log(`  ${line}`);
+  });
+
+/** Read the release manifest from an eval result (or a bare manifest) file; throws loudly. */
+async function readRelease(path: string): Promise<ReleaseManifest> {
+  return releaseFromJson(JSON.parse(await readFile(path, "utf8")) as unknown, path);
+}
+
+release
+  .command("diff")
+  .description("Explain what changed between two eval results' releases, in one sentence")
+  .argument("<a>", "the earlier eval result (or manifest) JSON")
+  .argument("<b>", "the later eval result (or manifest) JSON")
+  .option("--json", "print the field-by-field diff as JSON")
+  .action(async (a: string, b: string, opts: { json?: boolean }) => {
+    let from: ReleaseManifest;
+    let to: ReleaseManifest;
+    try {
+      from = await readRelease(a);
+      to = await readRelease(b);
+    } catch (err) {
+      console.error(
+        `Could not read a release: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const diff = diffReleases(from, to);
+    if (opts.json) {
+      console.log(JSON.stringify({ from: a, to: b, ...diff }, null, 2));
+      return;
+    }
+    console.log(`From ${a} to ${b}: ${diff.sentence}`);
+  });
+
 const evalCmd = program.command("eval").description("Run the reliability eval suite");
 
 evalCmd
@@ -725,6 +919,14 @@ program
     "logging-and-retention record whose retention period the reconstructable criterion reads",
     DEFAULT_LOGGING_RECORD,
   )
+  .option(
+    "--drills <dir>",
+    "compute D's rollback verified criterion from the latest kill-switch drill record in <dir> (4C)",
+  )
+  .option(
+    "--as-of <iso>",
+    "date the drill's age is measured against (default: now); a later date shows a stale drill",
+  )
   .action(
     async (opts: {
       provider?: string;
@@ -736,6 +938,8 @@ program
       concurrency: string;
       decisionLog?: string;
       loggingRecord: string;
+      drills?: string;
+      asOf?: string;
     }) => {
       // Read the decision log first: a malformed line fails the command loudly
       // before any eval work, rather than grading from a partial log.
@@ -746,6 +950,25 @@ program
         } catch (err) {
           console.error(
             `Could not read decision log "${opts.decisionLog}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      }
+
+      let drill: DrillEvidence | undefined;
+      if (opts.drills) {
+        const asOf = opts.asOf ? new Date(opts.asOf) : new Date();
+        if (Number.isNaN(asOf.getTime())) {
+          console.error(`--as-of "${opts.asOf}" is not an ISO date or time`);
+          process.exitCode = 1;
+          return;
+        }
+        try {
+          drill = await loadDrillEvidence(opts.drills, asOf.toISOString());
+        } catch (err) {
+          console.error(
+            `Could not read drill records in "${opts.drills}": ${err instanceof Error ? err.message : String(err)}`,
           );
           process.exitCode = 1;
           return;
@@ -798,6 +1021,7 @@ program
         guardrails,
         governance,
         ...(decisionLog ? { decisionLog } : {}),
+        ...(drill ? { drill } : {}),
       });
 
       const wantMd = opts.format === "md" || opts.format === "both";

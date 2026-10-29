@@ -15,6 +15,9 @@
  * the body's `context`), generates a request id when none is supplied, refuses
  * ids that are not short and file-name safe (400), and echoes the request id on
  * every response so a caller can find its decision-log line and trace.
+ *
+ * Phase 4C: a request refused by the kill switch is 503 with the same structured
+ * `{ ok: false, violation }` body, so the client raises a `GuardrailError`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -41,6 +44,8 @@ export interface GatewayHandle {
   port: number;
   /** The decision log file this gateway appends to (Phase 4B). */
   decisionLogPath: string;
+  /** The kill-switch halt file this gateway checks on every request (Phase 4C). */
+  haltFile: string;
   stop(): Promise<void>;
 }
 
@@ -115,8 +120,10 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
 
       try {
         const response = await service.generate(body.target, body.request, ctx);
-        // 422 (Unprocessable) for a guardrail block, 200 for a forwarded result.
-        return json(response, response.ok ? 200 : 422, ctx.requestId);
+        // 200 for a forwarded result; 503 while the kill switch is pulled (4C);
+        // 422 (Unprocessable) for any other guardrail block.
+        const status = response.ok ? 200 : response.violation.policy === "kill-switch" ? 503 : 422;
+        return json(response, status, ctx.requestId);
       } catch (err) {
         // A provider/transport failure (e.g. missing credentials, model error),
         // or a decision-log write failure: the call fails rather than go unrecorded.
@@ -134,6 +141,7 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
     url: `http://localhost:${port}`,
     port,
     decisionLogPath: service.decisionLog.path,
+    haltFile: service.haltFile,
     async stop() {
       await server.stop(true);
     },

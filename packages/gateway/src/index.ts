@@ -10,7 +10,8 @@
  * service (`./gateway`), and the HTTP transport (`./connect`). The client seam
  * (`GatewayProvider`) and wire contract live in `@grade-stack/core` so the agent
  * bundle never depends on this credentialed package. Phase 4B adds the decision
- * log (`./decision-log`) and opt-in content capture (`./capture`). The paths to the two
+ * log (`./decision-log`) and opt-in content capture (`./capture`); Phase 4C the
+ * kill switch (`./kill-switch`) and the rollback drill (`./drill`). The paths to the two
  * executables — the server and the credential-isolation probe — are exported so
  * the CLI can spawn them without hard-coding paths.
  */
@@ -32,19 +33,55 @@ export {
   serveGateway,
 } from "./connect.ts";
 export {
+  type ControlRecord,
+  ControlRecordSchema,
   DECISION_LOG_ENV,
   DEFAULT_DECISION_LOG_PATH,
   DecisionLog,
   DecisionLogError,
   type DecisionRecord,
   DecisionRecordSchema,
+  isControlRecord,
   parseDecisionLog,
+  type RequestRecord,
+  RequestRecordSchema,
   readDecisionLog,
   resolveDecisionLogPath,
   sha256Hex,
 } from "./decision-log.ts";
+export {
+  DEFAULT_DRILL_PROBES,
+  DEFAULT_TIME_TO_HALT_THRESHOLD_MS,
+  type DrillOptions,
+  type DrillRecord,
+  DrillRecordError,
+  DrillRecordSchema,
+  drillFileName,
+  parseDrillRecord,
+  readLatestDrill,
+  runKillSwitchDrill,
+  writeDrillRecord,
+} from "./drill.ts";
 export { describeDecision } from "./explain.ts";
 export { GatewayService, type GatewayServiceOptions } from "./gateway.ts";
+export {
+  DEFAULT_HALT_FILE,
+  HALT_ENV,
+  HALT_FILE_ENV,
+  HaltFileError,
+  type HaltRecord,
+  HaltRecordSchema,
+  type HaltResult,
+  type HaltState,
+  haltGateway,
+  type KillSwitchActionOptions,
+  parseHaltRecord,
+  type ResumeResult,
+  readHaltRecord,
+  readHaltState,
+  resolveHaltFilePath,
+  resumeGateway,
+} from "./kill-switch.ts";
 export {
   applyInputPolicy,
   applyOutputPolicy,

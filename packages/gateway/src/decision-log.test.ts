@@ -16,13 +16,15 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  ControlRecordSchema,
   DECISION_LOG_ENV,
   DEFAULT_DECISION_LOG_PATH,
   DecisionLog,
   DecisionLogError,
-  type DecisionRecord,
   DecisionRecordSchema,
   parseDecisionLog,
+  type RequestRecord,
+  RequestRecordSchema,
   readDecisionLog,
   resolveDecisionLogPath,
   sha256Hex,
@@ -35,7 +37,7 @@ function tmpPath(name = "decisions.jsonl"): string {
 }
 
 /** A complete, valid record; override any field. */
-function record(over: Partial<DecisionRecord> = {}): DecisionRecord {
+function record(over: Partial<RequestRecord> = {}): RequestRecord {
   return {
     v: 1,
     at: "2026-10-28T10:14:03.000Z",
@@ -78,7 +80,7 @@ describe("DecisionRecord schema", () => {
       expect(() => DecisionRecordSchema.parse(r)).toThrow();
     }
     // callerId may be null (absent), but the key must be present.
-    expect(DecisionRecordSchema.parse(record({ callerId: null })).callerId).toBeNull();
+    expect(RequestRecordSchema.parse(record({ callerId: null })).callerId).toBeNull();
   });
 
   test("hashes must be SHA-256 hex and timestamps ISO", () => {
@@ -89,6 +91,38 @@ describe("DecisionRecord schema", () => {
   test("a request id that could escape a directory or a log line is refused", () => {
     expect(() => DecisionRecordSchema.parse(record({ requestId: "../etc/passwd" }))).toThrow();
     expect(() => DecisionRecordSchema.parse(record({ requestId: "a\nb" }))).toThrow();
+  });
+});
+
+describe("ControlRecord schema (4C kill switch)", () => {
+  const control = {
+    v: 1,
+    kind: "control",
+    at: "2026-10-29T09:14:03.000Z",
+    requestId: "halt-1",
+    actor: "clarke",
+    action: "halt",
+    policy: "kill-switch",
+    reason: "drill",
+    haltFile: ".reliability-halt",
+  } as const;
+
+  test("a halt line parses, and mixes with request lines in one log", () => {
+    expect(ControlRecordSchema.parse(control)).toEqual(control);
+    const text = `${JSON.stringify(control)}\n${JSON.stringify(record({ requestId: "r" }))}\n`;
+    expect(parseDecisionLog(text, "x.jsonl").map((r) => r.requestId)).toEqual(["halt-1", "r"]);
+  });
+
+  test("a control line without an actor, with an unknown action, or with extra keys fails loudly", () => {
+    const { actor: _actor, ...noActor } = control;
+    expect(() => parseDecisionLog(`${JSON.stringify(noActor)}\n`, "x.jsonl")).toThrow(
+      /x\.jsonl:1: actor/,
+    );
+    expect(() =>
+      parseDecisionLog(`${JSON.stringify({ ...control, action: "pause" })}\n`, "x.jsonl"),
+    ).toThrow(/x\.jsonl:1: action/);
+    expect(() => DecisionRecordSchema.parse({ ...control, prompt: "hi" })).toThrow();
+    expect(() => DecisionRecordSchema.parse({ ...control, reason: "" })).toThrow();
   });
 });
 
@@ -142,7 +176,7 @@ describe("DecisionLog writer", () => {
     const path = tmpPath();
     const log = new DecisionLog(path);
     await expect(
-      log.append({ ...record(), prompt: "raw text" } as unknown as DecisionRecord),
+      log.append({ ...record(), prompt: "raw text" } as unknown as RequestRecord),
     ).rejects.toThrow();
     let content = "";
     try {

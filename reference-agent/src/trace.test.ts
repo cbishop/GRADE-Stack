@@ -12,9 +12,10 @@
 
 import { describe, expect, test } from "bun:test";
 import type { GenerateRequest, GenerateResult, ModelProvider } from "@grade-stack/core";
-import { StubProvider, withInMemoryTracing } from "@grade-stack/core";
+import { RELEASE_ATTRS, StubProvider, withInMemoryTracing } from "@grade-stack/core";
 import { runReferenceAgent } from "./agent.ts";
 import type { RemoteTool, SupportToolsClient } from "./mcp.ts";
+import { referenceAgentRelease } from "./release.ts";
 import { SAMPLE_EMAIL } from "./sample-email.ts";
 
 describe("agent run trace (Phase 2D)", () => {
@@ -50,6 +51,31 @@ describe("agent run trace (Phase 2D)", () => {
     // And the whole thing is still one trace under the single agent.run root.
     expect(coverage.rootSpans).toBe(1);
     expect(coverage.distinctTraces).toBe(1);
+  });
+});
+
+describe("release manifest on the root span (Phase 4C)", () => {
+  test("agent.run carries the same manifest the eval runner stamps into results", async () => {
+    const provider = new StubProvider();
+    const { spans } = await withInMemoryTracing(() =>
+      runReferenceAgent(provider, SAMPLE_EMAIL, {}),
+    );
+    const root = spans.find((s) => s.name === "agent.run");
+    const expected = referenceAgentRelease(provider);
+    expect(root?.attributes[RELEASE_ATTRS.promptHash]).toBe(expected.promptHash);
+    expect(root?.attributes[RELEASE_ATTRS.policyHash]).toBe(expected.policyHash);
+    expect(root?.attributes[RELEASE_ATTRS.gitSha]).toBe(expected.gitSha);
+    expect(root?.attributes[RELEASE_ATTRS.model]).toBe("stub-deterministic-v1");
+    expect(root?.attributes[RELEASE_ATTRS.tools]).toEqual(
+      expected.tools.map((t) => `${t.name}@${t.argSchemaHash.slice(0, 8)}`),
+    );
+  });
+
+  test("a different turn bound is a different policy hash", () => {
+    const p = new StubProvider();
+    expect(referenceAgentRelease(p, { maxTurns: 2 }).policyHash).not.toBe(
+      referenceAgentRelease(p, { maxTurns: 5 }).policyHash,
+    );
   });
 });
 

@@ -11,6 +11,11 @@
  * or output text, and a malformed line fails loudly on read instead of being
  * skipped. The file is opened append-only (`O_APPEND`) and never truncated by
  * the stack; retention is the deployer's policy (`docs/logging-and-retention.md`).
+ *
+ * Phase 4C (ADR 0018) adds a second record kind to the same log: a `control`
+ * line for each operator halt or resume of the kill switch, naming the actor,
+ * the action, the reason and the time. A request line has no `kind` field, so
+ * every 4B log still reads unchanged.
  */
 
 import { createHash } from "node:crypto";
@@ -27,8 +32,8 @@ const Id = z.string().regex(IDENTITY_ID_PATTERN);
 const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 const Provider = z.enum(["bedrock", "ollama", "stub"]);
 
-/** One gateway decision. Strict: unknown keys (such as raw text) are refused. */
-export const DecisionRecordSchema = z.strictObject({
+/** One gateway request decision. Strict: unknown keys (such as raw text) are refused. */
+export const RequestRecordSchema = z.strictObject({
   v: z.literal(1),
   at: z.iso.datetime(),
   requestId: Id,
@@ -52,8 +57,46 @@ export const DecisionRecordSchema = z.strictObject({
   contentCaptured: z.boolean(),
 });
 
+/** A validated request decision (one per `generate` call). */
+export type RequestRecord = z.infer<typeof RequestRecordSchema>;
+
+/**
+ * One operator action on the kill switch (Phase 4C): who halted or resumed the
+ * gateway, why, and when. `requestId` identifies the operator action itself so
+ * `gateway log --request` finds it like any other line.
+ */
+export const ControlRecordSchema = z.strictObject({
+  v: z.literal(1),
+  kind: z.literal("control"),
+  at: z.iso.datetime(),
+  requestId: Id,
+  actor: Id,
+  action: z.enum(["halt", "resume"]),
+  policy: z.literal("kill-switch"),
+  reason: z.string().min(1).max(500),
+  haltFile: z.string().min(1),
+});
+
+/** A validated kill-switch control record. */
+export type ControlRecord = z.infer<typeof ControlRecordSchema>;
+
+/** Any decision-log line: a request decision or a kill-switch control action. */
+export const DecisionRecordSchema = z.union([RequestRecordSchema, ControlRecordSchema]);
+
 /** A validated decision-log record. */
-export type DecisionRecord = z.infer<typeof DecisionRecordSchema>;
+export type DecisionRecord = RequestRecord | ControlRecord;
+
+/** True for a kill-switch control line (halt or resume). */
+export function isControlRecord(r: DecisionRecord): r is ControlRecord {
+  return "kind" in r && r.kind === "control";
+}
+
+/** The schema a raw line must satisfy: chosen by its `kind`, so errors name the real field. */
+function schemaFor(json: unknown) {
+  const kind =
+    typeof json === "object" && json !== null ? (json as { kind?: unknown }).kind : undefined;
+  return kind === undefined ? RequestRecordSchema : ControlRecordSchema;
+}
 
 /** Thrown when a log line is not valid JSON or fails the schema. Never swallowed. */
 export class DecisionLogError extends Error {
@@ -80,7 +123,7 @@ export class DecisionLog {
   constructor(readonly path: string = resolveDecisionLogPath()) {}
 
   async append(record: DecisionRecord): Promise<void> {
-    const line = `${JSON.stringify(DecisionRecordSchema.parse(record))}\n`;
+    const line = `${JSON.stringify(schemaFor(record).parse(record))}\n`;
     await appendFile(this.path, line, { flag: "a", encoding: "utf8" });
   }
 }
@@ -97,7 +140,7 @@ export function parseDecisionLog(text: string, source: string): DecisionRecord[]
     } catch {
       throw new DecisionLogError(`${source}:${i + 1}: not valid JSON`);
     }
-    const parsed = DecisionRecordSchema.safeParse(json);
+    const parsed = schemaFor(json).safeParse(json);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
       throw new DecisionLogError(

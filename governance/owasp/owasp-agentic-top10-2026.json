@@ -197,6 +197,11 @@
       "scored": true,
       "mechanisms": [
         {
+          "name": "Gateway kill switch + dated rollback drill + release manifest",
+          "ref": "packages/gateway/src/kill-switch.ts; scripts/rollback-drill.ts; governance/drills/; packages/core/src/release.ts; ADR 0018",
+          "note": "An operator halts every agent behind the gateway without a restart (`reliability gateway halt`, or RELIABILITY_HALT=1); the gateway refuses each request before any model call, logs who halted it and why, and a dated drill proves it (time-to-halt, zero provider calls after halt). The release manifest names the version to restore."
+        },
+        {
           "name": "Enforced turn bound + sole-path gateway",
           "ref": "@grade-stack/core (MaxTurnsError); ADR 0007",
           "note": "The agent cannot act outside the bounded, gateway-guarded channel — autonomy is capped by construction."
@@ -207,7 +212,7 @@
           "note": "Behavioral drift is detected against a committed baseline and made inspectable as connected traces (Phase 2D)."
         }
       ],
-      "residualGap": "Detection is offline (CI/eval-time) and post-hoc (traces); there is no runtime anomaly detector or kill-switch for emergent behavior in production. High-autonomy deployments should add runtime behavioral monitoring."
+      "residualGap": "No runtime anomaly detector: the kill switch is manual, so emergent behavior in production is stopped only when an operator (or a monitor the deployer adds) pulls it. High-autonomy deployments should add runtime behavioral monitoring that triggers the switch."
     }
   ]
 }

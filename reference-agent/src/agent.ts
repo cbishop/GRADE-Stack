@@ -10,6 +10,7 @@
  * makes the one model call, and the validator enforces the {@link TriageSchema}
  * contract. The whole loop is turn-bounded and carries a degraded-mode canary
  * (Phase 1B). Task-specific wiring lives here; the reusable loop lives in core.
+ * Phase 4C stamps the release manifest (`./release`) onto the root span.
  */
 
 import type {
@@ -23,20 +24,22 @@ import type {
   Validator,
 } from "@grade-stack/core";
 import {
-  DEFAULT_MAX_TURNS,
   GENAI,
+  releaseSpanAttributes,
   runPEV,
   SpanKind,
   traceProvider,
   withSpan,
   zodValidator,
 } from "@grade-stack/core";
+import { resolveMaxTurns, TRIAGE_GENERATION, triageSystemPrompt } from "./config.ts";
 import {
   connectSupportTools,
   type Grounding,
   groundTriage,
   type SupportToolsClient,
 } from "./mcp.ts";
+import { referenceAgentRelease } from "./release.ts";
 import type { SupportEmail } from "./sample-email.ts";
 import { type Triage, TriageSchema } from "./triage-schema.ts";
 
@@ -93,16 +96,6 @@ export interface RunAgentOptions {
   mcp?: boolean | SupportToolsClient;
 }
 
-function resolveMaxTurns(explicit?: number): number {
-  if (explicit !== undefined) return explicit;
-  const fromEnv = process.env.RELIABILITY_MAX_TURNS;
-  if (fromEnv !== undefined) {
-    const n = Number.parseInt(fromEnv, 10);
-    if (!Number.isNaN(n)) return n;
-  }
-  return DEFAULT_MAX_TURNS;
-}
-
 function resolveDegraded(explicit?: boolean): boolean {
   if (explicit !== undefined) return explicit;
   const v = process.env.RELIABILITY_DEGRADED?.toLowerCase();
@@ -138,13 +131,6 @@ function degrade(text: string): string {
   }
 }
 
-const BASE_SYSTEM_PROMPT = [
-  "You are a customer-support triage assistant.",
-  "Given one inbound support email, classify it and draft a reply.",
-  "Respond with a single JSON object — and nothing else, no Markdown fences —",
-  "that conforms exactly to this JSON Schema:",
-].join("\n");
-
 function renderUserPrompt(email: SupportEmail): string {
   return [
     "Triage the following support email.",
@@ -170,7 +156,7 @@ function makeTriagePlanner(
   jsonSchema: Record<string, unknown>,
   grounding?: Grounding,
 ): Planner<SupportEmail, TriagePlan> {
-  const schemaBlock = `${BASE_SYSTEM_PROMPT}\n${JSON.stringify(jsonSchema, null, 2)}`;
+  const schemaBlock = triageSystemPrompt(jsonSchema);
   // MCP grounding (policy resource + selected-tool facts) is prepended as context
   // the planner can use, but it never relaxes the schema the validator enforces.
   const system = grounding ? `${grounding.context}\n\n${schemaBlock}` : schemaBlock;
@@ -198,8 +184,7 @@ function makeTriageExecutor(provider: ModelProvider): Executor<TriagePlan> {
       return provider.generate({
         system: plan.system,
         messages: [{ role: "user", content: plan.user }],
-        maxTokens: 800,
-        temperature: 0,
+        ...TRIAGE_GENERATION,
       });
     },
   };
@@ -232,7 +217,12 @@ export async function runReferenceAgent(
     "agent.run",
     {
       kind: SpanKind.INTERNAL,
-      attributes: { [GENAI.operationName]: "invoke_agent", [GENAI.agentName]: "reference-agent" },
+      attributes: {
+        [GENAI.operationName]: "invoke_agent",
+        [GENAI.agentName]: "reference-agent",
+        // Phase 4C: the release manifest, so a trace names the version it ran.
+        ...releaseSpanAttributes(referenceAgentRelease(provider, { maxTurns })),
+      },
     },
     async (span) => {
       // ── MCP grounding (opt-in, Phase 2B) ──────────────────────────────────

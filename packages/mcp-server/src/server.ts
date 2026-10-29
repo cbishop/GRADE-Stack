@@ -30,6 +30,16 @@ export const SERVER_INFO = { name: "grade-stack-support", version: "0.1.0" } as 
 export const TRIAGE_POLICY_URI = "policy://support/triage";
 
 /**
+ * The argument schema of each tool, exported so a release manifest (Phase 4C)
+ * can hash exactly what the server registers: a changed argument shows up as
+ * "tool `x` arguments changed" in `reliability release diff`.
+ */
+export const SUPPORT_TOOL_INPUT_SCHEMAS = {
+  lookup_account: { email: z.string().describe("The sender's email address.") },
+  search_help_articles: { query: z.string().describe("Free-text search query.") },
+} as const;
+
+/**
  * Construct the support-desk MCP server with its one resource and two tools.
  * Pure and side-effect-free — the caller attaches a transport (`./connect`).
  */
@@ -70,7 +80,7 @@ export function createSupportMcpServer(): McpServer {
         "company, plan and first-response SLA, open-ticket count, recent " +
         "invoices, and any detected duplicate charges. Use when a decision " +
         "depends on the customer's actual billing or account state.",
-      inputSchema: { email: z.string().describe("The sender's email address.") },
+      inputSchema: SUPPORT_TOOL_INPUT_SCHEMAS.lookup_account,
     },
     ({ email }) => {
       const account = findAccountByEmail(email);
@@ -115,7 +125,7 @@ export function createSupportMcpServer(): McpServer {
         "their titles and links. Use when the customer needs step-by-step " +
         "guidance or documentation, not when a decision depends on their " +
         "specific account state.",
-      inputSchema: { query: z.string().describe("Free-text search query.") },
+      inputSchema: SUPPORT_TOOL_INPUT_SCHEMAS.search_help_articles,
     },
     ({ query }) => {
       const articles = searchHelpArticles(query);

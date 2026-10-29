@@ -7,7 +7,8 @@
  * Public surface of @grade-stack/core — the ModelProvider abstraction, its
  * Bedrock/Ollama/stub implementations, the provider factory, and the
  * credential-free gateway client + wire contract (Phase 2C). Every model call in
- * the stack goes through this package.
+ * the stack goes through this package. Phase 4C adds the release manifest
+ * (`./release`), stamped into eval results and onto the agent's root span.
  */
 
 export {
@@ -64,6 +65,28 @@ export {
 } from "./providers/gateway.ts";
 export { type OllamaOptions, OllamaProvider } from "./providers/ollama.ts";
 export { type StubOptions, StubProvider } from "./providers/stub.ts";
+export {
+  buildReleaseManifest,
+  canonicalJson,
+  describeRelease,
+  diffReleases,
+  GIT_DIRTY_ENV,
+  GIT_SHA_ENV,
+  type GitState,
+  hashOf,
+  parseReleaseManifest,
+  RELEASE_ATTRS,
+  type ReleaseDiff,
+  type ReleaseInput,
+  type ReleaseManifest,
+  ReleaseManifestError,
+  ReleaseManifestSchema,
+  type ReleaseTool,
+  ReleaseToolSchema,
+  readGitState,
+  releaseFromJson,
+  releaseSpanAttributes,
+} from "./release.ts";
 export {
   type CapturedSpan,
   formatSpanTree,

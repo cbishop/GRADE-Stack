@@ -28,7 +28,12 @@ export {
   searchHelpArticles,
   TRIAGE_POLICY,
 } from "./data.ts";
-export { createSupportMcpServer, SERVER_INFO, TRIAGE_POLICY_URI } from "./server.ts";
+export {
+  createSupportMcpServer,
+  SERVER_INFO,
+  SUPPORT_TOOL_INPUT_SCHEMAS,
+  TRIAGE_POLICY_URI,
+} from "./server.ts";
 
 /** Absolute path to the stdio launcher — `bun <SERVER_BIN>` runs the server. */
 export const SERVER_BIN = fileURLToPath(new URL("./bin.ts", import.meta.url));

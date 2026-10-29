@@ -103,6 +103,39 @@ export interface DecisionLogEvidence {
   retention: { source: string; period: string | null };
 }
 
+/** The latest kill-switch drill, reduced to what *rollback verified* needs (Phase 4C). */
+export interface DrillEvidenceRecord {
+  /** UTC date of the drill. */
+  date: string;
+  startedAt: string;
+  actor: string;
+  /** Halt command to first refused request; null when the gateway never halted. */
+  timeToHaltMs: number | null;
+  /** The threshold the drill itself was run against. */
+  thresholdMs: number;
+  providerCallsAfterHalt: number;
+  requestsRefused: number;
+  probes: number;
+  resumeRestored: boolean;
+  /** The release that was running when the switch was pulled. */
+  releaseGitSha: string;
+}
+
+/**
+ * The kill-switch drill record D's *rollback verified* criterion is computed
+ * from (Phase 4C, ADR 0018). Read and schema-validated by the CLI; the
+ * scorecard stays pure, so the date the record's age is measured against is an
+ * input too.
+ */
+export interface DrillEvidence {
+  /** The drill record file cited, or the directory searched when it holds none. */
+  source: string;
+  /** null when no drill record exists. */
+  record: DrillEvidenceRecord | null;
+  /** ISO date-time the record's age is measured against (the CLI passes now, or `--as-of`). */
+  asOf: string;
+}
+
 /** A criterion graded from evidence. */
 export interface ComputedCriterion {
   state: "computed";

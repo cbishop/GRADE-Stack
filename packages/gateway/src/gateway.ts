@@ -15,6 +15,10 @@
  * the request identity and leaves exactly one decision-log line, on every path
  * (allow, block, redact, route, upstream error). The log write is part of the
  * call: if it fails, the call fails, so no decision goes unrecorded.
+ *
+ * Phase 4C (ADR 0018): the kill switch is checked first, on every request, so a
+ * halted gateway resolves no provider and makes no model call on either the
+ * plain forward or the router path. The refusal is logged like any other block.
  */
 
 import { randomUUID } from "node:crypto";
@@ -35,7 +39,8 @@ import {
   withRequestSpan,
 } from "@grade-stack/core";
 import { resolveCaptureDir, writeCapture } from "./capture.ts";
-import { DecisionLog, type DecisionRecord, sha256Hex } from "./decision-log.ts";
+import { DecisionLog, type RequestRecord, sha256Hex } from "./decision-log.ts";
+import { readHaltState, resolveHaltFilePath } from "./kill-switch.ts";
 import {
   applyInputPolicy,
   applyOutputPolicy,
@@ -92,6 +97,11 @@ export interface GatewayServiceOptions {
    * criteria must catch it.
    */
   degraded?: boolean;
+  /**
+   * Kill-switch halt file (Phase 4C). Defaults to `RELIABILITY_HALT_FILE`, else
+   * `.reliability-halt`. Checked on every request, as is `RELIABILITY_HALT=1`.
+   */
+  haltFile?: string;
 }
 
 function envDegraded(): boolean {
@@ -115,6 +125,7 @@ export class GatewayService {
   private readonly captureContent: boolean;
   private readonly captureDir: string;
   private readonly degraded: boolean;
+  readonly haltFile: string;
 
   constructor(opts: GatewayServiceOptions = {}) {
     this.policy = opts.policy ?? DEFAULT_POLICY;
@@ -124,6 +135,7 @@ export class GatewayService {
     this.captureContent = opts.captureContent ?? isContentCaptureEnabled();
     this.captureDir = opts.captureDir ?? resolveCaptureDir();
     this.degraded = opts.degraded ?? envDegraded();
+    this.haltFile = opts.haltFile ?? resolveHaltFilePath();
   }
 
   /**
@@ -142,7 +154,16 @@ export class GatewayService {
     return withRequestSpan("gateway.generate", ctx, async (span) => {
       let outcome: Outcome;
       try {
-        outcome = await this.decide(target, request, ctx);
+        // 0. Kill switch (4C): checked per request, before any provider is resolved.
+        const halt = await readHaltState(this.haltFile);
+        outcome = halt.halted
+          ? {
+              response: {
+                ok: false,
+                violation: { policy: "kill-switch", stage: "input", reason: halt.reason },
+              },
+            }
+          : await this.decide(target, request, ctx);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         await this.record(span, ctx, target, request, at, started, { error: message });
@@ -246,7 +267,7 @@ export class GatewayService {
   /** Why the gateway did what it did, as the record's action/stage/policy/reason. */
   private explain(
     outcome: Outcome | { error: string },
-  ): Pick<DecisionRecord, "action" | "stage" | "policy" | "reason"> {
+  ): Pick<RequestRecord, "action" | "stage" | "policy" | "reason"> {
     if ("error" in outcome) {
       const reason = `provider call failed: ${outcome.error}`.slice(0, 300);
       return { action: "error", stage: null, policy: "upstream-error", reason };

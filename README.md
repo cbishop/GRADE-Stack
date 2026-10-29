@@ -56,6 +56,13 @@ the command name (`reliability`) are intentionally different.
   asked, what the gateway decided, which policy fired, and when, with hashes
   instead of text. `reliability gateway log` explains each line in a sentence
   (ADR 0017; [logging and retention record](docs/logging-and-retention.md)).
+- A **kill switch and a release manifest**: `reliability gateway halt` stops
+  every agent behind the gateway on the next request, with no restart and no
+  model call, and logs who did it and why; `resume` restores service. Every eval
+  result and agent trace names its version (git sha, prompt hash, model, tools,
+  policy hash), and `reliability release diff` says what changed. A dated drill
+  proves the switch works (ADR 0018; [rollback protocol](docs/rollback-protocol.md);
+  [drill record](governance/drills/kill-switch-2026-10-29.json)).
 - **OpenTelemetry tracing** (GenAI conventions; Phoenix by default) so every
   agent run is one connected, inspectable trace.
 - **Governance mappings with teeth**: OWASP Agentic Top 10 (2026), NIST AI RMF
@@ -90,6 +97,9 @@ bun run reliability eval run --provider ollama   # 12-case suite + LLM judge
 bun run reliability scorecard --format both -o card   # the board-legible artifact
 bun run reliability gateway demo                 # guardrails + credential isolation, live
 bun run reliability gateway log                  # what the gateway decided, and why
+bun run reliability gateway halt --by you --reason drill   # kill switch; `gateway resume --by you` undoes it
+bun run reliability release diff a.json b.json   # what changed between two eval results
+bun scripts/rollback-drill.ts                    # dated kill-switch drill → governance/drills/
 ```
 
 Provider selection precedence: `--provider` flag → `RELIABILITY_PROVIDER` env →
@@ -101,6 +111,13 @@ The gateway's decision log goes to `RELIABILITY_DECISION_LOG` (default
 `RELIABILITY_TRACE_CONTENT=1` turns it on and writes to `RELIABILITY_CAPTURE_DIR`
 (default `./gateway-captures/`). `reliability scorecard --decision-log <file>`
 grades D's attributable and reconstructable criteria from the log.
+
+The kill switch is checked on every request: `RELIABILITY_HALT=1` in the
+gateway's environment, or the halt file `RELIABILITY_HALT_FILE` (default
+`.reliability-halt`, written by `gateway halt`). `RELIABILITY_GIT_SHA` names the
+code in the release manifest when there is no `.git`. `reliability scorecard
+--drills governance/drills` grades D's rollback verified criterion from the
+latest drill (`--as-of <date>` shows a stale one).
 
 ## Layout
 
