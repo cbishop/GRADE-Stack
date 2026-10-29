@@ -10,11 +10,11 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { DecisionRecord } from "./decision-log.ts";
+import type { RequestRecord } from "./decision-log.ts";
 import { sha256Hex } from "./decision-log.ts";
 import { describeDecision } from "./explain.ts";
 
-function rec(over: Partial<DecisionRecord> = {}): DecisionRecord {
+function rec(over: Partial<RequestRecord> = {}): RequestRecord {
   return {
     v: 1,
     at: "2026-10-28T10:14:03.512Z",

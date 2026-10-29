@@ -27,3 +27,6 @@ docs/internal/
 # a local gateway; retention is the deployer's policy, never the repo's.
 gateway-decisions.jsonl
 gateway-captures/
+
+# Kill-switch halt file (Phase 4C); written by `reliability gateway halt`
+.reliability-halt

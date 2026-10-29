@@ -165,8 +165,14 @@ export class GatewayProvider implements ModelProvider {
       );
     }
 
-    // 422 carries a structured guardrail violation; other non-2xx is a real
-    // transport/server error. Both still parse a JSON body where possible.
+    // 422 carries a structured guardrail violation, and so does a 503 from a
+    // halted gateway (the Phase 4C kill switch). Any other non-2xx, or a 503
+    // without a violation body (a proxy), is a real transport/server error.
+    if (res.status === 503) {
+      const body = (await res.json().catch(() => null)) as GatewayGenerateResponse | null;
+      if (body && !body.ok && body.violation) throw new GuardrailError(body.violation);
+      throw new Error(`Gateway request failed: ${res.status} ${res.statusText}`);
+    }
     if (!res.ok && res.status !== 422) {
       throw new Error(`Gateway request failed: ${res.status} ${res.statusText}`);
     }

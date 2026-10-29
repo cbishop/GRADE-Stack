@@ -38,11 +38,24 @@ import {
 } from "@grade-stack/core";
 import { readCapture } from "./capture.ts";
 import { serveGateway } from "./connect.ts";
-import { DecisionLog, type DecisionRecord, readDecisionLog, sha256Hex } from "./decision-log.ts";
+import {
+  DecisionLog,
+  isControlRecord,
+  type RequestRecord,
+  readDecisionLog,
+  sha256Hex,
+} from "./decision-log.ts";
 import { GatewayService } from "./gateway.ts";
 import { ISOLATION_PROBE_BIN } from "./index.ts";
 import { ConfidenceRouter } from "./router.ts";
 import { isolatedAgentEnv } from "./sandbox.ts";
+
+/** Read a log that must hold request lines only (no kill-switch control lines). */
+async function readRequests(path: string): Promise<RequestRecord[]> {
+  const records = await readDecisionLog(path);
+  if (records.some(isControlRecord)) throw new Error(`${path}: unexpected control line`);
+  return records as RequestRecord[];
+}
 
 /** A fresh temp dir per test, so decision logs and captures never touch the repo. */
 function tmp(): string {
@@ -208,12 +221,12 @@ async function oneCall(
   const log = tmpLog();
   const res = await svc(log).generate("bedrock", request, context);
   const raw = readFileSync(log.path, "utf8");
-  const records = await readDecisionLog(log.path);
-  return { res, raw, records, record: records[0] as DecisionRecord };
+  const records = await readRequests(log.path);
+  return { res, raw, records, record: records[0] as RequestRecord };
 }
 
 /** The full set of fields every record must carry (who, what, why, when, evidence). */
-function expectComplete(r: DecisionRecord): void {
+function expectComplete(r: RequestRecord): void {
   expect(r.requestId.length).toBeGreaterThan(0);
   expect(r.at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   expect(typeof r.action).toBe("string");
@@ -349,7 +362,7 @@ describe("decision log: exactly one line per generate call (4B bite test)", () =
     };
     const svc = new GatewayService({ decisionLog: log, resolveProvider: () => broken });
     await expect(svc.generate("bedrock", BENIGN, { requestId: "req-err" })).rejects.toThrow();
-    const records = await readDecisionLog(log.path);
+    const records = await readRequests(log.path);
     expect(records.length).toBe(1);
     expect(records[0]).toMatchObject({ requestId: "req-err", action: "error", servedBy: null });
   });
@@ -428,7 +441,7 @@ describe("request identity over HTTP", () => {
       const generated = anon.headers.get(REQUEST_ID_HEADER);
       expect(generated).toMatch(/^[0-9a-f-]{36}$/);
 
-      const records = await readDecisionLog(log.path);
+      const records = await readRequests(log.path);
       expect(records.map((r) => [r.requestId, r.callerId])).toEqual([
         ["7f3a", "triage"],
         [generated, null],
@@ -466,7 +479,7 @@ describe("request identity over HTTP", () => {
     try {
       const client = new GatewayProvider({ url: handle.url, target: "stub", callerId: "triage" });
       await client.generate(BENIGN);
-      const [r] = await readDecisionLog(log.path);
+      const [r] = await readRequests(log.path);
       expect(r?.callerId).toBe("triage");
     } finally {
       await handle.stop();
@@ -484,7 +497,7 @@ describe("a log line and its trace share a request id", () => {
     const { spans } = await withInMemoryTracing(() =>
       svc.generate("stub", BENIGN, { requestId: "req-trace", callerId: "triage" }),
     );
-    const [record] = await readDecisionLog(log.path);
+    const [record] = await readRequests(log.path);
     const root = spans.find((s) => !s.parentSpanId);
     const chat = spans.find((s) => s.attributes["gen_ai.operation.name"] === "chat");
     expect(root?.name).toBe("gateway.generate");
@@ -526,7 +539,7 @@ describe("content capture is opt-in", () => {
       expect(JSON.stringify(s.attributes)).not.toContain("invoice");
     }
     expect(existsSync(captureDir) ? readdirSync(captureDir) : []).toEqual([]);
-    const [record] = await readDecisionLog(log.path);
+    const [record] = await readRequests(log.path);
     expect(record?.contentCaptured).toBe(false);
   });
 
@@ -580,7 +593,7 @@ describe("content capture is opt-in", () => {
       const root = spans.find((s) => !s.parentSpanId);
       expect(String(root?.attributes[GENAI_CONTENT.output])).toContain("[REDACTED-SSN]");
 
-      const [record] = await readDecisionLog(log.path);
+      const [record] = await readRequests(log.path);
       expect(record?.contentCaptured).toBe(true);
       const capture = await readCapture(join(captureDir, "req-capture.json"));
       expect(capture.requestId).toBe("req-capture");
