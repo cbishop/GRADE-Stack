@@ -1151,25 +1151,31 @@ function authenticatedCallersCriterion(b: AgentBoundaryEvidence): ComputedCriter
 
 const REGISTER_HEADLINES: Record<AssessedRating, string> = {
   strong: "Every agent has a manifest with a named owner and a row in the boundary register.",
-  adequate: "Agents have manifests, but the boundary register is missing some of them.",
+  adequate:
+    "Agents have manifests, but the boundary register is missing some of them or an owner is still a placeholder.",
   "at-risk": "Agents have manifests, but no boundary register says who owns their limits.",
   critical: "No agent manifest declares what any agent may do.",
 };
 
+/** A template placeholder (`<fill in ...>`) is not a named owner. */
+const isPlaceholder = (owner: string) => /^\s*</.test(owner) || /fill in/i.test(owner);
+
 /**
- * Boundary register (G): every agent has a manifest naming an owner, and the
- * boundary register (`docs/autonomy-boundary-register.md`) has a row for it.
+ * Boundary register (G): every agent has a manifest naming an owner (not a
+ * template placeholder), and the boundary register
+ * (`docs/autonomy-boundary-register.md`) has a row for it.
  */
 function boundaryRegisterCriterion(b: AgentBoundaryEvidence): ComputedCriterion {
   const listed = b.register.agentIds;
   const missing = listed === null ? [] : b.manifests.filter((m) => !listed.includes(m.id));
+  const unnamed = b.manifests.filter((m) => isPlaceholder(m.owner));
   const extra = listed === null ? [] : listed.filter((id) => !b.manifests.some((m) => m.id === id));
   const rating: AssessedRating =
     b.manifests.length === 0
       ? "critical"
       : listed === null || missing.length === b.manifests.length
         ? "at-risk"
-        : missing.length > 0
+        : missing.length > 0 || unnamed.length > 0
           ? "adequate"
           : "strong";
   const evidence = [
@@ -1182,6 +1188,11 @@ function boundaryRegisterCriterion(b: AgentBoundaryEvidence): ComputedCriterion 
         ? `No register row for: ${missing.map((m) => m.id).join(", ")}.`
         : `The register has a row for every agent.`,
   ];
+  if (unnamed.length > 0) {
+    evidence.push(
+      `Owner still a template placeholder in: ${unnamed.map((m) => m.file).join(", ")}.`,
+    );
+  }
   if (extra.length > 0) evidence.push(`Register rows with no manifest: ${extra.join(", ")}.`);
   return {
     state: "computed",
@@ -1193,13 +1204,17 @@ function boundaryRegisterCriterion(b: AgentBoundaryEvidence): ComputedCriterion 
     citation: {
       source: `${b.register.source} against ${manifestFiles(b)}`,
       threshold:
-        "Strong: every manifest names an owner and has a register row; Adequate: some agents lack a row; At risk: no register, or it names none of the agents; Critical: no manifests.",
+        "Strong: every manifest names a real owner (not a template placeholder) and has a register row; Adequate: some agents lack a row or a real owner; At risk: no register, or it names none of the agents; Critical: no manifests.",
       wouldChange:
         rating === "strong"
           ? "Drops when an agent is added without a register row."
           : rating === "critical"
             ? "Rises once agents/<id>.json declares each agent (owner, level, tools, models, limits)."
-            : `Rises to Strong once ${b.register.source} has a row for every agent${missing.length > 0 ? ` (missing: ${missing.map((m) => m.id).join(", ")})` : ""}.`,
+            : missing.length > 0
+              ? `Rises to Strong once ${b.register.source} has a row for every agent (missing: ${missing.map((m) => m.id).join(", ")})${unnamed.length > 0 ? " and every manifest names a real owner" : ""}.`
+              : unnamed.length > 0
+                ? `Rises to Strong once every manifest names a real owner (placeholder in: ${unnamed.map((m) => m.id).join(", ")}).`
+                : `Rises once ${b.register.source} names the agents.`,
     },
   };
 }

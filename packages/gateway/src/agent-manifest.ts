@@ -327,7 +327,7 @@ export function toolScope(m: AgentManifest, tool: string): ToolScopeDecision {
   if (m.autonomyLevel === "L0") {
     return {
       allowed: false,
-      reason: `agent ${m.id} is L0 (suggest only): it may not call tools, and ${tool} was refused`,
+      reason: `agent ${m.id} is L0 (suggest only) and may not call any tool`,
     };
   }
   if (!m.allowedTools.includes(tool)) {

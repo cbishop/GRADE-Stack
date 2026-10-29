@@ -1179,6 +1179,22 @@ describe("G · Boundary register (4E)", () => {
     );
   });
 
+  test("an owner left as the template placeholder is not a named owner: Adequate", () => {
+    const x = crit(
+      withAgents(
+        boundary({
+          manifests: [
+            manifest({ owner: "<fill in: the named person accountable for this agent>" }),
+            HELPDESK,
+          ],
+        }),
+      ),
+      "boundary-register",
+    );
+    expect(x.rating).toBe("adequate");
+    expect(text(x)).toContain("placeholder");
+  });
+
   test("parseBoundaryRegister reads the agent ids from the register table", () => {
     const md = [
       "| Agent | Level | Tools |",
