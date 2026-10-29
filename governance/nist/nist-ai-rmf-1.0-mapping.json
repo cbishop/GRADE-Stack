@@ -189,9 +189,14 @@
           "name": "Eval-gate vs committed baseline + permanent degraded canary + OTel traces",
           "ref": ".github/workflows/ci.yml; @grade-stack/core (tracing.ts)",
           "note": "Risk is tracked across every commit against a baseline within a tolerance band, and the degraded canary proves the gate bites. Traces make a single run inspectable when export is switched on."
+        },
+        {
+          "name": "Gateway decision log (append-only, one line per request)",
+          "ref": "packages/gateway/src/decision-log.ts; docs/logging-and-retention.md",
+          "note": "Every runtime allow, block, redact and escalation is recorded with the policy that fired, so blocked injections, redactions and escalation rates can be tracked over time with `reliability gateway log`."
         }
       ],
-      "note": "Partial: tracking across commits is automated, but nothing records what happens at runtime over time. Residual: traces are opt-in and unretained, the gateway logs none of its decisions, and the CI gate runs on the stub provider, not a real model. Phase 4B ships the append-only gateway decision log; Phase 4F adds the real-model run and post-deployment re-scoring."
+      "note": "Partial: tracking across commits is automated and every runtime gateway decision is now logged. Residual: the CI gate runs on the stub provider, not a real model, and nothing re-scores production traffic yet (Phase 4F adds the real-model run and post-deployment re-scoring); log retention and trend review are the deployer's process."
     },
     {
       "id": "MEASURE 4",
@@ -259,9 +264,14 @@
           "name": "AI Reliability Scorecard (documentation) + eval-gate CI (pre-merge monitoring) + enforcement-mechanism register + OTel tracing",
           "ref": "packages/scorecard; .github/workflows/ci.yml; docs/PLAN-Grade-Stack-v2.md; @grade-stack/core (tracing.ts)",
           "note": "Risk treatments are documented (register + scorecard) and re-checked on every change by the CI gate; traces show a run when export is switched on."
+        },
+        {
+          "name": "Gateway decision log (runtime monitoring record)",
+          "ref": "packages/gateway/src/decision-log.ts; docs/logging-and-retention.md",
+          "note": "The treatments the gateway applies at runtime (blocks, redactions, escalations) are recorded per request and read back with `reliability gateway log`, so their effect is monitored, not assumed."
         }
       ],
-      "note": "Partial: treatments are documented and checked before merge, but response and recovery are not mechanized. Residual: there is no durable runtime log of gateway decisions (Phase 4B), no kill switch or recorded rollback drill (Phase 4C), and no human review queue for escalation (Phase 4D). Communication plans for a specific deployment remain the deployer's."
+      "note": "Partial: treatments are documented, checked before merge, and their runtime effect is logged per request, but response and recovery are not mechanized. Residual: no kill switch or recorded rollback drill (Phase 4C) and no human review queue for escalation (Phase 4D). Log retention and communication plans for a specific deployment remain the deployer's."
     }
   ]
 }

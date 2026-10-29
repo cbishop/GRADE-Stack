@@ -9,7 +9,8 @@
  * place of a provider: the guardrail engine (`./policy`), the enforcement
  * service (`./gateway`), and the HTTP transport (`./connect`). The client seam
  * (`GatewayProvider`) and wire contract live in `@grade-stack/core` so the agent
- * bundle never depends on this credentialed package. The paths to the two
+ * bundle never depends on this credentialed package. Phase 4B adds the decision
+ * log (`./decision-log`) and opt-in content capture (`./capture`). The paths to the two
  * executables — the server and the credential-isolation probe — are exported so
  * the CLI can spawn them without hard-coding paths.
  */
@@ -17,10 +18,32 @@
 import { fileURLToPath } from "node:url";
 
 export {
+  CAPTURE_DIR_ENV,
+  type CaptureRecord,
+  CaptureRecordSchema,
+  DEFAULT_CAPTURE_DIR,
+  readCapture,
+  resolveCaptureDir,
+  writeCapture,
+} from "./capture.ts";
+export {
   type GatewayHandle,
   type GatewayServeOptions,
   serveGateway,
 } from "./connect.ts";
+export {
+  DECISION_LOG_ENV,
+  DEFAULT_DECISION_LOG_PATH,
+  DecisionLog,
+  DecisionLogError,
+  type DecisionRecord,
+  DecisionRecordSchema,
+  parseDecisionLog,
+  readDecisionLog,
+  resolveDecisionLogPath,
+  sha256Hex,
+} from "./decision-log.ts";
+export { describeDecision } from "./explain.ts";
 export { GatewayService, type GatewayServiceOptions } from "./gateway.ts";
 export {
   applyInputPolicy,

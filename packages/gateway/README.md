@@ -88,6 +88,33 @@ Both tiers must clear the model allowlist. Routing fits classification/extractio
 (structured consensus); for free-text generation the fallback whole-text
 agreement rarely agrees and mostly escalates — hence opt-in.
 
+## Decision log and request identity (Phase 4B)
+
+Every `generate` call writes **one** line to an append-only JSONL decision log,
+on every path (allow, block, redact, route, upstream error). The line says who
+asked, what the gateway did, which policy fired and why, and when, with SHA-256
+hashes of the input and output instead of the text. If the write fails, the
+request fails. See [ADR 0017](../../docs/decisions/0017-decision-log-jsonl-append-only-hashes-by-default.md)
+and the deployer's [logging and retention record](../../docs/logging-and-retention.md).
+
+Send `x-request-id` and `x-caller-id` with each request (the gateway generates a
+request id when absent and echoes it back). In 4B the caller id is a trusted
+header, logged as unverified; 4E authenticates it. The gateway's root span and
+every `chat` span carry `grade_stack.request_id`, `grade_stack.caller_id` and
+`enduser.id`, so a log line and its trace join on request id.
+
+```bash
+reliability gateway log                                  # one sentence per decision
+reliability gateway log --since 2026-10-28T00:00:00Z --caller triage
+reliability gateway log --request 7f3a --json            # the full record
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RELIABILITY_DECISION_LOG` | `./gateway-decisions.jsonl` | decision log file (append-only, never truncated) |
+| `RELIABILITY_TRACE_CONTENT` | *(off)* | `1` records the prompt on `chat` spans and the redacted output on the request span, and mirrors both to the capture dir |
+| `RELIABILITY_CAPTURE_DIR` | `./gateway-captures` | one JSON per request id (returned text, PII already redacted) |
+
 ## Prove both halves of the contract
 
 ```bash

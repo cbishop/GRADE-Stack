@@ -7,6 +7,8 @@
  *
  * The `reliability` command-line entry point (Commander) — wires the agent,
  * eval run, eval gate, and scorecard subcommands to the GRADE-Stack packages.
+ * Phase 4B adds `gateway log` (the decision-log readback) and
+ * `scorecard --decision-log` (D's attributable and reconstructable criteria).
  */
 
 import { readFile } from "node:fs/promises";
@@ -32,14 +34,24 @@ import {
   renderRunMarkdown,
   runEvalSuite,
 } from "@grade-stack/evals";
-import { ISOLATION_PROBE_BIN, isolatedAgentEnv, serveGateway } from "@grade-stack/gateway";
+import {
+  type DecisionRecord,
+  describeDecision,
+  ISOLATION_PROBE_BIN,
+  isolatedAgentEnv,
+  readDecisionLog,
+  resolveDecisionLogPath,
+  serveGateway,
+} from "@grade-stack/gateway";
 import { serveHttp, serveStdio } from "@grade-stack/mcp-server";
 import {
   buildScorecard,
   computeGovernanceReadiness,
   computeGuardrailCoverage,
+  type DecisionLogEvidence,
   parseEuAiActModule,
   parseOwaspMapping,
+  parseRetentionPeriod,
   renderCli,
   renderHtml,
   renderMarkdown,
@@ -76,6 +88,37 @@ function loadGuardrailCoverage() {
 /** Validate the bundled EU AI Act module (Phase 3C) and reduce it to governance readiness. */
 function loadGovernanceReadiness() {
   return computeGovernanceReadiness(parseEuAiActModule(euAiActModuleRaw));
+}
+
+/** Default logging-and-retention record the reconstructable criterion reads (Phase 4B). */
+const DEFAULT_LOGGING_RECORD = "docs/logging-and-retention.md";
+
+/**
+ * Read and schema-validate a decision log (a malformed line throws, never
+ * skipped) plus the logging record's retention period, for the D criteria.
+ */
+async function loadDecisionLogEvidence(
+  logPath: string,
+  recordPath: string,
+): Promise<DecisionLogEvidence> {
+  const records = await readDecisionLog(logPath);
+  let period: string | null = null;
+  let source = recordPath;
+  try {
+    period = parseRetentionPeriod(await readFile(recordPath, "utf8"));
+  } catch {
+    source = `${recordPath} (not found)`;
+  }
+  return {
+    source: logPath,
+    records: records.map((r) => ({
+      requestId: r.requestId,
+      callerId: r.callerId,
+      callerVerified: r.callerVerified,
+      contentCaptured: r.contentCaptured,
+    })),
+    retention: { source, period },
+  };
 }
 
 const agent = program.command("agent").description("Run and inspect the reference agent");
@@ -207,7 +250,63 @@ gateway
     });
     console.error(`gateway listening at ${handle.url}`);
     console.error(`set RELIABILITY_GATEWAY_URL=${handle.url} in the agent process`);
+    console.error(`decision log: ${handle.decisionLogPath} (append-only)`);
   });
+
+gateway
+  .command("log")
+  .description("Explain the gateway's decisions, one sentence per request (Phase 4B)")
+  .option(
+    "-f, --file <path>",
+    "decision log (default: RELIABILITY_DECISION_LOG or ./gateway-decisions.jsonl)",
+  )
+  .option("--since <iso>", "only decisions at or after this ISO time")
+  .option("--request <id>", "only this request id")
+  .option("--caller <id>", "only this caller id")
+  .option("--json", "print the matching records as JSON")
+  .action(
+    async (opts: {
+      file?: string;
+      since?: string;
+      request?: string;
+      caller?: string;
+      json?: boolean;
+    }) => {
+      const path = opts.file ?? resolveDecisionLogPath();
+      const since = opts.since ? Date.parse(opts.since) : undefined;
+      if (since !== undefined && Number.isNaN(since)) {
+        console.error(`--since "${opts.since}" is not an ISO date or time`);
+        process.exitCode = 1;
+        return;
+      }
+      let records: DecisionRecord[];
+      try {
+        records = await readDecisionLog(path);
+      } catch (err) {
+        // A missing file or a malformed line: say so loudly, never print a partial log.
+        console.error(
+          `Could not read decision log: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      const matching = records.filter(
+        (r) =>
+          (since === undefined || Date.parse(r.at) >= since) &&
+          (opts.request === undefined || r.requestId === opts.request) &&
+          (opts.caller === undefined || r.callerId === opts.caller),
+      );
+      if (opts.json) {
+        console.log(JSON.stringify(matching, null, 2));
+        return;
+      }
+      if (matching.length === 0) {
+        console.log(`No decisions match in ${path} (${records.length} records in the file).`);
+        return;
+      }
+      for (const r of matching) console.log(describeDecision(r));
+    },
+  );
 
 gateway
   .command("demo")
@@ -617,6 +716,15 @@ program
   .option("--format <fmt>", "output format: md | html | both", "md")
   .option("-o, --out <path>", "write to <path>.md / <path>.html instead of stdout")
   .option("-j, --concurrency <n>", "max concurrent cases", "3")
+  .option(
+    "--decision-log <file>",
+    "compute D's attributable and reconstructable criteria from a gateway decision log (4B)",
+  )
+  .option(
+    "--logging-record <file>",
+    "logging-and-retention record whose retention period the reconstructable criterion reads",
+    DEFAULT_LOGGING_RECORD,
+  )
   .action(
     async (opts: {
       provider?: string;
@@ -626,7 +734,24 @@ program
       format: string;
       out?: string;
       concurrency: string;
+      decisionLog?: string;
+      loggingRecord: string;
     }) => {
+      // Read the decision log first: a malformed line fails the command loudly
+      // before any eval work, rather than grading from a partial log.
+      let decisionLog: DecisionLogEvidence | undefined;
+      if (opts.decisionLog) {
+        try {
+          decisionLog = await loadDecisionLogEvidence(opts.decisionLog, opts.loggingRecord);
+        } catch (err) {
+          console.error(
+            `Could not read decision log "${opts.decisionLog}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      }
+
       // Degraded mode flows to the agent via env (the eval bridge reads it), so
       // setting it here propagates through the spawned eval run.
       if (opts.degraded) {
@@ -672,6 +797,7 @@ program
         observability: coverage,
         guardrails,
         governance,
+        ...(decisionLog ? { decisionLog } : {}),
       });
 
       const wantMd = opts.format === "md" || opts.format === "both";

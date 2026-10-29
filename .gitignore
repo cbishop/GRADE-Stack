@@ -22,3 +22,8 @@ docs/internal/
 # OS / editor
 .DS_Store
 *.log
+
+# Gateway decision log and opt-in content capture (Phase 4B). Runtime records of
+# a local gateway; retention is the deployer's policy, never the repo's.
+gateway-decisions.jsonl
+gateway-captures/

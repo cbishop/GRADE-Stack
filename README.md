@@ -52,6 +52,10 @@ the command name (`reliability`) are intentionally different.
   isolation (the agent process holds zero provider credentials), plus an **MCP
   integration layer** with description-driven tool selection
   (`packages/gateway/`, `packages/mcp-server/`).
+- A **gateway decision log**: one append-only JSONL line per request saying who
+  asked, what the gateway decided, which policy fired, and when, with hashes
+  instead of text. `reliability gateway log` explains each line in a sentence
+  (ADR 0017; [logging and retention record](docs/logging-and-retention.md)).
 - **OpenTelemetry tracing** (GenAI conventions; Phoenix by default) so every
   agent run is one connected, inspectable trace.
 - **Governance mappings with teeth**: OWASP Agentic Top 10 (2026), NIST AI RMF
@@ -85,11 +89,18 @@ bun run reliability agent run --provider bedrock
 bun run reliability eval run --provider ollama   # 12-case suite + LLM judge
 bun run reliability scorecard --format both -o card   # the board-legible artifact
 bun run reliability gateway demo                 # guardrails + credential isolation, live
+bun run reliability gateway log                  # what the gateway decided, and why
 ```
 
 Provider selection precedence: `--provider` flag → `RELIABILITY_PROVIDER` env →
 default (`ollama`). Models are overridable via `RELIABILITY_BEDROCK_MODEL` /
 `RELIABILITY_OLLAMA_MODEL`.
+
+The gateway's decision log goes to `RELIABILITY_DECISION_LOG` (default
+`./gateway-decisions.jsonl`). Content capture is off by default;
+`RELIABILITY_TRACE_CONTENT=1` turns it on and writes to `RELIABILITY_CAPTURE_DIR`
+(default `./gateway-captures/`). `reliability scorecard --decision-log <file>`
+grades D's attributable and reconstructable criteria from the log.
 
 ## Layout
 
@@ -104,7 +115,7 @@ packages/
 reference-agent/  the one task the whole build is measured on
 governance/       OWASP / NIST / EU AI Act mappings (machine-readable + CI-checked)
 content/          build-in-public artifacts, per cycle
-docs/             PRD, plan ledger, 15 ADRs, post-mortem
+docs/             PRD, plan ledger, 17 ADRs, post-mortem
 ```
 
 ## Development

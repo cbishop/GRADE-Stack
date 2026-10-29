@@ -7,7 +7,8 @@
  * Tests the OpenTelemetry seam (Phase 2D): the pure coverage summary over
  * synthetic spans, the hermetic in-memory capture (spans nest by call stack, one
  * connected trace), the GenAI `chat` span emitted by the provider wrapper, and
- * the env logic that keeps export off by default.
+ * the env logic that keeps export off by default, and (Phase 4B, ADR 0017) the
+ * identity attributes on root and `chat` spans plus opt-in content capture.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
@@ -16,13 +17,20 @@ import {
   type CapturedSpan,
   formatSpanTree,
   GENAI,
+  GENAI_CONTENT,
   genAiSystem,
+  IDENTITY_ATTRS,
+  identityAttributes,
+  isContentCaptureEnabled,
   isTracingEnabled,
   OTEL_ENABLE_ENV,
   PHASE_ATTR,
+  recordRequestOutput,
   summarizeTraceCoverage,
+  TRACE_CONTENT_ENV,
   traceProvider,
   withInMemoryTracing,
+  withRequestSpan,
   withSpan,
 } from "./tracing.ts";
 
@@ -157,6 +165,81 @@ describe("isTracingEnabled (off by default)", () => {
 
     process.env[OTEL_ENABLE_ENV] = "0";
     expect(isTracingEnabled()).toBe(false);
+  });
+});
+
+describe("request identity on spans (4B)", () => {
+  const request = {
+    system: "you are a triage assistant",
+    messages: [{ role: "user" as const, content: "my invoice is wrong" }],
+  };
+
+  test("identityAttributes: request id always; caller id and enduser.id only when supplied", () => {
+    expect(identityAttributes({ requestId: "r1", callerId: "triage" })).toEqual({
+      [IDENTITY_ATTRS.requestId]: "r1",
+      [IDENTITY_ATTRS.callerId]: "triage",
+      [IDENTITY_ATTRS.endUser]: "triage",
+    });
+    expect(identityAttributes({ requestId: "r1" })).toEqual({ [IDENTITY_ATTRS.requestId]: "r1" });
+    expect(IDENTITY_ATTRS).toEqual({
+      requestId: "grade_stack.request_id",
+      callerId: "grade_stack.caller_id",
+      endUser: "enduser.id",
+    });
+  });
+
+  test("recordRequestOutput writes the given output on the request span", async () => {
+    const { spans } = await withInMemoryTracing(() =>
+      withRequestSpan("gateway.generate", { requestId: "r2" }, (span) => {
+        recordRequestOutput(span, "redacted [REDACTED-SSN]");
+      }),
+    );
+    expect(spans[0]?.attributes[GENAI_CONTENT.output]).toBe(
+      JSON.stringify("redacted [REDACTED-SSN]"),
+    );
+  });
+
+  test("the root request span and the chat span both carry the identity", async () => {
+    const identity = { requestId: "r1", callerId: "triage" };
+    const { spans } = await withInMemoryTracing(() =>
+      withRequestSpan("gateway.generate", identity, () =>
+        traceProvider(new StubProvider(), { identity }).generate(request),
+      ),
+    );
+    expect(spans.length).toBe(2);
+    for (const s of spans) {
+      expect(s.attributes[IDENTITY_ATTRS.requestId]).toBe("r1");
+      expect(s.attributes[IDENTITY_ATTRS.endUser]).toBe("triage");
+    }
+  });
+
+  test("prompt is recorded on chat spans only when opted in; raw output never is", async () => {
+    const prev = process.env[TRACE_CONTENT_ENV];
+    try {
+      delete process.env[TRACE_CONTENT_ENV];
+      expect(isContentCaptureEnabled()).toBe(false);
+      const off = await withInMemoryTracing(() =>
+        traceProvider(new StubProvider()).generate(request),
+      );
+      for (const s of off.spans) {
+        expect(s.attributes[GENAI_CONTENT.input]).toBeUndefined();
+        expect(s.attributes[GENAI_CONTENT.output]).toBeUndefined();
+        expect(JSON.stringify(s.attributes)).not.toContain("invoice");
+      }
+
+      process.env[TRACE_CONTENT_ENV] = "1";
+      expect(isContentCaptureEnabled()).toBe(true);
+      const on = await withInMemoryTracing(() =>
+        traceProvider(new StubProvider()).generate(request),
+      );
+      const chat = on.spans[0];
+      expect(String(chat?.attributes[GENAI_CONTENT.input])).toContain("my invoice is wrong");
+      // Raw model output never lands on the chat span: it is pre-guardrail.
+      expect(chat?.attributes[GENAI_CONTENT.output]).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env[TRACE_CONTENT_ENV];
+      else process.env[TRACE_CONTENT_ENV] = prev;
+    }
   });
 });
 

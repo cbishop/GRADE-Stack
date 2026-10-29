@@ -49,6 +49,7 @@ export {
 } from "./pev.ts";
 export { type BedrockOptions, BedrockProvider } from "./providers/bedrock.ts";
 export {
+  CALLER_ID_HEADER,
   GATEWAY_GENERATE_PATH,
   type GatewayGenerateBody,
   type GatewayGenerateResponse,
@@ -57,6 +58,9 @@ export {
   type GatewayRouting,
   type GatewayViolation,
   GuardrailError,
+  IDENTITY_ID_PATTERN,
+  REQUEST_ID_HEADER,
+  type RequestContext,
 } from "./providers/gateway.ts";
 export { type OllamaOptions, OllamaProvider } from "./providers/ollama.ts";
 export { type StubOptions, StubProvider } from "./providers/stub.ts";
@@ -64,19 +68,29 @@ export {
   type CapturedSpan,
   formatSpanTree,
   GENAI,
+  GENAI_CONTENT,
   genAiSystem,
   getTracer,
+  IDENTITY_ATTRS,
+  identityAttributes,
   initTracing,
+  isContentCaptureEnabled,
   isTracingEnabled,
   OTEL_ENABLE_ENV,
   PHASE_ATTR,
+  type RequestIdentity,
+  recordRequestOutput,
+  type Span,
   SpanKind,
   summarizeTraceCoverage,
+  TRACE_CONTENT_ENV,
   type TraceCoverage,
+  type TraceProviderOptions,
   type TracingHandle,
   traceProvider,
   type WithSpanOptions,
   withInMemoryTracing,
+  withRequestSpan,
   withSpan,
 } from "./tracing.ts";
 export type {

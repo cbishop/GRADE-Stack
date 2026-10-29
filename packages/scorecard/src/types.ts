@@ -79,6 +79,30 @@ export interface EvidenceCitation {
   wouldChange: string;
 }
 
+/** One decision-log record, reduced to what the D criteria need (Phase 4B). */
+export interface DecisionLogEntry {
+  requestId: string;
+  /** null when the record carries no caller id. */
+  callerId: string | null;
+  /** False while caller ids are self-asserted headers (4B); 4E authenticates them. */
+  callerVerified: boolean;
+  /** True when the request's content was captured for reconstruction. */
+  contentCaptured: boolean;
+}
+
+/**
+ * The gateway decision log the D criteria *attributable* and *reconstructable*
+ * are computed from (Phase 4B, ADR 0017). Read and schema-validated by the CLI;
+ * the scorecard stays pure.
+ */
+export interface DecisionLogEvidence {
+  /** The decision log file, cited by both criteria. */
+  source: string;
+  records: DecisionLogEntry[];
+  /** The logging and retention record and the retention period it states (null when not stated). */
+  retention: { source: string; period: string | null };
+}
+
 /** A criterion graded from evidence. */
 export interface ComputedCriterion {
   state: "computed";

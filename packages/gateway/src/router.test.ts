@@ -18,15 +18,23 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   GenerateRequest,
   GenerateResult,
   ModelProvider,
   ProviderName,
 } from "@grade-stack/core";
+import { DecisionLog } from "./decision-log.ts";
 import { GatewayService } from "./gateway.ts";
 import type { GatewayPolicy } from "./policy.ts";
 import { ConfidenceRouter, resolveRouterFromEnv } from "./router.ts";
+
+/** A decision log in a fresh temp dir, so router tests never write into the repo. */
+const tmpLog = () =>
+  new DecisionLog(join(mkdtempSync(join(tmpdir(), "grade-stack-rt-")), "d.jsonl"));
 
 /** A valid triage JSON string; free-text fields vary independently of the enums. */
 function triage(
@@ -183,6 +191,7 @@ describe("GatewayService — routing path", () => {
     const escalation = constantProvider(leak, "bedrock");
     const router = new ConfidenceRouter({ samples: 5, threshold: 0.5, consensusFields: CONSENSUS });
     const svc = new GatewayService({
+      decisionLog: tmpLog(),
       resolveProvider: resolveFrom(local.provider, escalation.provider),
       router,
     });
@@ -207,6 +216,7 @@ describe("GatewayService — routing path", () => {
     const escalation = constantProvider(triage("technical", "high", "negative"), "bedrock");
     const router = new ConfidenceRouter({ samples: 5, threshold: 0.5, consensusFields: CONSENSUS });
     const svc = new GatewayService({
+      decisionLog: tmpLog(),
       resolveProvider: resolveFrom(local.provider, escalation.provider),
       router,
     });
@@ -227,6 +237,7 @@ describe("GatewayService — routing path", () => {
     const escalation = constantProvider(triage("other", "low", "neutral"), "bedrock");
     const router = new ConfidenceRouter({ samples: 5, threshold: 0.5, consensusFields: CONSENSUS });
     const svc = new GatewayService({
+      decisionLog: tmpLog(),
       resolveProvider: resolveFrom(local.provider, escalation.provider),
       router,
     });
@@ -251,6 +262,7 @@ describe("GatewayService — routing path", () => {
     // the frontier tier it could escalate to is not on the allowlist.
     const policy: GatewayPolicy = { allowedModels: ["ollama-test"], maxTokens: 4096 };
     const svc = new GatewayService({
+      decisionLog: tmpLog(),
       resolveProvider: resolveFrom(local.provider, escalation.provider),
       router,
       policy,

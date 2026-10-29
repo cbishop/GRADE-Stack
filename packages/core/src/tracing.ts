@@ -16,6 +16,13 @@
  *      {@link summarizeTraceCoverage}) — a hermetic, network-free span capture the
  *      scorecard uses to compute the Observability dimension from real coverage.
  *
+ * Phase 4B (ADR 0017) adds request identity ({@link IDENTITY_ATTRS},
+ * {@link withRequestSpan}) on the root and `chat` spans, so a gateway decision-log
+ * line and its trace join on request id, and opt-in content capture
+ * ({@link TRACE_CONTENT_ENV}) that is off by default. Output content is recorded
+ * only on the request span ({@link recordRequestOutput}), after the caller's
+ * output guardrails ran, never on the `chat` span where it would be raw.
+ *
  * It deliberately does **not** decide *what* is instrumented (the agent/PEV/MCP
  * modules call these helpers) nor own any policy. When tracing is not active every
  * helper degrades to a no-op: instrumentation calls a no-op tracer, so the
@@ -43,7 +50,7 @@ import {
 import type { AgentPhase } from "./pev.ts";
 import type { GenerateRequest, GenerateResult, ModelProvider, ProviderName } from "./types.ts";
 
-export { SpanKind } from "@opentelemetry/api";
+export { type Span, SpanKind } from "@opentelemetry/api";
 
 const TRACER_NAME = "@grade-stack/core";
 const SERVICE_NAME = "grade-stack-agent";
@@ -79,6 +86,57 @@ export const GENAI = {
 
 /** Our own attribute marking which PEV phase a span belongs to (coverage signal). */
 export const PHASE_ATTR = "grade_stack.phase";
+
+/**
+ * Request-identity attribute keys (Phase 4B, ADR 0017). `grade_stack.request_id`
+ * is the join key between a gateway decision-log line and its trace;
+ * `enduser.id` is the OpenTelemetry general convention for the caller, set only
+ * when a caller id was supplied.
+ */
+export const IDENTITY_ATTRS = {
+  requestId: "grade_stack.request_id",
+  callerId: "grade_stack.caller_id",
+  endUser: "enduser.id",
+} as const;
+
+/** The identity a request carries: a request id always, a caller id when known. */
+export interface RequestIdentity {
+  requestId: string;
+  callerId?: string;
+}
+
+/** Span attributes for a {@link RequestIdentity}; caller keys only when supplied. */
+export function identityAttributes(identity: RequestIdentity): Record<string, string> {
+  const attrs: Record<string, string> = { [IDENTITY_ATTRS.requestId]: identity.requestId };
+  if (identity.callerId) {
+    attrs[IDENTITY_ATTRS.callerId] = identity.callerId;
+    attrs[IDENTITY_ATTRS.endUser] = identity.callerId;
+  }
+  return attrs;
+}
+
+/**
+ * GenAI content attribute keys, written only when content capture is switched on
+ * ({@link TRACE_CONTENT_ENV}). Values are JSON strings. `input` goes on the `chat`
+ * span (what the caller sent); `output` goes on the request span only, via
+ * {@link recordRequestOutput}, so it is the post-guardrail text, never raw model
+ * output.
+ */
+export const GENAI_CONTENT = {
+  input: "gen_ai.input.messages",
+  output: "gen_ai.output.messages",
+} as const;
+
+/** Env that opts in to recording prompt and output content. Off by default. */
+export const TRACE_CONTENT_ENV = "RELIABILITY_TRACE_CONTENT";
+
+/** True only when {@link TRACE_CONTENT_ENV} is `1`/`true`/`on`. */
+export function isContentCaptureEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const flag = env[TRACE_CONTENT_ENV]?.toLowerCase();
+  return flag === "1" || flag === "true" || flag === "on";
+}
 
 /** Map a provider name to the GenAI `gen_ai.system` value. */
 export function genAiSystem(provider: ProviderName): string {
@@ -158,22 +216,67 @@ export function withSpan<T>(
 }
 
 /**
- * Wrap a {@link ModelProvider} so every `generate` call emits a GenAI `chat`
- * span with request/response model and token-usage attributes. The wrapper is
- * transparent (same name/model/result) and a no-op when tracing is off, so it
- * can wrap any provider — including the credential-free GatewayProvider — without
- * changing behavior.
+ * Run `fn` inside a request's root span (`SpanKind.SERVER`), stamped with the
+ * request identity so every child span sits under a span that names the request
+ * and caller. Used by the gateway for each `generate` call.
  */
-export function traceProvider(provider: ModelProvider): ModelProvider {
+export function withRequestSpan<T>(
+  name: string,
+  identity: RequestIdentity,
+  fn: (span: Span) => Promise<T> | T,
+): Promise<T> {
+  return withSpan(name, { kind: SpanKind.SERVER, attributes: identityAttributes(identity) }, fn);
+}
+
+/**
+ * Record the returned output on a request span (from {@link withRequestSpan}) as
+ * `gen_ai.output.messages`. The caller passes the text it actually returned, after
+ * its output guardrails (redaction) ran, so the trace and any content capture
+ * hold the same redacted text. Callers gate this on content capture being on.
+ */
+export function recordRequestOutput(span: Span, text: string): void {
+  span.setAttribute(GENAI_CONTENT.output, JSON.stringify(text));
+}
+
+/** Options for {@link traceProvider}. */
+export interface TraceProviderOptions {
+  /** Request identity to stamp on every `chat` span. */
+  identity?: RequestIdentity;
+  /**
+   * Record the prompt on the `chat` span. Defaults to
+   * {@link isContentCaptureEnabled} (off unless `RELIABILITY_TRACE_CONTENT=1`).
+   * Model output is never recorded here: it is raw, before any output guardrail.
+   * Record the returned output on the request span with {@link recordRequestOutput}.
+   */
+  captureContent?: boolean;
+}
+
+/**
+ * Wrap a {@link ModelProvider} so every `generate` call emits a GenAI `chat`
+ * span with request/response model and token-usage attributes, plus the request
+ * identity when given. The prompt is recorded only when capture is opted in; the
+ * raw model output never is (see {@link recordRequestOutput}). The wrapper is transparent (same name/model/result)
+ * and a no-op when tracing is off, so it can wrap any provider — including the
+ * credential-free GatewayProvider — without changing behavior.
+ */
+export function traceProvider(
+  provider: ModelProvider,
+  opts: TraceProviderOptions = {},
+): ModelProvider {
   return {
     name: provider.name,
     model: provider.model,
     generate(request: GenerateRequest): Promise<GenerateResult> {
+      const captureContent = opts.captureContent ?? isContentCaptureEnabled();
       const attributes: Record<string, string | number | boolean> = {
         [GENAI.operationName]: "chat",
         [GENAI.system]: genAiSystem(provider.name),
         [GENAI.requestModel]: provider.model,
+        ...(opts.identity ? identityAttributes(opts.identity) : {}),
       };
+      if (captureContent) {
+        attributes[GENAI_CONTENT.input] = JSON.stringify(request);
+      }
       if (request.temperature !== undefined) {
         attributes[GENAI.requestTemperature] = request.temperature;
       }

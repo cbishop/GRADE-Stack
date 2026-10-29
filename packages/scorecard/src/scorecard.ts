@@ -21,6 +21,7 @@ import type {
   AssessedRating,
   ComputedCriterion,
   Criterion,
+  DecisionLogEvidence,
   Dimension,
   DimensionId,
   FillsInPhase,
@@ -56,6 +57,12 @@ export interface ScorecardOptions {
   guardrails: GuardrailCoverage;
   /** EU AI Act deployer readiness from the committed module (G: Governance readiness). */
   governance: GovernanceReadiness;
+  /**
+   * The gateway decision log (Phase 4B). When given, D's *attributable* and
+   * *reconstructable* criteria are computed from it; when absent they stay
+   * stubbed. `reliability scorecard --decision-log <file>` supplies it.
+   */
+  decisionLog?: DecisionLogEvidence;
 }
 
 const DEFAULT_AGENT_TASK = "Support-email triage";
@@ -349,6 +356,174 @@ function observabilityCriterion(coverage: TraceCoverage): ComputedCriterion {
           : "Reaching Strong needs one connected trace with all three phases and a traced model call.",
     },
   };
+}
+
+// ── D · Deployed: the decision log (Phase 4B) ──────────────────────────────
+
+const ATTRIBUTABLE_HEADLINES: Record<AssessedRating, string> = {
+  strong: "Every gateway decision names the request and a verified caller.",
+  adequate:
+    "Every gateway decision names its request and caller, but caller ids are self-asserted, not verified.",
+  "at-risk": "A meaningful share of gateway decisions cannot be traced to a caller.",
+  critical: "Most gateway decisions cannot be traced to who asked for them.",
+};
+
+const RECONSTRUCTABLE_HEADLINES: Record<AssessedRating, string> = {
+  strong: "Any logged request can be replayed from captured content, kept for a stated period.",
+  adequate: "Most logged requests can be replayed, but capture or retention has gaps.",
+  "at-risk":
+    "Only some logged requests can be replayed, or nobody has said how long records are kept.",
+  critical:
+    "Logged requests cannot be replayed: the log holds hashes only, or no retention period is stated.",
+};
+
+/** A few request ids, for the citation (capped so the page stays short). */
+function someIds(ids: string[], limit = 3): string {
+  if (ids.length <= limit) return ids.join(", ");
+  return `${ids.slice(0, limit).join(", ")} and ${ids.length - limit} more`;
+}
+
+/** Cite the log file and the record ids the grade rests on. */
+function logCitation(log: DecisionLogEvidence, flagged: string[], flaggedLabel: string): string {
+  const ids = log.records.map((r) => r.requestId);
+  const span =
+    ids.length === 0
+      ? "no records"
+      : ids.length === 1
+        ? `1 record: ${ids[0]}`
+        : `${ids.length} records, ${ids[0]} to ${ids[ids.length - 1]}`;
+  const flags = flagged.length > 0 ? `; ${flaggedLabel}: ${someIds(flagged)}` : "";
+  return `${log.source} (${span}${flags})`;
+}
+
+/**
+ * Attributable: does every gateway decision say which request it was and who
+ * asked? Computed from the decision log: the share of records carrying both a
+ * request id and a caller id. Caller ids are self-asserted headers until 4E
+ * authenticates them, so an all-attributed log tops out at Adequate.
+ */
+function attributableCriterion(log: DecisionLogEvidence): ComputedCriterion {
+  const n = log.records.length;
+  const missing = log.records.filter((r) => !r.requestId || r.callerId === null);
+  const attributed = n - missing.length;
+  const unverified = log.records.filter((r) => r.callerId !== null && !r.callerVerified).length;
+  const share = n === 0 ? 0 : attributed / n;
+
+  let rating: AssessedRating =
+    n === 0
+      ? "critical"
+      : share >= 1
+        ? "strong"
+        : share >= 0.9
+          ? "adequate"
+          : share >= 0.5
+            ? "at-risk"
+            : "critical";
+  if (rating === "strong" && unverified > 0) rating = "adequate";
+
+  const evidence = [
+    n === 0
+      ? "The decision log has no records."
+      : `${attributed} of ${n} decisions (${pct(share)}) carry both a request id and a caller id.`,
+  ];
+  if (missing.length > 0) {
+    evidence.push(`${missing.length} decision(s) have no caller id.`);
+  }
+  if (unverified > 0) {
+    evidence.push(
+      `${unverified} caller id(s) are self-asserted x-caller-id headers, logged as unverified; Phase 4E authenticates them.`,
+    );
+  }
+
+  return {
+    state: "computed",
+    key: "attributable",
+    title: "Attributable",
+    rating,
+    headline: ATTRIBUTABLE_HEADLINES[rating],
+    evidence,
+    citation: {
+      source: logCitation(
+        log,
+        missing.map((r) => r.requestId),
+        "records without a caller id",
+      ),
+      threshold:
+        "Strong: every record has a request id and a verified caller id; Adequate: every record has both but caller ids are unverified, or at least 90% have both; At risk: at least 50%; Critical: below 50% or an empty log.",
+      wouldChange:
+        rating === "strong"
+          ? "Drops if any decision is logged without a caller id or with an unverified one."
+          : missing.length > 0
+            ? "Rises when every caller sends x-caller-id, so every record names who asked."
+            : "Reaching Strong needs verified caller ids (Phase 4E bearer tokens).",
+    },
+  };
+}
+
+/**
+ * Reconstructable: can a logged request be replayed? Computed from the decision
+ * log (the share of records whose content was captured, RELIABILITY_TRACE_CONTENT=1)
+ * and the logging record (is a retention period stated). By default the log holds
+ * hashes only, so this criterion is honestly low until a deployer opts in.
+ */
+function reconstructableCriterion(log: DecisionLogEvidence): ComputedCriterion {
+  const n = log.records.length;
+  const notCaptured = log.records.filter((r) => !r.contentCaptured);
+  const captured = n - notCaptured.length;
+  const share = n === 0 ? 0 : captured / n;
+  const retention = log.retention.period;
+
+  let rating: AssessedRating = n === 0 ? "critical" : standardBand(share);
+  if (retention === null) rating = downgrade(rating);
+
+  const evidence = [
+    n === 0
+      ? "The decision log has no records."
+      : captured === n
+        ? `All ${n} decisions have content captured (RELIABILITY_TRACE_CONTENT=1).`
+        : `${captured} of ${n} decisions (${pct(share)}) have content captured; the rest hold input and output hashes only.`,
+    retention === null
+      ? `No retention period is stated in ${log.retention.source}.`
+      : `Retention period stated in ${log.retention.source}: ${retention}.`,
+  ];
+
+  return {
+    state: "computed",
+    key: "reconstructable",
+    title: "Reconstructable",
+    rating,
+    headline: RECONSTRUCTABLE_HEADLINES[rating],
+    evidence,
+    citation: {
+      source: `${logCitation(
+        log,
+        notCaptured.map((r) => r.requestId),
+        "records without captured content",
+      )}; ${log.retention.source}`,
+      threshold:
+        "Share of records with captured content: Strong at least 90%, Adequate at least 70%, At risk at least 50%, else Critical; one band lower when no retention period is stated.",
+      wouldChange:
+        rating === "strong"
+          ? "Drops if content capture is switched off or the retention period is removed."
+          : retention === null && share < 0.9
+            ? "Rises with RELIABILITY_TRACE_CONTENT=1 on the gateway and a retention period stated in the logging record."
+            : retention === null
+              ? "Rises to Strong once the logging record states a retention period."
+              : "Rises as more requests run with RELIABILITY_TRACE_CONTENT=1.",
+    },
+  };
+}
+
+/**
+ * Read the retention period from a logging-and-retention record: the value on a
+ * `Retention period:` line, or null when the line is missing or still a
+ * placeholder (`<...>`, `TBD`, `fill in`).
+ */
+export function parseRetentionPeriod(markdown: string): string | null {
+  const m = /^[\s>*-]*\**Retention period(?::\**|\**:)[ \t]*(.*)$/im.exec(markdown);
+  const value = m?.[1]?.replace(/\*+/g, "").trim() ?? "";
+  if (value === "" || value.startsWith("<") || /\b(tbd|fill in)\b/i.test(value)) return null;
+  return value;
 }
 
 // ── A · Agentic ────────────────────────────────────────────────────────────
@@ -717,12 +892,22 @@ export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions): S
     ]),
     dimension("deployed", [
       observabilityCriterion(opts.observability),
-      stub(
-        "attributable",
-        "Attributable and reconstructable",
-        "4B",
-        "the gateway decision log: request id, caller id, policy fired, and input and output hashes per request",
-      ),
+      ...(opts.decisionLog
+        ? [attributableCriterion(opts.decisionLog), reconstructableCriterion(opts.decisionLog)]
+        : [
+            stub(
+              "attributable",
+              "Attributable",
+              "4B",
+              "the gateway decision log (`--decision-log <file>`): request id and caller id on every record",
+            ),
+            stub(
+              "reconstructable",
+              "Reconstructable",
+              "4B",
+              "the gateway decision log (`--decision-log <file>`) with content capture on, and a retention period in the logging record",
+            ),
+          ]),
       stub(
         "rollback",
         "Rollback verified",

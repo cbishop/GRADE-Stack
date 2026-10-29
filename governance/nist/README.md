@@ -50,7 +50,7 @@ your organization.**
 
 ## Coverage by function
 
-**6 supported · 8 partial · 5 deployer-owned** across 19 categories. (MEASURE 3 and MANAGE 4 moved from supported to partial on 2026-10-28: neither had a durable runtime record or a recovery mechanism behind it. Phases 4B to 4D add them.)
+**6 supported · 8 partial · 5 deployer-owned** across 19 categories. (MEASURE 3 and MANAGE 4 moved from supported to partial on 2026-10-28. Phase 4B added the gateway decision log as a runtime record to both; they stay partial because the real-model run (4F), the kill switch (4C) and the review queue (4D) are still missing.)
 
 | Function | Supported | Partial | Deployer-owned | Reading |
 |---|---|---|---|---|
@@ -86,7 +86,7 @@ your organization.**
 |---|---|---|
 | MEASURE 1 — methods & metrics applied | 🟢 Supported | promptfoo harness + reproducibility band + cost-per-success + trace coverage |
 | MEASURE 2 — evaluated for trustworthy characteristics | 🟢 Supported | Scorecard dimensions + portable judge metric (fairness/privacy only partial — see note) |
-| MEASURE 3 — risks tracked over time | 🟡 Partial | Eval-gate vs baseline + degraded canary; no durable runtime log until 4B, no real-model run until 4F |
+| MEASURE 3 — risks tracked over time | 🟡 Partial | Eval-gate vs baseline + degraded canary + gateway decision log (4B); no real-model run until 4F |
 | MEASURE 4 — feedback on measurement efficacy | 🟡 Partial | Per-case flakiness / stability reporting + tolerance band |
 
 ### MANAGE
@@ -96,7 +96,7 @@ your organization.**
 | MANAGE 1 — risks prioritized, responded to | 🟢 Supported | Gateway guardrails + eval-gate + enforced `--max-turns` |
 | MANAGE 2 — strategies minimize negative impacts | 🟡 Partial | Guardrails + degraded canary + sovereign variant (strategy is yours) |
 | MANAGE 3 — third-party risks managed | 🟡 Partial | Pinned lockfile + secret scan + OWASP ASI04 (due-diligence is yours) |
-| MANAGE 4 — treatments documented & monitored | 🟡 Partial | Scorecard + eval-gate CI + enforcement register; recovery and decision records arrive in 4B to 4D |
+| MANAGE 4 — treatments documented & monitored | 🟡 Partial | Scorecard + eval-gate CI + enforcement register + gateway decision log (4B); recovery arrives in 4C and 4D |
 
 ## Per-category detail
 
