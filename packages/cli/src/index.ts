@@ -51,6 +51,7 @@ import {
   ISOLATION_PROBE_BIN,
   isControlRecord,
   isolatedAgentEnv,
+  isRequestRecord,
   readDecisionLog,
   readLatestDrill,
   resolveDecisionLogPath,
@@ -123,9 +124,9 @@ async function loadDecisionLogEvidence(
   logPath: string,
   recordPath: string,
 ): Promise<DecisionLogEvidence> {
-  // Kill-switch control lines (4C) are operator actions, not requests: the D
-  // request criteria grade request lines only.
-  const records = (await readDecisionLog(logPath)).flatMap((r) => (isControlRecord(r) ? [] : [r]));
+  // Kill-switch control lines (4C) and review lines (4D) are not requests: the
+  // D request criteria grade request lines only.
+  const records = (await readDecisionLog(logPath)).filter(isRequestRecord);
   let period: string | null = null;
   let source = recordPath;
   try {

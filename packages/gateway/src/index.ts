@@ -11,7 +11,8 @@
  * (`GatewayProvider`) and wire contract live in `@grade-stack/core` so the agent
  * bundle never depends on this credentialed package. Phase 4B adds the decision
  * log (`./decision-log`) and opt-in content capture (`./capture`); Phase 4C the
- * kill switch (`./kill-switch`) and the rollback drill (`./drill`). The paths to the two
+ * kill switch (`./kill-switch`) and the rollback drill (`./drill`); Phase 4D the
+ * human review queue (`./review-queue`). The paths to the two
  * executables — the server and the credential-isolation probe — are exported so
  * the CLI can spawn them without hard-coding paths.
  */
@@ -42,9 +43,13 @@ export {
   type DecisionRecord,
   DecisionRecordSchema,
   isControlRecord,
+  isRequestRecord,
+  isReviewRecord,
   parseDecisionLog,
   type RequestRecord,
   RequestRecordSchema,
+  type ReviewRecord,
+  ReviewRecordSchema,
   readDecisionLog,
   resolveDecisionLogPath,
   sha256Hex,
@@ -62,7 +67,7 @@ export {
   runKillSwitchDrill,
   writeDrillRecord,
 } from "./drill.ts";
-export { describeDecision } from "./explain.ts";
+export { describeDecision, describeReviewItem, explainReviewItem } from "./explain.ts";
 export { GatewayService, type GatewayServiceOptions } from "./gateway.ts";
 export {
   DEFAULT_HALT_FILE,
@@ -87,10 +92,45 @@ export {
   applyOutputPolicy,
   checkModel,
   DEFAULT_POLICY,
+  DEFAULT_REVIEW_POLICY,
   type GatewayPolicy,
   type InputDecision,
   type OutputDecision,
+  type ReviewPolicy,
 } from "./policy.ts";
+export {
+  type ApprovedEvent,
+  ApprovedEventSchema,
+  type ApproveInput,
+  AUTOMATED_ACTORS,
+  configuredTriggers,
+  DEFAULT_REVIEW_QUEUE_PATH,
+  deriveReviewItems,
+  type HoldInput,
+  holdReasons,
+  isAutomatedActor,
+  newReviewId,
+  parseReviewQueue,
+  type QueuedEvent,
+  QueuedEventSchema,
+  REVIEW_BELOW_ENV,
+  REVIEW_ON_MAX_TURNS_ENV,
+  REVIEW_ON_REDACTION_ENV,
+  REVIEW_ON_REQUEST_ENV,
+  REVIEW_QUEUE_ENV,
+  type RejectedEvent,
+  RejectedEventSchema,
+  type RejectInput,
+  type ReviewEvent,
+  ReviewEventSchema,
+  type ReviewItem,
+  ReviewQueue,
+  ReviewQueueError,
+  readReviewQueue,
+  resolveReviewPolicy,
+  resolveReviewPolicyFromEnv,
+  resolveReviewQueuePath,
+} from "./review-queue.ts";
 export {
   ConfidenceRouter,
   DEFAULT_ROUTER_CONFIG,

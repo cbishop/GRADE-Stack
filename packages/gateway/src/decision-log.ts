@@ -16,11 +16,16 @@
  * line for each operator halt or resume of the kill switch, naming the actor,
  * the action, the reason and the time. A request line has no `kind` field, so
  * every 4B log still reads unchanged.
+ *
+ * Phase 4D (ADR 0019) adds a third kind: a `review` line for each review-queue
+ * event (an item held, approved or rejected), carrying the request id it came
+ * from so `gateway log --request <id>` shows the whole chain. A request line
+ * that was held names its review item (`reviewId`).
  */
 
 import { createHash } from "node:crypto";
 import { appendFile, readFile } from "node:fs/promises";
-import { IDENTITY_ID_PATTERN } from "@grade-stack/core";
+import { IDENTITY_ID_PATTERN, REVIEW_TRIGGERS } from "@grade-stack/core";
 import { z } from "zod";
 
 /** Env naming the decision log file. */
@@ -55,6 +60,8 @@ export const RequestRecordSchema = z.strictObject({
   tokens: z.strictObject({ input: z.number().int().min(0), output: z.number().int().min(0) }),
   latencyMs: z.number().min(0),
   contentCaptured: z.boolean(),
+  /** The review item this request's result was held as (Phase 4D); absent when released. */
+  reviewId: Id.optional(),
 });
 
 /** A validated request decision (one per `generate` call). */
@@ -80,22 +87,59 @@ export const ControlRecordSchema = z.strictObject({
 /** A validated kill-switch control record. */
 export type ControlRecord = z.infer<typeof ControlRecordSchema>;
 
-/** Any decision-log line: a request decision or a kill-switch control action. */
-export const DecisionRecordSchema = z.union([RequestRecordSchema, ControlRecordSchema]);
+/**
+ * One review-queue event (Phase 4D): an item held for a person, or a person's
+ * approval or rejection. `actor` is `gateway` for a hold and the named reviewer
+ * for a decision; `requestId` is the request the item came from.
+ */
+export const ReviewRecordSchema = z.strictObject({
+  v: z.literal(1),
+  kind: z.literal("review"),
+  at: z.iso.datetime(),
+  requestId: Id,
+  reviewId: Id,
+  event: z.enum(["queued", "approved", "rejected"]),
+  actor: Id,
+  callerId: Id.nullable(),
+  trigger: z.enum(REVIEW_TRIGGERS),
+  policy: z.literal("human-review"),
+  reason: z.string().min(1).max(500),
+});
+
+/** A validated review-queue line. */
+export type ReviewRecord = z.infer<typeof ReviewRecordSchema>;
+
+/** Any decision-log line: a request decision, a kill-switch control action, or a review event. */
+export const DecisionRecordSchema = z.union([
+  RequestRecordSchema,
+  ControlRecordSchema,
+  ReviewRecordSchema,
+]);
 
 /** A validated decision-log record. */
-export type DecisionRecord = RequestRecord | ControlRecord;
+export type DecisionRecord = RequestRecord | ControlRecord | ReviewRecord;
 
 /** True for a kill-switch control line (halt or resume). */
 export function isControlRecord(r: DecisionRecord): r is ControlRecord {
   return "kind" in r && r.kind === "control";
 }
 
+/** True for a review-queue line (held, approved or rejected). */
+export function isReviewRecord(r: DecisionRecord): r is ReviewRecord {
+  return "kind" in r && r.kind === "review";
+}
+
+/** True for a request decision line (one per `generate` call). */
+export function isRequestRecord(r: DecisionRecord): r is RequestRecord {
+  return !("kind" in r);
+}
+
 /** The schema a raw line must satisfy: chosen by its `kind`, so errors name the real field. */
 function schemaFor(json: unknown) {
   const kind =
     typeof json === "object" && json !== null ? (json as { kind?: unknown }).kind : undefined;
-  return kind === undefined ? RequestRecordSchema : ControlRecordSchema;
+  if (kind === undefined) return RequestRecordSchema;
+  return kind === "review" ? ReviewRecordSchema : ControlRecordSchema;
 }
 
 /** Thrown when a log line is not valid JSON or fails the schema. Never swallowed. */

@@ -52,16 +52,21 @@ export { type BedrockOptions, BedrockProvider } from "./providers/bedrock.ts";
 export {
   CALLER_ID_HEADER,
   GATEWAY_GENERATE_PATH,
+  GATEWAY_REVIEW_PATH,
   type GatewayGenerateBody,
   type GatewayGenerateResponse,
   GatewayProvider,
   type GatewayProviderOptions,
+  type GatewayReviewBody,
+  type GatewayReviewResponse,
   type GatewayRouting,
   type GatewayViolation,
   GuardrailError,
   IDENTITY_ID_PATTERN,
   REQUEST_ID_HEADER,
+  REVIEW_TRIGGERS,
   type RequestContext,
+  type ReviewTrigger,
 } from "./providers/gateway.ts";
 export { type OllamaOptions, OllamaProvider } from "./providers/ollama.ts";
 export { type StubOptions, StubProvider } from "./providers/stub.ts";
@@ -122,6 +127,7 @@ export type {
   GenerateResult,
   ModelProvider,
   ProviderName,
+  ReviewHold,
   Role,
   TokenUsage,
 } from "./types.ts";

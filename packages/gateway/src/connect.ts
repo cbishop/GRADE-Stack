@@ -18,19 +18,30 @@
  *
  * Phase 4C: a request refused by the kill switch is 503 with the same structured
  * `{ ok: false, violation }` body, so the client raises a `GuardrailError`.
+ *
+ * Phase 4D: `POST /v1/review` takes an agent's max-turn failure and queues it
+ * for a named person; a held generate response carries `review`. The review
+ * triggers come from `RELIABILITY_REVIEW_*` unless a policy is injected. There
+ * is deliberately no endpoint that approves or rejects: that is a local, named
+ * operator action (`reliability review approve|reject --as <name>`).
  */
 
 import { randomUUID } from "node:crypto";
 import {
   CALLER_ID_HEADER,
   GATEWAY_GENERATE_PATH,
+  GATEWAY_REVIEW_PATH,
   type GatewayGenerateBody,
   type GatewayGenerateResponse,
+  type GatewayReviewBody,
+  type GatewayReviewResponse,
   IDENTITY_ID_PATTERN,
   REQUEST_ID_HEADER,
   type RequestContext,
 } from "@grade-stack/core";
 import { GatewayService, type GatewayServiceOptions } from "./gateway.ts";
+import { DEFAULT_POLICY, type ReviewPolicy } from "./policy.ts";
+import { resolveReviewPolicyFromEnv } from "./review-queue.ts";
 import { resolveRouterFromEnv } from "./router.ts";
 
 export interface GatewayServeOptions extends GatewayServiceOptions {
@@ -46,10 +57,18 @@ export interface GatewayHandle {
   decisionLogPath: string;
   /** The kill-switch halt file this gateway checks on every request (Phase 4C). */
   haltFile: string;
+  /** The review queue this gateway holds results in (Phase 4D). */
+  reviewQueuePath: string;
+  /** The review triggers this gateway applies (Phase 4D). */
+  review: ReviewPolicy;
   stop(): Promise<void>;
 }
 
-function json(body: GatewayGenerateResponse, status: number, requestId: string): Response {
+function json(
+  body: GatewayGenerateResponse | GatewayReviewResponse,
+  status: number,
+  requestId: string,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
@@ -64,7 +83,10 @@ function json(body: GatewayGenerateResponse, status: number, requestId: string):
  * Build the request context from headers (preferred) and the body's `context`.
  * Returns an error string when a supplied id is malformed.
  */
-function requestContext(req: Request, body: GatewayGenerateBody): RequestContext | string {
+function requestContext(
+  req: Request,
+  body: Pick<GatewayGenerateBody, "context">,
+): RequestContext | string {
   const requestId = req.headers.get(REQUEST_ID_HEADER) ?? body.context?.requestId;
   const callerId = req.headers.get(CALLER_ID_HEADER) ?? body.context?.callerId;
   const sessionId = body.context?.sessionId;
@@ -93,12 +115,17 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
   // An explicitly-injected router wins (tests); otherwise opt in from the env
   // (`RELIABILITY_ROUTER=1`), leaving the default forward-only path untouched.
   const router = opts.router ?? resolveRouterFromEnv();
-  const service = new GatewayService({ ...opts, router });
+  // Likewise the review triggers (4D): an injected policy wins, else the env.
+  const policy = opts.policy ?? { ...DEFAULT_POLICY, review: resolveReviewPolicyFromEnv() };
+  const service = new GatewayService({ ...opts, router, policy });
 
   const server = Bun.serve({
     port: opts.port ?? 0,
     async fetch(req) {
       const url = new URL(req.url);
+      if (req.method === "POST" && url.pathname === GATEWAY_REVIEW_PATH) {
+        return reviewReport(req, service);
+      }
       if (req.method !== "POST" || url.pathname !== GATEWAY_GENERATE_PATH) {
         return new Response("Not found", { status: 404 });
       }
@@ -142,8 +169,42 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
     port,
     decisionLogPath: service.decisionLog.path,
     haltFile: service.haltFile,
+    reviewQueuePath: service.reviewQueue.path,
+    review: service.review,
     async stop() {
       await server.stop(true);
     },
   };
+}
+
+/**
+ * `POST /v1/review`: an agent reports it could not converge within its turn
+ * bound. The only trigger accepted here is `max-turns`; the others are decided
+ * by the gateway itself on `/v1/generate`.
+ */
+async function reviewReport(req: Request, service: GatewayService): Promise<Response> {
+  let body: GatewayReviewBody;
+  try {
+    body = (await req.json()) as GatewayReviewBody;
+  } catch {
+    return new Response("Bad request: expected JSON body", { status: 400 });
+  }
+  if (body?.trigger !== "max-turns" || !Number.isInteger(body.maxTurns) || body.maxTurns < 0) {
+    return new Response('Bad request: expected { trigger: "max-turns", maxTurns }', {
+      status: 400,
+    });
+  }
+  const ctx = requestContext(req, body);
+  if (typeof ctx === "string") return new Response(ctx, { status: 400 });
+  try {
+    const lastIssues = Array.isArray(body.lastIssues) ? body.lastIssues.map(String) : [];
+    const res = await service.holdMaxTurns({ maxTurns: body.maxTurns, lastIssues }, ctx);
+    return json(res, 200, ctx.requestId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return new Response(`Gateway review queue error: ${message}`, {
+      status: 502,
+      headers: { [REQUEST_ID_HEADER]: ctx.requestId },
+    });
+  }
 }
