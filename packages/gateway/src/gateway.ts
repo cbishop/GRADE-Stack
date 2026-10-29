@@ -29,6 +29,8 @@ import {
   type ModelProvider,
   type ProviderName,
   type RequestContext,
+  recordRequestOutput,
+  type Span,
   traceProvider,
   withRequestSpan,
 } from "@grade-stack/core";
@@ -137,16 +139,16 @@ export class GatewayService {
     const ctx = this.resolveContext(context);
     const at = new Date().toISOString();
     const started = performance.now();
-    return withRequestSpan("gateway.generate", ctx, async () => {
+    return withRequestSpan("gateway.generate", ctx, async (span) => {
       let outcome: Outcome;
       try {
         outcome = await this.decide(target, request, ctx);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        await this.record(ctx, target, request, at, started, { error: message });
+        await this.record(span, ctx, target, request, at, started, { error: message });
         throw err;
       }
-      await this.record(ctx, target, request, at, started, outcome);
+      await this.record(span, ctx, target, request, at, started, outcome);
       return outcome.response;
     });
   }
@@ -270,8 +272,13 @@ export class GatewayService {
     return { action: "allow", stage: null, policy: "guardrails", reason };
   }
 
-  /** Mirror content (when opted in), then append exactly one decision-log line. */
+  /**
+   * Mirror content (when opted in) to the capture file and the request span, then
+   * append exactly one decision-log line. Both content sinks take the same
+   * post-redaction text, so the trace never holds what the caller did not get.
+   */
   private async record(
+    span: Span,
     ctx: RequestContext,
     target: ProviderName,
     request: GenerateRequest,
@@ -284,6 +291,7 @@ export class GatewayService {
     const returned =
       "error" in outcome || !outcome.response.ok ? null : outcome.response.result.text;
     if (this.captureContent) {
+      if (returned !== null) recordRequestOutput(span, returned);
       await writeCapture(this.captureDir, {
         v: 1,
         requestId: ctx.requestId,

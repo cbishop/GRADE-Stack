@@ -19,7 +19,9 @@
  * Phase 4B (ADR 0017) adds request identity ({@link IDENTITY_ATTRS},
  * {@link withRequestSpan}) on the root and `chat` spans, so a gateway decision-log
  * line and its trace join on request id, and opt-in content capture
- * ({@link TRACE_CONTENT_ENV}) that is off by default.
+ * ({@link TRACE_CONTENT_ENV}) that is off by default. Output content is recorded
+ * only on the request span ({@link recordRequestOutput}), after the caller's
+ * output guardrails ran, never on the `chat` span where it would be raw.
  *
  * It deliberately does **not** decide *what* is instrumented (the agent/PEV/MCP
  * modules call these helpers) nor own any policy. When tracing is not active every
@@ -48,7 +50,7 @@ import {
 import type { AgentPhase } from "./pev.ts";
 import type { GenerateRequest, GenerateResult, ModelProvider, ProviderName } from "./types.ts";
 
-export { SpanKind } from "@opentelemetry/api";
+export { type Span, SpanKind } from "@opentelemetry/api";
 
 const TRACER_NAME = "@grade-stack/core";
 const SERVICE_NAME = "grade-stack-agent";
@@ -114,8 +116,11 @@ export function identityAttributes(identity: RequestIdentity): Record<string, st
 }
 
 /**
- * GenAI content attribute keys, written on `chat` spans only when content
- * capture is switched on ({@link TRACE_CONTENT_ENV}). Values are JSON strings.
+ * GenAI content attribute keys, written only when content capture is switched on
+ * ({@link TRACE_CONTENT_ENV}). Values are JSON strings. `input` goes on the `chat`
+ * span (what the caller sent); `output` goes on the request span only, via
+ * {@link recordRequestOutput}, so it is the post-guardrail text, never raw model
+ * output.
  */
 export const GENAI_CONTENT = {
   input: "gen_ai.input.messages",
@@ -223,13 +228,25 @@ export function withRequestSpan<T>(
   return withSpan(name, { kind: SpanKind.SERVER, attributes: identityAttributes(identity) }, fn);
 }
 
+/**
+ * Record the returned output on a request span (from {@link withRequestSpan}) as
+ * `gen_ai.output.messages`. The caller passes the text it actually returned, after
+ * its output guardrails (redaction) ran, so the trace and any content capture
+ * hold the same redacted text. Callers gate this on content capture being on.
+ */
+export function recordRequestOutput(span: Span, text: string): void {
+  span.setAttribute(GENAI_CONTENT.output, JSON.stringify(text));
+}
+
 /** Options for {@link traceProvider}. */
 export interface TraceProviderOptions {
   /** Request identity to stamp on every `chat` span. */
   identity?: RequestIdentity;
   /**
-   * Record prompt and output on the `chat` span. Defaults to
+   * Record the prompt on the `chat` span. Defaults to
    * {@link isContentCaptureEnabled} (off unless `RELIABILITY_TRACE_CONTENT=1`).
+   * Model output is never recorded here: it is raw, before any output guardrail.
+   * Record the returned output on the request span with {@link recordRequestOutput}.
    */
   captureContent?: boolean;
 }
@@ -237,8 +254,8 @@ export interface TraceProviderOptions {
 /**
  * Wrap a {@link ModelProvider} so every `generate` call emits a GenAI `chat`
  * span with request/response model and token-usage attributes, plus the request
- * identity when given. Content (prompt and raw model output) is recorded only
- * when capture is opted in. The wrapper is transparent (same name/model/result)
+ * identity when given. The prompt is recorded only when capture is opted in; the
+ * raw model output never is (see {@link recordRequestOutput}). The wrapper is transparent (same name/model/result)
  * and a no-op when tracing is off, so it can wrap any provider — including the
  * credential-free GatewayProvider — without changing behavior.
  */
@@ -276,7 +293,6 @@ export function traceProvider(
             [GENAI.usageInputTokens]: result.usage.inputTokens,
             [GENAI.usageOutputTokens]: result.usage.outputTokens,
           });
-          if (captureContent) span.setAttribute(GENAI_CONTENT.output, JSON.stringify(result.text));
           return result;
         },
       );

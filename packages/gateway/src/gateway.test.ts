@@ -530,6 +530,33 @@ describe("content capture is opt-in", () => {
     expect(record?.contentCaptured).toBe(false);
   });
 
+  test("capture on: no span carries the raw SSN; the request span holds the redacted output", async () => {
+    const captureDir = join(tmp(), "captures");
+    const svc = new GatewayService({
+      decisionLog: tmpLog(),
+      captureContent: true,
+      captureDir,
+      resolveProvider: () => scriptedProvider(PII_REPLY),
+    });
+    const { result: res, spans } = await withInMemoryTracing(() =>
+      svc.generate("stub", BENIGN, { requestId: "req-redact-span" }),
+    );
+    expect(res.ok).toBe(true);
+    expect(spans.length).toBeGreaterThanOrEqual(2);
+    // No exported attribute, on any span, carries the pre-redaction value.
+    for (const s of spans) {
+      for (const value of Object.values(s.attributes)) {
+        expect(String(value)).not.toContain("123-45-6789");
+      }
+    }
+    // The request span records the same redacted text the capture file holds.
+    const capture = await readCapture(join(captureDir, "req-redact-span.json"));
+    expect(capture.output).toBe("The SSN on file is [REDACTED-SSN].");
+    const root = spans.find((s) => !s.parentSpanId);
+    expect(root?.name).toBe("gateway.generate");
+    expect(root?.attributes[GENAI_CONTENT.output]).toBe(JSON.stringify(capture.output));
+  });
+
   test("RELIABILITY_TRACE_CONTENT=1: spans carry content and the run is reconstructable from the capture", async () => {
     const captureDir = join(tmp(), "captures");
     const log = tmpLog();
@@ -549,7 +576,9 @@ describe("content capture is opt-in", () => {
       );
       const chat = spans.find((s) => s.attributes["gen_ai.operation.name"] === "chat");
       expect(String(chat?.attributes[GENAI_CONTENT.input])).toContain(BENIGN_TEXT);
-      expect(chat?.attributes[GENAI_CONTENT.output]).toBeDefined();
+      expect(chat?.attributes[GENAI_CONTENT.output]).toBeUndefined();
+      const root = spans.find((s) => !s.parentSpanId);
+      expect(String(root?.attributes[GENAI_CONTENT.output])).toContain("[REDACTED-SSN]");
 
       const [record] = await readDecisionLog(log.path);
       expect(record?.contentCaptured).toBe(true);

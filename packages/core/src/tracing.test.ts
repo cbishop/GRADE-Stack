@@ -25,6 +25,7 @@ import {
   isTracingEnabled,
   OTEL_ENABLE_ENV,
   PHASE_ATTR,
+  recordRequestOutput,
   summarizeTraceCoverage,
   TRACE_CONTENT_ENV,
   traceProvider,
@@ -187,6 +188,17 @@ describe("request identity on spans (4B)", () => {
     });
   });
 
+  test("recordRequestOutput writes the given output on the request span", async () => {
+    const { spans } = await withInMemoryTracing(() =>
+      withRequestSpan("gateway.generate", { requestId: "r2" }, (span) => {
+        recordRequestOutput(span, "redacted [REDACTED-SSN]");
+      }),
+    );
+    expect(spans[0]?.attributes[GENAI_CONTENT.output]).toBe(
+      JSON.stringify("redacted [REDACTED-SSN]"),
+    );
+  });
+
   test("the root request span and the chat span both carry the identity", async () => {
     const identity = { requestId: "r1", callerId: "triage" };
     const { spans } = await withInMemoryTracing(() =>
@@ -201,7 +213,7 @@ describe("request identity on spans (4B)", () => {
     }
   });
 
-  test("content is off by default and recorded on chat spans only when opted in", async () => {
+  test("prompt is recorded on chat spans only when opted in; raw output never is", async () => {
     const prev = process.env[TRACE_CONTENT_ENV];
     try {
       delete process.env[TRACE_CONTENT_ENV];
@@ -222,7 +234,8 @@ describe("request identity on spans (4B)", () => {
       );
       const chat = on.spans[0];
       expect(String(chat?.attributes[GENAI_CONTENT.input])).toContain("my invoice is wrong");
-      expect(String(chat?.attributes[GENAI_CONTENT.output])).toContain("billing");
+      // Raw model output never lands on the chat span: it is pre-guardrail.
+      expect(chat?.attributes[GENAI_CONTENT.output]).toBeUndefined();
     } finally {
       if (prev === undefined) delete process.env[TRACE_CONTENT_ENV];
       else process.env[TRACE_CONTENT_ENV] = prev;

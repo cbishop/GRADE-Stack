@@ -79,6 +79,8 @@ export {
   OTEL_ENABLE_ENV,
   PHASE_ATTR,
   type RequestIdentity,
+  recordRequestOutput,
+  type Span,
   SpanKind,
   summarizeTraceCoverage,
   TRACE_CONTENT_ENV,
