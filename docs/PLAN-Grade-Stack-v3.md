@@ -1,6 +1,6 @@
 # Build Plan v3 — Grade Stack: the assurance loop
 
-**Owner:** Clarke Bishop · **Status:** in progress. Written 2026-10-28 at commit `e5882b1`; Phase 4A complete 2026-10-28 (branch `v3-4a-honesty-grade-dimensions`); Phase 4B complete 2026-10-28 (branch `v3-4b-decision-log`); Phase 4C complete 2026-10-29 (branch `v3-4c-kill-switch-release-manifest`) · **Source of truth for what:** [`docs/PRD-Grade-Stack-v2.md`](./PRD-Grade-Stack-v2.md) (product context, stack, non-goals) plus [`docs/gap-analysis-assurance-loop-2026-10-28.md`](./gap-analysis-assurance-loop-2026-10-28.md) (the gaps v3 closes) · **Predecessor:** [`docs/PLAN-Grade-Stack-v2.md`](./PLAN-Grade-Stack-v2.md) (complete, 13 cycles)
+**Owner:** Clarke Bishop · **Status:** in progress. Written 2026-10-28 at commit `e5882b1`; Phase 4A complete 2026-10-28 (branch `v3-4a-honesty-grade-dimensions`); Phase 4B complete 2026-10-28 (branch `v3-4b-decision-log`); Phase 4C complete 2026-10-29 (branch `v3-4c-kill-switch-release-manifest`); Phase 4D complete 2026-10-29 (branch `v3-4d-review-queue`) · **Source of truth for what:** [`docs/PRD-Grade-Stack-v2.md`](./PRD-Grade-Stack-v2.md) (product context, stack, non-goals) plus [`docs/gap-analysis-assurance-loop-2026-10-28.md`](./gap-analysis-assurance-loop-2026-10-28.md) (the gaps v3 closes) · **Predecessor:** [`docs/PLAN-Grade-Stack-v2.md`](./PLAN-Grade-Stack-v2.md) (complete, 13 cycles)
 
 v2 built the stack. v3 closes the four-pillar assurance loop the gap analysis measured it against: trusted evaluation, full traceability, rollback, and a human review queue, plus explicit boundaries as autonomy rises. Every sub-phase turns one "missing" or "partial" row of the gap table into a mechanism with a test that proves it bites, a readback that explains it in plain language, and a scorecard criterion computed from its record.
 
@@ -166,12 +166,12 @@ The gap analysis found two pillars with no code at all (rollback, human review),
 8. **Governance:** EU Art 26 may return to `supported` with the residual "the deployer must staff the queue"; Art 50 wording to match; OWASP ASI09 residual updated.
 
 **Acceptance criteria:**
-- [ ] A low-confidence run is held; `review show` explains why; `approve --as clarke` records approver and time; the decision log shows the whole chain.
-- [ ] Max-turn failures and redactions queue items when configured.
-- [ ] Scorecard G shows *human oversight* computed from the queue, citing it.
-- [ ] `docs/human-oversight-map.md` exists with the sample approval log.
-- [ ] **ADR 0019** records the event-log store and the three-route order.
-- [ ] **Artifact:** post draft in `content/cycle-16/`: "the router's third route is a person."
+- [x] A low-confidence run is held; `review show` explains why; `approve --as clarke` records approver and time; the decision log shows the whole chain. *Evidence: `review-queue.test.ts` (confidence 0.40 below `reviewBelow` 0.60 after escalation queues a pending item, response carries `review`); built-binary smoke test: a held `agent run` prints "held for review", `review show` gives the reason, `approve --as you` records name and ISO time and refuses a second, automated or empty approval, `gateway log --request` prints request, hold and approval.*
+- [x] Max-turn failures and redactions queue items when configured. *Evidence: `review-queue.test.ts` (`holdMaxTurns` and `POST /v1/review` via `GatewayProvider.requestReview`; redaction held only with `onRedaction`; `requiresReview` flag held; each switch off holds nothing); smoke test `agent run --max-turns 0` prints "held for review".*
+- [x] Scorecard G shows *human oversight* computed from the queue, citing it. *Evidence: `reliability scorecard --review-queue <file>`; `scorecard.test.ts` bands plus canaries (unattributed or automated decision drops G to Critical); smoke test (Strong from a live queue and from the drill, Critical for a self-approval, loud failure for an approval with no `by`); `content/cycle-16/sample-scorecard.md`.*
+- [x] `docs/human-oversight-map.md` exists with the sample approval log. *Evidence: fill-in template (triggers, who reviews what, escalation owner, release step) with ten dated decisions from `bun scripts/review-drill.ts`, labeled sample data; records in `governance/drills/review-queue-2026-10-29.jsonl` and `review-decisions-2026-10-29.jsonl`.*
+- [x] **ADR 0019** records the event-log store and the three-route order. *Evidence: `docs/decisions/0019-review-queue-event-log-and-three-route-order.md`.*
+- [x] **Artifact:** post draft in `content/cycle-16/`: "the router's third route is a person." *Evidence: `content/cycle-16/endofcycle-post.md` and `content/cycle-16/sample-scorecard.md`.*
 
 ---
 
