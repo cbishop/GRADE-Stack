@@ -80,4 +80,10 @@ export interface ModelProvider {
   readonly name: ProviderName;
   readonly model: string;
   generate(request: GenerateRequest): Promise<GenerateResult>;
+  /**
+   * The same provider on a new session (Phase 4E). Only the gateway client has
+   * sessions (the gateway counts an agent's turns per session); the agent opens
+   * one per run. Providers without sessions omit it.
+   */
+  withSession?(sessionId: string): ModelProvider;
 }

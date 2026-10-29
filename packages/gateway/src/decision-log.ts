@@ -21,12 +21,21 @@
  * event (an item held, approved or rejected), carrying the request id it came
  * from so `gateway log --request <id>` shows the whole chain. A request line
  * that was held names its review item (`reviewId`).
+ *
+ * Phase 4E (ADR 0020) adds two kinds. An `auth` line records a request refused
+ * with 401 at either chokepoint (the gateway or the MCP server): which one, the
+ * reason, and any caller id the request claimed, never the token. A `tool` line
+ * records every tool call the MCP server checked against the caller's
+ * manifest, allowed or refused (`tool-not-allowed`), with the authenticated
+ * caller id and a hash of the arguments. A request line's `callerVerified` is
+ * true when the caller id came from a bearer token.
  */
 
 import { createHash } from "node:crypto";
 import { appendFile, readFile } from "node:fs/promises";
 import { IDENTITY_ID_PATTERN, REVIEW_TRIGGERS } from "@grade-stack/core";
 import { z } from "zod";
+import { AUTONOMY_LEVELS } from "./agent-manifest.ts";
 
 /** Env naming the decision log file. */
 export const DECISION_LOG_ENV = "RELIABILITY_DECISION_LOG";
@@ -109,15 +118,66 @@ export const ReviewRecordSchema = z.strictObject({
 /** A validated review-queue line. */
 export type ReviewRecord = z.infer<typeof ReviewRecordSchema>;
 
-/** Any decision-log line: a request decision, a kill-switch control action, or a review event. */
+/** Where an agent boundary is enforced (Phase 4E): the gateway or the MCP server. */
+export const CHOKEPOINTS = ["gateway", "mcp-server"] as const;
+
+/**
+ * A request refused for want of a valid caller (Phase 4E): no bearer token, an
+ * unknown one, or an `x-caller-id` that disagrees with the token. Nothing ran.
+ * `claimedCallerId` is what the request asserted, recorded as untrusted; the
+ * token itself is never recorded.
+ */
+export const AuthRecordSchema = z.strictObject({
+  v: z.literal(1),
+  kind: z.literal("auth"),
+  at: z.iso.datetime(),
+  requestId: Id,
+  chokepoint: z.enum(CHOKEPOINTS),
+  endpoint: z.string().min(1).max(200),
+  action: z.literal("refuse"),
+  status: z.literal(401),
+  policy: z.literal("caller-auth"),
+  reason: z.string().min(1).max(500),
+  claimedCallerId: Id.nullable(),
+});
+
+/** A validated authentication refusal. */
+export type AuthRecord = z.infer<typeof AuthRecordSchema>;
+
+/**
+ * One tool call checked at the MCP server against the caller's manifest (Phase
+ * 4E): allowed (`tool-scope`) or refused before it ran (`tool-not-allowed`).
+ */
+export const ToolRecordSchema = z.strictObject({
+  v: z.literal(1),
+  kind: z.literal("tool"),
+  at: z.iso.datetime(),
+  requestId: Id,
+  sessionId: Id.optional(),
+  callerId: Id,
+  callerVerified: z.boolean(),
+  autonomyLevel: z.enum(AUTONOMY_LEVELS).nullable(),
+  tool: z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/),
+  action: z.enum(["allow", "block"]),
+  policy: z.enum(["tool-scope", "tool-not-allowed"]),
+  reason: z.string().min(1).max(500),
+  argsSha256: Sha256,
+});
+
+/** A validated tool-scope line. */
+export type ToolRecord = z.infer<typeof ToolRecordSchema>;
+
+/** Any decision-log line: a request, a kill-switch action, a review event, a 401, or a tool call. */
 export const DecisionRecordSchema = z.union([
   RequestRecordSchema,
   ControlRecordSchema,
   ReviewRecordSchema,
+  AuthRecordSchema,
+  ToolRecordSchema,
 ]);
 
 /** A validated decision-log record. */
-export type DecisionRecord = RequestRecord | ControlRecord | ReviewRecord;
+export type DecisionRecord = RequestRecord | ControlRecord | ReviewRecord | AuthRecord | ToolRecord;
 
 /** True for a kill-switch control line (halt or resume). */
 export function isControlRecord(r: DecisionRecord): r is ControlRecord {
@@ -127,6 +187,16 @@ export function isControlRecord(r: DecisionRecord): r is ControlRecord {
 /** True for a review-queue line (held, approved or rejected). */
 export function isReviewRecord(r: DecisionRecord): r is ReviewRecord {
   return "kind" in r && r.kind === "review";
+}
+
+/** True for a 401 refusal at the gateway or the MCP server (Phase 4E). */
+export function isAuthRecord(r: DecisionRecord): r is AuthRecord {
+  return "kind" in r && r.kind === "auth";
+}
+
+/** True for a tool call checked at the MCP server (Phase 4E). */
+export function isToolRecord(r: DecisionRecord): r is ToolRecord {
+  return "kind" in r && r.kind === "tool";
 }
 
 /** True for a request decision line (one per `generate` call). */
@@ -139,7 +209,10 @@ function schemaFor(json: unknown) {
   const kind =
     typeof json === "object" && json !== null ? (json as { kind?: unknown }).kind : undefined;
   if (kind === undefined) return RequestRecordSchema;
-  return kind === "review" ? ReviewRecordSchema : ControlRecordSchema;
+  if (kind === "review") return ReviewRecordSchema;
+  if (kind === "auth") return AuthRecordSchema;
+  if (kind === "tool") return ToolRecordSchema;
+  return ControlRecordSchema;
 }
 
 /** Thrown when a log line is not valid JSON or fails the schema. Never swallowed. */

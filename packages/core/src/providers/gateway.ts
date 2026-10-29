@@ -18,8 +18,15 @@
  * why), and `requestReview` reports a max-turn failure to the gateway's review
  * queue over `POST /v1/review`. There is no approve endpoint: approval is a
  * local, named operator action (`reliability review approve --as <name>`).
+ *
+ * Phase 4E (ADR 0020): the agent authenticates with a bearer token
+ * (`authorization: Bearer <token>`), and the gateway derives the caller id from
+ * it. Each provider carries a session id (`x-session-id`) the gateway counts
+ * turns against; `withSession` opens a fresh one per agent run. A 401 carries a
+ * structured `caller-auth` violation and surfaces as a `GuardrailError`.
  */
 
+import { randomUUID } from "node:crypto";
 import type { MaxTurnsError } from "../pev.ts";
 import type {
   GenerateRequest,
@@ -65,8 +72,15 @@ export type GatewayReviewResponse = ReviewHold | { held: false; reason: string }
 
 /** Header carrying the request id (Phase 4B); the gateway echoes it on every response. */
 export const REQUEST_ID_HEADER = "x-request-id";
-/** Header carrying the caller id (Phase 4B: trusted and logged as unverified; 4E authenticates it). */
+/**
+ * Header carrying a self-asserted caller id (Phase 4B). With agent manifests
+ * (4E) the caller id comes from the bearer token instead, and a header that
+ * disagrees with the token is refused; without manifests it is logged as
+ * unverified, as in 4B.
+ */
 export const CALLER_ID_HEADER = "x-caller-id";
+/** Header carrying the session id the gateway counts an agent's turns against (Phase 4E). */
+export const SESSION_ID_HEADER = "x-session-id";
 
 /**
  * Allowed shape for request, caller and session ids: short, and safe as a file
@@ -76,8 +90,9 @@ export const IDENTITY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
 
 /**
  * Who and which request a gateway call belongs to (Phase 4B, ADR 0017). The
- * request id links a decision-log line to its trace. In 4B the caller id is a
- * self-asserted header, logged as unverified; Phase 4E authenticates it.
+ * request id links a decision-log line to its trace. The caller id is the
+ * authenticated agent when the gateway has manifests (4E, ADR 0020), else a
+ * self-asserted header logged as unverified.
  */
 export interface RequestContext {
   requestId: string;
@@ -165,10 +180,18 @@ export interface GatewayProviderOptions {
   /** Injectable for tests; defaults to global `fetch`. */
   fetchFn?: typeof fetch;
   /**
-   * Caller id sent as `x-caller-id` on every request (Phase 4B), so the
-   * gateway's decision log can attribute the call. Unverified until 4E.
+   * Caller id sent as `x-caller-id` on every request (Phase 4B). Logged as
+   * unverified; with a `token` the gateway derives the caller id from the
+   * token and refuses a header that disagrees.
    */
   callerId?: string;
+  /**
+   * The agent's bearer token (Phase 4E), sent as `authorization: Bearer`. The
+   * factory reads it from `RELIABILITY_AGENT_TOKEN`. Never logged.
+   */
+  token?: string;
+  /** Session id the gateway counts turns against; defaults to a fresh UUID. */
+  sessionId?: string;
 }
 
 /**
@@ -185,14 +208,38 @@ export class GatewayProvider implements ModelProvider {
   private readonly url: string;
   private readonly fetchFn: typeof fetch;
   private readonly callerId?: string;
+  private readonly token?: string;
+  /** The session this provider's calls count against at the gateway (4E). */
+  readonly sessionId: string;
+  private readonly opts: GatewayProviderOptions;
 
   constructor(opts: GatewayProviderOptions) {
+    this.opts = opts;
     this.name = opts.target;
     // Placeholder until the first result echoes the gateway's real model id.
     this.model = `gateway:${opts.target}`;
     this.url = opts.url.replace(/\/+$/, "");
     this.fetchFn = opts.fetchFn ?? fetch;
     this.callerId = opts.callerId;
+    this.token = opts.token;
+    this.sessionId = opts.sessionId ?? randomUUID();
+  }
+
+  /**
+   * The same gateway client on a new session (Phase 4E). The reference agent
+   * opens one per run, so the gateway's per-session turn cap bounds each run.
+   */
+  withSession(sessionId: string): GatewayProvider {
+    return new GatewayProvider({ ...this.opts, sessionId });
+  }
+
+  /** Identity headers: the bearer token, the session, and any self-asserted caller id. */
+  private identityHeaders(): Record<string, string> {
+    return {
+      ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
+      [SESSION_ID_HEADER]: this.sessionId,
+      ...(this.callerId ? { [CALLER_ID_HEADER]: this.callerId } : {}),
+    };
   }
 
   async generate(request: GenerateRequest): Promise<GenerateResult> {
@@ -202,10 +249,7 @@ export class GatewayProvider implements ModelProvider {
     try {
       res = await this.fetchFn(`${this.url}${GATEWAY_GENERATE_PATH}`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(this.callerId ? { [CALLER_ID_HEADER]: this.callerId } : {}),
-        },
+        headers: { "content-type": "application/json", ...this.identityHeaders() },
         body: JSON.stringify(body),
       });
     } catch (err) {
@@ -216,9 +260,10 @@ export class GatewayProvider implements ModelProvider {
     }
 
     // 422 carries a structured guardrail violation, and so does a 503 from a
-    // halted gateway (the Phase 4C kill switch). Any other non-2xx, or a 503
-    // without a violation body (a proxy), is a real transport/server error.
-    if (res.status === 503) {
+    // halted gateway (the Phase 4C kill switch) and a 401 from caller
+    // authentication (4E). Any other non-2xx, or a 503/401 without a violation
+    // body (a proxy), is a real transport/server error.
+    if (res.status === 503 || res.status === 401) {
       const body = (await res.json().catch(() => null)) as GatewayGenerateResponse | null;
       if (body && !body.ok && body.violation) throw new GuardrailError(body.violation);
       throw new Error(`Gateway request failed: ${res.status} ${res.statusText}`);
@@ -249,16 +294,17 @@ export class GatewayProvider implements ModelProvider {
     try {
       res = await this.fetchFn(`${this.url}${GATEWAY_REVIEW_PATH}`, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(this.callerId ? { [CALLER_ID_HEADER]: this.callerId } : {}),
-        },
+        headers: { "content-type": "application/json", ...this.identityHeaders() },
         body: JSON.stringify(body),
       });
     } catch (cause) {
       throw new Error(
         `Gateway unreachable at ${this.url}: ${cause instanceof Error ? cause.message : String(cause)}`,
       );
+    }
+    if (res.status === 401) {
+      const body = (await res.json().catch(() => null)) as GatewayGenerateResponse | null;
+      if (body && !body.ok && body.violation) throw new GuardrailError(body.violation);
     }
     if (!res.ok) throw new Error(`Gateway review report failed: ${res.status} ${res.statusText}`);
     return (await res.json()) as GatewayReviewResponse;

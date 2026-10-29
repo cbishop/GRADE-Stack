@@ -89,7 +89,9 @@ describe("describeDecision", () => {
       describeDecision(rec({ action: "error", reason: "provider call failed: down" })),
     ).toContain("the model call failed");
     expect(describeDecision(rec({ callerId: null }))).toContain("from an unidentified caller");
-    expect(describeDecision(rec({ callerVerified: true }))).toContain("from caller triage at");
+    expect(describeDecision(rec({ callerVerified: true }))).toContain(
+      "from agent triage (verified) at",
+    );
   });
 });
 

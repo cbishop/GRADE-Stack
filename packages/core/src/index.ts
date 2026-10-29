@@ -21,6 +21,8 @@ export {
   isLoopbackHost,
 } from "./airgap.ts";
 export {
+  AGENT_TOKEN_ENV,
+  agentToken,
   type CreateProviderOptions,
   createDirectProvider,
   createProvider,
@@ -67,6 +69,7 @@ export {
   REVIEW_TRIGGERS,
   type RequestContext,
   type ReviewTrigger,
+  SESSION_ID_HEADER,
 } from "./providers/gateway.ts";
 export { type OllamaOptions, OllamaProvider } from "./providers/ollama.ts";
 export { type StubOptions, StubProvider } from "./providers/stub.ts";

@@ -451,7 +451,8 @@ describe("request identity over HTTP", () => {
       const records = await readRequests(log.path);
       expect(records.map((r) => [r.requestId, r.callerId])).toEqual([
         ["7f3a", "triage"],
-        [generated, null],
+        // 4E: no manifests and no header is logged as anonymous.
+        [generated, "anonymous"],
       ]);
     } finally {
       await handle.stop();

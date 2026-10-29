@@ -13,9 +13,9 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  AGENT_TOKEN_ENV,
   createDirectProvider,
   createProvider,
-  AGENT_TOKEN_ENV,
   GATEWAY_TOGGLE_ENV,
   GATEWAY_URL_ENV,
   SANDBOX_ENV,
