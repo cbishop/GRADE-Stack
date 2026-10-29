@@ -136,6 +136,35 @@ export interface DrillEvidence {
   asOf: string;
 }
 
+/** One review-queue item, reduced to what *human oversight* needs (Phase 4D). */
+export interface ReviewEvidenceItem {
+  id: string;
+  /** The review trigger that held it, e.g. `low-confidence`. */
+  trigger: string;
+  status: "pending" | "approved" | "rejected";
+  requestId: string;
+  queuedAt: string;
+  /** Who approved or rejected it; null while pending, or when a damaged record names nobody. */
+  decidedBy: string | null;
+  /** When it was decided; null while pending, or when a damaged record has no time. */
+  decidedAt: string | null;
+  /** True when the decider is software or the requesting caller: an auto-approval. */
+  automated: boolean;
+}
+
+/**
+ * The review queue G's *human oversight* criterion is computed from (Phase 4D,
+ * ADR 0019). Read, schema-validated and derived by the CLI; the scorecard
+ * stays pure.
+ */
+export interface ReviewQueueEvidence {
+  /** The queue file cited. */
+  source: string;
+  items: ReviewEvidenceItem[];
+  /** The review triggers the gateway policy switches on (each should have held something). */
+  configuredTriggers: string[];
+}
+
 /** A criterion graded from evidence. */
 export interface ComputedCriterion {
   state: "computed";
