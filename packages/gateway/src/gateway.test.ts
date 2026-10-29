@@ -47,6 +47,7 @@ import {
 } from "./decision-log.ts";
 import { GatewayService } from "./gateway.ts";
 import { ISOLATION_PROBE_BIN } from "./index.ts";
+import { ReviewQueue } from "./review-queue.ts";
 import { ConfidenceRouter } from "./router.ts";
 import { isolatedAgentEnv } from "./sandbox.ts";
 
@@ -179,8 +180,10 @@ describe("GatewayProvider client ↔ live HTTP gateway", () => {
 describe("credential isolation — structural proof (subprocess)", () => {
   test("a credential-stripped agent process passes every proof (probe exits 0)", async () => {
     // Stub-backed gateway so the probe runs fully offline and deterministically.
+    const log = tmpLog();
     const handle = serveGateway({
-      decisionLog: tmpLog(),
+      decisionLog: log,
+      reviewQueue: new ReviewQueue(join(tmp(), "review-queue.jsonl"), log),
       resolveProvider: () => scriptedProvider("logged."),
     });
     try {
@@ -199,6 +202,9 @@ describe("credential isolation — structural proof (subprocess)", () => {
       expect(report.bypassBlocked).toBe(true);
       expect(report.directFactoryRefused).toBe(true);
       expect(report.directProviderFailed).toBe(true);
+      // 4D: the probe's draft flagged requiresReview comes back held.
+      expect(report.heldForReview).toBe(true);
+      expect(report.reviewId).toMatch(/^rv-/);
       expect(code).toBe(0);
     } finally {
       await handle.stop();

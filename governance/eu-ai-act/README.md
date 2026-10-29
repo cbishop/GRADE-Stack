@@ -88,8 +88,8 @@ obligations** (weighted `supported=1.0`, `partial=0.5`). The pure-legal duties
 |---|---|---|---|
 | Art 5 — avoid prohibited practices | in force | 🟡 Partial | Gateway guardrails (use-case call is yours) |
 | Art 4 — AI literacy | in force | 🟡 Partial | Scorecard + docs as material (training is yours) |
-| Art 50 — transparency | 2026-08-02 | 🟡 Partial | Structured output (draft reply as its own field); disclosure policy and any human review are yours |
-| Art 26 — human oversight (high-risk) | conditional | 🟡 Partial | PEV + bounded turns + gateway policies; human-in-the-loop is your process until Phase 4D ships the review queue |
+| Art 50 — transparency | 2026-08-02 | 🟡 Partial | Structured output (draft reply as its own field); the review queue can hold a draft for a person; disclosure policy and staffing are yours |
+| Art 26 — human oversight (high-risk) | conditional | 🟢 Supported | Human review queue: low-confidence, non-converging, redacted or flagged outputs held for a named person, approver and time recorded (Phase 4D); you must staff the queue |
 | Art 26(6)/Art 12 — logs & record-keeping (high-risk) | conditional | 🟢 Supported | Gateway decision log: one append-only, schema-validated line per request, joined to the trace by request id (Phase 4B); retention period is yours |
 | Art 26 — monitoring & accuracy/robustness (high-risk) | conditional | 🟢 Supported | Eval-gate vs baseline + scorecard |
 | Art 27 — FRIA (high-risk) | conditional | ⚪ Deployer-owned | Legal assessment (traces/scorecard are inputs) |
@@ -97,15 +97,19 @@ obligations** (weighted `supported=1.0`, `partial=0.5`). The pure-legal duties
 | Art 50(2) — synthetic-content marking | provider-only | — | You rely on your model provider |
 | Art 53 — GPAI provider duties | provider-only | — | On the foundation-model vendor |
 
-**Readiness ≈ 0.67 → At risk** (2 supported, 4 partial over 6 scored obligations).
+**Readiness ≈ 0.75 → Adequate** (3 supported, 3 partial over 6 scored obligations).
 The honest reading: the stack makes you ready on *monitoring* (eval gate against a
-baseline, plus the scorecard) and on *record-keeping* (the gateway decision log),
-and contributes real but partial inputs everywhere else. Record-keeping moved back
-to supported with Phase 4B: every gateway decision is logged automatically,
-append-only, with request and caller ids; how long you keep it is your policy
-(Art 26(6) asks for at least six months), and caller ids are self-asserted until
-Phase 4E. Human oversight stays partial until Phase 4D ships the review queue.
-The *legal* duties (don't be prohibited, run a FRIA, register) remain yours.
+baseline, plus the scorecard), on *record-keeping* (the gateway decision log) and on
+*human oversight* (the review queue), and contributes real but partial inputs
+everywhere else. Record-keeping moved back to supported with Phase 4B: every
+gateway decision is logged automatically, append-only, with request and caller
+ids; how long you keep it is your policy (Art 26(6) asks for at least six months),
+and caller ids are self-asserted until Phase 4E. Human oversight moved back to
+supported with Phase 4D: the router's third route holds an output for a named
+person and records who approved or rejected it and when. You must staff the queue
+with competent people who can say no, and make your send step release only
+approved items. The *legal* duties (don't be prohibited, run a FRIA, register)
+remain yours.
 Governance readiness ≠ legal compliance.
 
 ## Per-obligation detail

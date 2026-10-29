@@ -139,6 +139,39 @@ Requests already past the check finish; every request after it is refused. See
 [ADR 0018](../../docs/decisions/0018-kill-switch-halt-file-and-env-triggers-and-release-manifest.md)
 and the deployer's [rollback protocol](../../docs/rollback-protocol.md).
 
+## Human review queue (Phase 4D)
+
+The router's third route. Order: local, then frontier, then a person. After the
+output guardrails, a released answer is held for a named person when a trigger
+fires; the response carries `review: { held: true, id, trigger, reason }`, the
+request's log line names the item, and the queue writes its own `review` line.
+A held answer is flagged, not withheld: the reviewer needs the draft, and the
+caller's send step must release only approved items.
+
+```bash
+RELIABILITY_ROUTER=1 RELIABILITY_REVIEW_BELOW=0.6 reliability gateway serve -p ollama
+reliability review list --pending                       # rv-... [pending] low-confidence: ...
+reliability review show rv-...                          # "Why held: confidence 0.41 below the review threshold 0.60 after frontier escalation to bedrock."
+reliability review approve rv-... --as clarke --note "checked against the invoice"
+reliability review reject rv-... --as clarke --reason "promises a refund we do not offer"
+reliability gateway log --request <request id>          # answered and held, held, approved by clarke
+bun scripts/review-drill.ts                             # ten items, four triggers → governance/drills/
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RELIABILITY_REVIEW_QUEUE` | `./review-queue.jsonl` | append-only event file (`queued`, `approved`, `rejected`) |
+| `RELIABILITY_REVIEW_BELOW` | *(off)* | hold an escalated answer whose local agreement was below this (0..1); needs the router |
+| `RELIABILITY_REVIEW_ON_MAX_TURNS` | `1` | hold a max-turn failure the agent reports on `POST /v1/review` |
+| `RELIABILITY_REVIEW_ON_REDACTION` | `0` | hold any answer the PII guardrail redacted |
+| `RELIABILITY_REVIEW_ON_REQUEST` | `1` | honour a request's `requiresReview: true` |
+
+Approve and reject refuse a missing or empty name, an automated identity
+(`gateway`, `system`, `agent`, ...), the caller that made the request, and a
+second decision. There is no HTTP endpoint that approves. See
+[ADR 0019](../../docs/decisions/0019-review-queue-event-log-and-three-route-order.md)
+and the deployer's [oversight map](../../docs/human-oversight-map.md).
+
 ## Prove both halves of the contract
 
 ```bash
@@ -154,6 +187,8 @@ stripped, `RELIABILITY_AGENT_SANDBOX=1`) and reports:
   at the gateway**.
 - **Structural proof** — the factory **refuses** to build a direct provider in
   the sandbox, and a raw provider call **fails for lack of credentials**.
+- **Human review** (4D) — one draft flagged `requiresReview` comes back **held**
+  for a named person, with its review id and the command to decide it.
 
 The same probe runs as a test (`gateway.test.ts`) so the structural proof is part
 of the suite, not just a demo.

@@ -11,7 +11,9 @@
  * `scorecard --decision-log` (D's attributable and reconstructable criteria).
  * Phase 4C adds `gateway halt` / `gateway resume` (the kill switch), `release
  * show` / `release diff` (the release manifest), and `scorecard --drills` (D's
- * rollback verified criterion).
+ * rollback verified criterion). Phase 4D adds `review list|show|approve|reject`
+ * (the human review queue), "held for review" on `agent run`, and `scorecard
+ * --review-queue` (G's human oversight criterion).
  */
 
 import { readFile } from "node:fs/promises";
@@ -23,10 +25,13 @@ import {
   diffReleases,
   EgressBlockedError,
   formatSpanTree,
+  GatewayProvider,
   GuardrailError,
   initTracing,
   installEgressGuard,
   installEgressGuardFromEnv,
+  MaxTurnsError,
+  type ModelProvider,
   type ReleaseManifest,
   releaseFromJson,
   StubProvider,
@@ -43,18 +48,31 @@ import {
   runEvalSuite,
 } from "@grade-stack/evals";
 import {
+  configuredTriggers,
   DecisionLog,
   type DecisionRecord,
+  deriveReviewItems,
   describeDecision,
+  describeReviewItem,
+  explainReviewItem,
   HALT_ENV,
   haltGateway,
   ISOLATION_PROBE_BIN,
+  isAutomatedActor,
   isControlRecord,
   isolatedAgentEnv,
+  isRequestRecord,
+  isReviewRecord,
+  type ReviewItem,
+  type ReviewPolicy,
+  ReviewQueue,
   readDecisionLog,
   readLatestDrill,
+  readReviewQueue,
   resolveDecisionLogPath,
   resolveHaltFilePath,
+  resolveReviewPolicyFromEnv,
+  resolveReviewQueuePath,
   resumeGateway,
   serveGateway,
 } from "@grade-stack/gateway";
@@ -68,6 +86,7 @@ import {
   parseEuAiActModule,
   parseOwaspMapping,
   parseRetentionPeriod,
+  type ReviewQueueEvidence,
   renderCli,
   renderHtml,
   renderMarkdown,
@@ -123,9 +142,9 @@ async function loadDecisionLogEvidence(
   logPath: string,
   recordPath: string,
 ): Promise<DecisionLogEvidence> {
-  // Kill-switch control lines (4C) are operator actions, not requests: the D
-  // request criteria grade request lines only.
-  const records = (await readDecisionLog(logPath)).flatMap((r) => (isControlRecord(r) ? [] : [r]));
+  // Kill-switch control lines (4C) and review lines (4D) are not requests: the
+  // D request criteria grade request lines only.
+  const records = (await readDecisionLog(logPath)).filter(isRequestRecord);
   let period: string | null = null;
   let source = recordPath;
   try {
@@ -171,6 +190,61 @@ async function loadDrillEvidence(dir: string, asOf: string): Promise<DrillEviden
   };
 }
 
+/**
+ * Read the review queue (every event schema-validated, the stream derived; a
+ * malformed line or an impossible stream throws) for G's *human oversight*
+ * criterion (Phase 4D). The configured triggers are the gateway's, resolved
+ * from the same `RELIABILITY_REVIEW_*` environment.
+ */
+async function loadReviewEvidence(path: string): Promise<ReviewQueueEvidence> {
+  const items = deriveReviewItems(await readReviewQueue(path), path);
+  return {
+    source: path,
+    configuredTriggers: configuredTriggers(resolveReviewPolicyFromEnv()),
+    items: items.map((i) => ({
+      id: i.id,
+      trigger: i.trigger,
+      status: i.status,
+      requestId: i.requestId,
+      queuedAt: i.queuedAt,
+      decidedBy: i.resolution?.by ?? null,
+      decidedAt: i.resolution?.at ?? null,
+      automated: i.resolution !== null && isAutomatedActor(i.resolution.by, i.callerId),
+    })),
+  };
+}
+
+/** The review triggers a policy switches on, as a short phrase for `gateway serve`. */
+function describeTriggers(p: ReviewPolicy): string {
+  const on = configuredTriggers(p).map((t) =>
+    t === "low-confidence"
+      ? `low-confidence (below ${p.reviewBelow?.toFixed(2)} after escalation)`
+      : t,
+  );
+  return on.length > 0 ? on.join(", ") : "none";
+}
+
+/**
+ * An agent hit its turn bound (Phase 4D): report it to the gateway's review
+ * queue when the agent talks to a gateway, and say what happened either way.
+ */
+async function reportMaxTurns(provider: ModelProvider, err: MaxTurnsError): Promise<void> {
+  console.error(`agent did not converge: ${err.message}`);
+  if (!(provider instanceof GatewayProvider)) {
+    console.error(
+      "not queued for review: no gateway is configured (set RELIABILITY_GATEWAY_URL); the review queue lives at the gateway",
+    );
+    return;
+  }
+  const res = await provider.requestReview(err);
+  if (res.held) {
+    console.error(`held for review: ${res.id} (${res.reason})`);
+    console.error(`decide with: reliability review show ${res.id}`);
+  } else {
+    console.error(`not queued for review: ${res.reason}`);
+  }
+}
+
 const agent = program.command("agent").description("Run and inspect the reference agent");
 
 agent
@@ -205,6 +279,12 @@ agent
             `mcp:      policy resource loaded; tool selected: ${sel ? sel.tool : "(none)"}`,
           );
         }
+        if (result.review.required) {
+          console.log(`review:   held for review (${result.review.id}): ${result.review.reason}`);
+          console.log(
+            `          do not send this draft until a named person approves it: reliability review show ${result.review.id}`,
+          );
+        }
         console.log("---");
         console.log(result.raw);
       };
@@ -236,6 +316,12 @@ agent
           console.log(`\ntrace exported via OTLP to ${tracing.endpoint}`);
         }
       } catch (err) {
+        // A non-converging agent (4D) is held for a person through the gateway.
+        if (err instanceof MaxTurnsError) {
+          await reportMaxTurns(provider, err);
+          process.exitCode = 1;
+          return;
+        }
         // A gateway refusal (a guardrail, or the 4C kill switch) is an answer,
         // not a crash: say which policy refused and exit non-zero.
         if (!(err instanceof GuardrailError)) throw err;
@@ -310,6 +396,9 @@ gateway
       `kill switch: halt file ${handle.haltFile} or ${HALT_ENV}=1, checked on every request`,
     );
     console.error(`decision log: ${handle.decisionLogPath} (append-only)`);
+    console.error(
+      `review queue: ${handle.reviewQueuePath}; holds for a named person: ${describeTriggers(handle.review)}`,
+    );
   });
 
 gateway
@@ -321,7 +410,10 @@ gateway
   )
   .option("--since <iso>", "only decisions at or after this ISO time")
   .option("--request <id>", "only this request id")
-  .option("--caller <id>", "only this caller id (or, for halt and resume lines, this actor)")
+  .option(
+    "--caller <id>",
+    "only this caller id (or, for halt, resume and review lines, this actor)",
+  )
   .option("--json", "print the matching records as JSON")
   .action(
     async (opts: {
@@ -354,7 +446,11 @@ gateway
           (since === undefined || Date.parse(r.at) >= since) &&
           (opts.request === undefined || r.requestId === opts.request) &&
           (opts.caller === undefined ||
-            (isControlRecord(r) ? r.actor : r.callerId) === opts.caller),
+            (isControlRecord(r)
+              ? r.actor === opts.caller
+              : isReviewRecord(r)
+                ? r.actor === opts.caller || r.callerId === opts.caller
+                : r.callerId === opts.caller)),
       );
       if (opts.json) {
         console.log(JSON.stringify(matching, null, 2));
@@ -497,6 +593,15 @@ gateway
       console.log(
         `  ${tick(report.directProviderFailed)} raw provider call fails (no credentials)`,
       );
+      console.log("\nHuman review (Phase 4D, the router's third route):");
+      console.log(
+        `  ${tick(report.heldForReview)} a draft flagged for review is held for a named person` +
+          (report.reviewId ? ` (review ${report.reviewId})` : ""),
+      );
+      if (report.reviewId) {
+        console.log(`    decide with: reliability review show ${report.reviewId}`);
+        console.log(`    queue: ${handle.reviewQueuePath}`);
+      }
       if (Array.isArray(report.notes) && report.notes.length > 0) {
         console.log(`\nnotes: ${(report.notes as string[]).join("; ")}`);
       }
@@ -680,6 +785,137 @@ sovereign
         restore();
       }
     },
+  );
+
+const review = program
+  .command("review")
+  .description("The human review queue: what the gateway held for a named person (Phase 4D)");
+
+const QUEUE_HELP = "review queue (default: RELIABILITY_REVIEW_QUEUE or ./review-queue.jsonl)";
+const LOG_HELP = "decision log (default: RELIABILITY_DECISION_LOG or ./gateway-decisions.jsonl)";
+
+/** Read and derive the queue, or say why not and exit 1. A missing file is an empty queue. */
+async function loadQueue(
+  file?: string,
+): Promise<{ queue: ReviewQueue; items: ReviewItem[] } | null> {
+  const queue = new ReviewQueue(file ?? resolveReviewQueuePath());
+  try {
+    return { queue, items: await queue.items() };
+  } catch (err) {
+    console.error(
+      `Could not read review queue: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exitCode = 1;
+    return null;
+  }
+}
+
+review
+  .command("list")
+  .description("List held items, one line each: id, state, trigger, request and why")
+  .option("--pending", "only items still waiting for a decision")
+  .option("-f, --file <path>", QUEUE_HELP)
+  .option("--json", "print the items as JSON")
+  .action(async (opts: { pending?: boolean; file?: string; json?: boolean }) => {
+    const loaded = await loadQueue(opts.file);
+    if (!loaded) return;
+    const items = loaded.items.filter((i) => !opts.pending || i.status === "pending");
+    if (opts.json) {
+      console.log(JSON.stringify(items, null, 2));
+      return;
+    }
+    if (items.length === 0) {
+      console.log(
+        `No ${opts.pending ? "pending " : ""}review items in ${loaded.queue.path} (${loaded.items.length} in the file).`,
+      );
+      return;
+    }
+    for (const i of items) console.log(describeReviewItem(i));
+    const count = (s: ReviewItem["status"]) => loaded.items.filter((i) => i.status === s).length;
+    console.log(
+      `\n${loaded.items.length} item(s) in ${loaded.queue.path}: ${count("pending")} pending, ${count("approved")} approved, ${count("rejected")} rejected.`,
+    );
+  });
+
+review
+  .command("show")
+  .description("Explain one item: why it was held, what was held, and who decided")
+  .argument("<id>", "review item id (rv-...)")
+  .option("-f, --file <path>", QUEUE_HELP)
+  .option("--json", "print the item as JSON")
+  .action(async (id: string, opts: { file?: string; json?: boolean }) => {
+    const loaded = await loadQueue(opts.file);
+    if (!loaded) return;
+    const item = loaded.items.find((i) => i.id === id);
+    if (!item) {
+      console.error(`No review item ${id} in ${loaded.queue.path}.`);
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(item, null, 2));
+      return;
+    }
+    for (const line of explainReviewItem(item)) console.log(line);
+  });
+
+/** Approve or reject as a named person; print what was recorded, or why not. */
+async function decideReview(
+  action: "approve" | "reject",
+  id: string,
+  opts: { as: string; note?: string; reason?: string; file?: string; log?: string; json?: boolean },
+): Promise<void> {
+  const decisionLog = new DecisionLog(opts.log ?? resolveDecisionLogPath());
+  const queue = new ReviewQueue(opts.file ?? resolveReviewQueuePath(), decisionLog);
+  try {
+    const item =
+      action === "approve"
+        ? await queue.approve(id, { as: opts.as, ...(opts.note ? { note: opts.note } : {}) })
+        : await queue.reject(id, { as: opts.as, reason: opts.reason ?? "" });
+    if (opts.json) {
+      console.log(JSON.stringify(item, null, 2));
+      return;
+    }
+    const r = item.resolution;
+    const extra = r?.event === "rejected" ? `: ${r.reason}` : r?.note ? `: ${r.note}` : "";
+    console.log(`Review ${item.id} ${item.status} by ${r?.by} at ${r?.at}${extra}.`);
+    console.log(`Recorded in ${queue.path}; logged to ${decisionLog.path}.`);
+  } catch (err) {
+    console.error(`Could not ${action} ${id}: ${err instanceof Error ? err.message : String(err)}`);
+    process.exitCode = 1;
+  }
+}
+
+review
+  .command("approve")
+  .description("Release a held item as a named person; records who and when")
+  .argument("<id>", "review item id (rv-...)")
+  .requiredOption("--as <name>", "who is approving (a person, never the agent or the gateway)")
+  .option("--note <text>", "why it is fine to release (recorded)")
+  .option("-f, --file <path>", QUEUE_HELP)
+  .option("--log <path>", LOG_HELP)
+  .option("--json", "print the decided item as JSON")
+  .action(
+    (
+      id: string,
+      opts: { as: string; note?: string; file?: string; log?: string; json?: boolean },
+    ) => decideReview("approve", id, opts),
+  );
+
+review
+  .command("reject")
+  .description("Refuse a held item as a named person, with a reason; records who and when")
+  .argument("<id>", "review item id (rv-...)")
+  .requiredOption("--as <name>", "who is rejecting (a person, never the agent or the gateway)")
+  .requiredOption("--reason <text>", "why it must not be released (recorded)")
+  .option("-f, --file <path>", QUEUE_HELP)
+  .option("--log <path>", LOG_HELP)
+  .option("--json", "print the decided item as JSON")
+  .action(
+    (
+      id: string,
+      opts: { as: string; reason: string; file?: string; log?: string; json?: boolean },
+    ) => decideReview("reject", id, opts),
   );
 
 const release = program
@@ -927,6 +1163,10 @@ program
     "--as-of <iso>",
     "date the drill's age is measured against (default: now); a later date shows a stale drill",
   )
+  .option(
+    "--review-queue <file>",
+    "compute G's human oversight criterion from a review queue (4D); triggers come from RELIABILITY_REVIEW_*",
+  )
   .action(
     async (opts: {
       provider?: string;
@@ -940,6 +1180,7 @@ program
       loggingRecord: string;
       drills?: string;
       asOf?: string;
+      reviewQueue?: string;
     }) => {
       // Read the decision log first: a malformed line fails the command loudly
       // before any eval work, rather than grading from a partial log.
@@ -969,6 +1210,19 @@ program
         } catch (err) {
           console.error(
             `Could not read drill records in "${opts.drills}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      }
+
+      let reviewQueue: ReviewQueueEvidence | undefined;
+      if (opts.reviewQueue) {
+        try {
+          reviewQueue = await loadReviewEvidence(opts.reviewQueue);
+        } catch (err) {
+          console.error(
+            `Could not read review queue "${opts.reviewQueue}": ${err instanceof Error ? err.message : String(err)}`,
           );
           process.exitCode = 1;
           return;
@@ -1022,6 +1276,7 @@ program
         governance,
         ...(decisionLog ? { decisionLog } : {}),
         ...(drill ? { drill } : {}),
+        ...(reviewQueue ? { reviewQueue } : {}),
       });
 
       const wantMd = opts.format === "md" || opts.format === "both";

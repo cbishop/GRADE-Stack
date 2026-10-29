@@ -13,12 +13,55 @@
  * wire types here (not in the gateway package) is deliberate: `@grade-stack/core`
  * must never depend on the credentialed gateway package, so the agent bundle
  * cannot transitively pull in provider SDKs/credentials.
+ *
+ * Phase 4D (ADR 0019): a held result carries `review` (the review item id and
+ * why), and `requestReview` reports a max-turn failure to the gateway's review
+ * queue over `POST /v1/review`. There is no approve endpoint: approval is a
+ * local, named operator action (`reliability review approve --as <name>`).
  */
 
-import type { GenerateRequest, GenerateResult, ModelProvider, ProviderName } from "../types.ts";
+import type { MaxTurnsError } from "../pev.ts";
+import type {
+  GenerateRequest,
+  GenerateResult,
+  ModelProvider,
+  ProviderName,
+  ReviewHold,
+} from "../types.ts";
 
 /** The single endpoint the gateway exposes; the client and server share it. */
 export const GATEWAY_GENERATE_PATH = "/v1/generate";
+
+/** Where an agent reports a max-turn failure for human review (Phase 4D). */
+export const GATEWAY_REVIEW_PATH = "/v1/review";
+
+/**
+ * What can put an item in the review queue (Phase 4D, ADR 0019): local
+ * confidence below `reviewBelow` after frontier escalation, a max-turn failure,
+ * an output redaction (when the policy says so), or the request asking for it.
+ */
+export const REVIEW_TRIGGERS = [
+  "low-confidence",
+  "max-turns",
+  "output-redaction",
+  "requested",
+] as const;
+
+/** One review trigger. */
+export type ReviewTrigger = (typeof REVIEW_TRIGGERS)[number];
+
+/** The body of `POST /v1/review`: an agent reporting it could not converge. */
+export interface GatewayReviewBody {
+  trigger: "max-turns";
+  /** The enforced turn bound the agent hit. */
+  maxTurns: number;
+  /** The validator issues from the last attempt, if any. */
+  lastIssues?: string[];
+  context?: Partial<RequestContext>;
+}
+
+/** The gateway's answer to a review report: held with an id, or not held and why. */
+export type GatewayReviewResponse = ReviewHold | { held: false; reason: string };
 
 /** Header carrying the request id (Phase 4B); the gateway echoes it on every response. */
 export const REQUEST_ID_HEADER = "x-request-id";
@@ -86,7 +129,14 @@ export interface GatewayRouting {
 
 /** The gateway's response: either a (possibly redacted) result, or a violation. */
 export type GatewayGenerateResponse =
-  | { ok: true; result: GenerateResult; redactions: string[]; routing?: GatewayRouting }
+  | {
+      ok: true;
+      result: GenerateResult;
+      redactions: string[];
+      routing?: GatewayRouting;
+      /** Present when the result is held for a named human (Phase 4D). */
+      review?: ReviewHold;
+    }
   | { ok: false; violation: GatewayViolation };
 
 /**
@@ -181,6 +231,36 @@ export class GatewayProvider implements ModelProvider {
     if (!data.ok) {
       throw new GuardrailError(data.violation);
     }
-    return data.result;
+    return data.review ? { ...data.result, review: data.review } : data.result;
+  }
+
+  /**
+   * Report a max-turn failure to the gateway's review queue (Phase 4D). The
+   * gateway queues it for a named human when its policy holds max-turn failures,
+   * and says so either way. Nothing here can approve anything.
+   */
+  async requestReview(err: MaxTurnsError): Promise<GatewayReviewResponse> {
+    const body: GatewayReviewBody = {
+      trigger: "max-turns",
+      maxTurns: err.maxTurns,
+      lastIssues: err.lastIssues,
+    };
+    let res: Response;
+    try {
+      res = await this.fetchFn(`${this.url}${GATEWAY_REVIEW_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(this.callerId ? { [CALLER_ID_HEADER]: this.callerId } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (cause) {
+      throw new Error(
+        `Gateway unreachable at ${this.url}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
+    if (!res.ok) throw new Error(`Gateway review report failed: ${res.status} ${res.statusText}`);
+    return (await res.json()) as GatewayReviewResponse;
   }
 }

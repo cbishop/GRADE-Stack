@@ -11,6 +11,8 @@
  * contract. The whole loop is turn-bounded and carries a degraded-mode canary
  * (Phase 1B). Task-specific wiring lives here; the reusable loop lives in core.
  * Phase 4C stamps the release manifest (`./release`) onto the root span.
+ * Phase 4D: when the gateway holds the accepted answer for a named person, the
+ * result says so (`review: { required, reason, id }`).
  */
 
 import type {
@@ -20,6 +22,7 @@ import type {
   ModelProvider,
   PlanFeedback,
   Planner,
+  ReviewHold,
   TokenUsage,
   Validator,
 } from "@grade-stack/core";
@@ -47,6 +50,17 @@ import { type Triage, TriageSchema } from "./triage-schema.ts";
 // though the mechanism now lives in core with the PEV loop it guards.
 export { type AgentStep, DEFAULT_MAX_TURNS, MaxTurnsError } from "@grade-stack/core";
 
+/**
+ * Whether a person must review this triage before anything is sent (Phase 4D).
+ * `required` is true when the gateway held the accepted answer; `id` is the
+ * review item (`reliability review show <id>`) and `reason` says why.
+ */
+export interface TriageReview {
+  required: boolean;
+  reason?: string;
+  id?: string;
+}
+
 export interface TriageResult {
   /**
    * The agent's output as a JSON string. In normal mode this is the canonical
@@ -71,6 +85,8 @@ export interface TriageResult {
    * which tool the model selected from descriptions alone (Phase 2B).
    */
   grounding?: Grounding;
+  /** Held for human review by the gateway (Phase 4D); `required: false` otherwise. */
+  review: TriageReview;
 }
 
 export interface RunAgentOptions {
@@ -106,6 +122,10 @@ function resolveMcp(explicit?: boolean | SupportToolsClient): boolean | SupportT
   if (explicit !== undefined) return explicit;
   const v = process.env.RELIABILITY_MCP?.toLowerCase();
   return v === "1" || v === "true";
+}
+
+function reviewOf(hold: ReviewHold | undefined): TriageReview {
+  return hold ? { required: true, reason: hold.reason, id: hold.id } : { required: false };
 }
 
 function taskFromEmail(email: SupportEmail): string {
@@ -177,16 +197,26 @@ function makeTriagePlanner(
   };
 }
 
-/** The executor: turns a plan into the single bounded model call. */
-function makeTriageExecutor(provider: ModelProvider): Executor<TriagePlan> {
+/**
+ * The executor: turns a plan into the single bounded model call. It remembers
+ * the gateway's review hold on the latest call: the PEV loop stops at the first
+ * schema-valid answer, so the latest call is the accepted one.
+ */
+function makeTriageExecutor(provider: ModelProvider): Executor<TriagePlan> & {
+  lastReview(): ReviewHold | undefined;
+} {
+  let last: ReviewHold | undefined;
   return {
-    execute(plan: TriagePlan): Promise<GenerateResult> {
-      return provider.generate({
+    async execute(plan: TriagePlan): Promise<GenerateResult> {
+      const result = await provider.generate({
         system: plan.system,
         messages: [{ role: "user", content: plan.user }],
         ...TRIAGE_GENERATION,
       });
+      last = result.review;
+      return result;
     },
+    lastReview: () => last,
   };
 }
 
@@ -262,6 +292,7 @@ export async function runReferenceAgent(
         turns: result.turns,
         degraded,
         grounding,
+        review: reviewOf(executor.lastReview()),
       };
     },
   );

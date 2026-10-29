@@ -19,12 +19,21 @@
  * Phase 4C (ADR 0018): the kill switch is checked first, on every request, so a
  * halted gateway resolves no provider and makes no model call on either the
  * plain forward or the router path. The refusal is logged like any other block.
+ *
+ * Phase 4D (ADR 0019): the human review queue is the router's third route. After
+ * the output guardrails, a released result is held for a named person when a
+ * review trigger fires (the request asks for review, local confidence was below
+ * `reviewBelow` after frontier escalation, or a redaction the policy holds). The
+ * response carries `review: { held, id, trigger, reason }`, the request line
+ * names the item, and the queue writes its own `review` line. `holdMaxTurns`
+ * queues an agent's max-turn failure. The gateway never approves anything.
  */
 
 import { randomUUID } from "node:crypto";
 import {
   createDirectProvider,
   type GatewayGenerateResponse,
+  type GatewayReviewResponse,
   type GatewayRouting,
   type GenerateRequest,
   type GenerateResult,
@@ -33,6 +42,7 @@ import {
   type ModelProvider,
   type ProviderName,
   type RequestContext,
+  type ReviewTrigger,
   recordRequestOutput,
   type Span,
   traceProvider,
@@ -47,7 +57,16 @@ import {
   checkModel,
   DEFAULT_POLICY,
   type GatewayPolicy,
+  type ReviewPolicy,
 } from "./policy.ts";
+import {
+  type HoldInput,
+  holdReasons,
+  newReviewId,
+  ReviewQueue,
+  resolveReviewPolicy,
+  resolveReviewQueuePath,
+} from "./review-queue.ts";
 import type { ConfidenceRouter } from "./router.ts";
 
 /**
@@ -59,11 +78,20 @@ type Reached =
   | { result: GenerateResult; routing?: GatewayRouting }
   | { violation: NonNullable<ReturnType<typeof checkModel>> };
 
+/** A review hold decided for a released result, before it is queued. */
+interface Hold {
+  id: string;
+  trigger: ReviewTrigger;
+  reason: string;
+  detail?: HoldInput["detail"];
+}
+
 /** What one call decided, plus what (if anything) the model served. */
 interface Outcome {
   response: GatewayGenerateResponse;
   served?: GenerateResult;
   routing?: GatewayRouting;
+  hold?: Hold;
 }
 
 export interface GatewayServiceOptions {
@@ -102,6 +130,11 @@ export interface GatewayServiceOptions {
    * `.reliability-halt`. Checked on every request, as is `RELIABILITY_HALT=1`.
    */
   haltFile?: string;
+  /**
+   * The human review queue (Phase 4D). Defaults to `RELIABILITY_REVIEW_QUEUE`,
+   * else `./review-queue.jsonl`, writing its lines to this service's decision log.
+   */
+  reviewQueue?: ReviewQueue;
 }
 
 function envDegraded(): boolean {
@@ -126,6 +159,8 @@ export class GatewayService {
   private readonly captureDir: string;
   private readonly degraded: boolean;
   readonly haltFile: string;
+  readonly reviewQueue: ReviewQueue;
+  readonly review: ReviewPolicy;
 
   constructor(opts: GatewayServiceOptions = {}) {
     this.policy = opts.policy ?? DEFAULT_POLICY;
@@ -136,6 +171,9 @@ export class GatewayService {
     this.captureDir = opts.captureDir ?? resolveCaptureDir();
     this.degraded = opts.degraded ?? envDegraded();
     this.haltFile = opts.haltFile ?? resolveHaltFilePath();
+    this.reviewQueue =
+      opts.reviewQueue ?? new ReviewQueue(resolveReviewQueuePath(), this.decisionLog);
+    this.review = resolveReviewPolicy(this.policy.review);
   }
 
   /**
@@ -170,8 +208,50 @@ export class GatewayService {
         throw err;
       }
       await this.record(span, ctx, target, request, at, started, outcome);
+      // 4D: the request line (naming the item) first, then the hold itself.
+      if (outcome.hold && outcome.response.ok) {
+        await this.reviewQueue.enqueue({
+          id: outcome.hold.id,
+          requestId: ctx.requestId,
+          callerId: ctx.callerId ?? null,
+          trigger: outcome.hold.trigger,
+          reason: outcome.hold.reason,
+          outputSha256: sha256Hex(outcome.response.result.text),
+          ...(outcome.hold.detail ? { detail: outcome.hold.detail } : {}),
+        });
+      }
       return outcome.response;
     });
+  }
+
+  /**
+   * Queue an agent's max-turn failure for a named person (Phase 4D). The agent
+   * reports it (over HTTP, `POST /v1/review`) because the turn bound is enforced
+   * agent-side; the gateway owns the queue. Not held when the policy says not.
+   */
+  async holdMaxTurns(
+    err: { maxTurns: number; lastIssues?: string[] },
+    context: Partial<RequestContext> = {},
+  ): Promise<GatewayReviewResponse> {
+    const ctx = this.resolveContext(context);
+    if (!this.review.onMaxTurns) {
+      return {
+        held: false,
+        reason:
+          "the gateway policy does not hold max-turn failures (RELIABILITY_REVIEW_ON_MAX_TURNS=0)",
+      };
+    }
+    const lastIssues = (err.lastIssues ?? []).map((i) => String(i).slice(0, 200)).slice(0, 10);
+    const reason = holdReasons.maxTurns(err.maxTurns, lastIssues);
+    const item = await this.reviewQueue.enqueue({
+      requestId: ctx.requestId,
+      callerId: ctx.callerId ?? null,
+      trigger: "max-turns",
+      reason,
+      outputSha256: null,
+      detail: { maxTurns: err.maxTurns, lastIssues },
+    });
+    return { held: true, id: item.id, trigger: "max-turns", reason: item.reason };
   }
 
   private resolveContext(context: Partial<RequestContext>): RequestContext {
@@ -217,16 +297,60 @@ export class GatewayService {
       return { response: { ok: false, violation: output.violation }, served: result, routing };
     }
 
+    // 4. The third route (4D): hold the released result for a named person?
+    const hold = this.holdFor(request, routing, output.redactions);
     return {
       response: {
         ok: true,
         result: { ...result, text: output.text },
         redactions: output.redactions,
         ...(routing ? { routing } : {}),
+        ...(hold
+          ? { review: { held: true, id: hold.id, trigger: hold.trigger, reason: hold.reason } }
+          : {}),
       },
       served: result,
       routing,
+      ...(hold ? { hold } : {}),
     };
+  }
+
+  /**
+   * Which review trigger (if any) holds this result. One item per request; when
+   * several fire, the request's own flag wins, then low confidence, then a
+   * redaction. Low confidence applies only after the router escalated: local
+   * first, then frontier, then a person.
+   */
+  private holdFor(
+    request: GenerateRequest,
+    routing: GatewayRouting | undefined,
+    redactions: string[],
+  ): Hold | undefined {
+    const p = this.review;
+    if (request.requiresReview === true && p.onRequest) {
+      return { id: newReviewId(), trigger: "requested", reason: holdReasons.requested() };
+    }
+    if (routing?.escalated && p.reviewBelow !== null && routing.confidence < p.reviewBelow) {
+      return {
+        id: newReviewId(),
+        trigger: "low-confidence",
+        reason: holdReasons.lowConfidence(routing.confidence, p.reviewBelow, routing.servedBy),
+        detail: {
+          confidence: routing.confidence,
+          threshold: p.reviewBelow,
+          servedBy: routing.servedBy,
+        },
+      };
+    }
+    if (redactions.length > 0 && p.onRedaction) {
+      return {
+        id: newReviewId(),
+        trigger: "output-redaction",
+        reason: holdReasons.redaction(redactions),
+        detail: { redactions },
+      };
+    }
+    return undefined;
   }
 
   /** Wrap a resolved provider so its `chat` spans carry the request identity. */
@@ -346,6 +470,7 @@ export class GatewayService {
       },
       latencyMs: Math.round((performance.now() - started) * 10) / 10,
       contentCaptured: this.captureContent,
+      ...("error" in outcome || !outcome.hold ? {} : { reviewId: outcome.hold.id }),
     });
   }
 }

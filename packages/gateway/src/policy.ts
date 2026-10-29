@@ -12,6 +12,10 @@
  * PII redaction on the way out. Keeping the policy pure is what lets the gateway
  * enforce it *server-side* identically across every provider, and lets each rule
  * be unit-tested in isolation.
+ *
+ * Phase 4D (ADR 0019) adds the review triggers to the policy: which outcomes the
+ * gateway holds for a named human instead of releasing (`ReviewPolicy`). The
+ * queue itself lives in `./review-queue`.
  */
 
 import type { GatewayViolation, GenerateRequest } from "@grade-stack/core";
@@ -26,7 +30,44 @@ export interface GatewayPolicy {
   allowedModels: string[];
   /** Hard upper bound on a request's `maxTokens`; over-cap requests are blocked. */
   maxTokens: number;
+  /**
+   * Review triggers (Phase 4D). Unset fields take {@link DEFAULT_REVIEW_POLICY};
+   * `serveGateway` fills them from the `RELIABILITY_REVIEW_*` environment.
+   */
+  review?: Partial<ReviewPolicy>;
 }
+
+/**
+ * When the gateway holds a result for a named human (Phase 4D, ADR 0019). The
+ * route order is local, then frontier, then a person: only a request the router
+ * already escalated can be held for low confidence.
+ */
+export interface ReviewPolicy {
+  /**
+   * Hold an escalated request whose local agreement was below this (0..1).
+   * `null` switches the confidence trigger off. Needs the confidence router.
+   */
+  reviewBelow: number | null;
+  /** Hold a max-turn failure reported by the agent (`POST /v1/review`). */
+  onMaxTurns: boolean;
+  /** Hold any output the PII redaction changed. */
+  onRedaction: boolean;
+  /** Honour a request's `requiresReview` flag (L1 agents, Phase 4E). */
+  onRequest: boolean;
+}
+
+/**
+ * Default triggers: a request that asks for review and an agent that could not
+ * converge are held; redactions are released (the PII is already removed); the
+ * confidence trigger is off until a deployment sets `reviewBelow` next to the
+ * router.
+ */
+export const DEFAULT_REVIEW_POLICY: ReviewPolicy = {
+  reviewBelow: null,
+  onMaxTurns: true,
+  onRedaction: false,
+  onRequest: true,
+};
 
 /** Conservative defaults: allow any model, cap tokens to a sane ceiling. */
 export const DEFAULT_POLICY: GatewayPolicy = {

@@ -12,6 +12,7 @@
  * fills it in. There is no third state. A letter's grade is its weakest computed
  * criterion; the overall verdict is the weakest letter. Pure: no clock, no I/O
  * (the drill's age is measured against an `asOf` the caller passes in).
+ * Phase 4D computes G's *human oversight* from the review queue.
  */
 
 import type { TraceCoverage } from "@grade-stack/core";
@@ -28,6 +29,7 @@ import type {
   DrillEvidence,
   FillsInPhase,
   GradeLetter,
+  ReviewQueueEvidence,
   Scorecard,
   StubbedCriterion,
 } from "./types.ts";
@@ -72,6 +74,12 @@ export interface ScorecardOptions {
    * supplies it.
    */
   drill?: DrillEvidence;
+  /**
+   * The human review queue (Phase 4D). When given, G's *human oversight*
+   * criterion is computed from it; when absent it stays stubbed.
+   * `reliability scorecard --review-queue <file>` supplies it.
+   */
+  reviewQueue?: ReviewQueueEvidence;
 }
 
 const DEFAULT_AGENT_TASK = "Support-email triage";
@@ -767,6 +775,98 @@ function governanceCriterion(readiness: GovernanceReadiness): ComputedCriterion 
   };
 }
 
+const OVERSIGHT_HEADLINES: Record<AssessedRating, string> = {
+  strong:
+    "Every configured trigger has held work for a person, and every decision names who made it and when.",
+  adequate:
+    "Named people decide what is held, but some configured triggers have never held anything.",
+  "at-risk": "Outputs are held for review, but nobody has decided any of them yet.",
+  critical:
+    "Nothing shows a named person deciding held outputs: the queue is empty, or a decision was automated or unattributed.",
+};
+
+/**
+ * Human oversight: are low-confidence, non-converging or flagged outputs held for
+ * a named person, and does every decision say who made it and when? Computed
+ * from the review queue: held items exist for each configured trigger, every
+ * decided item has an approver and a timestamp, and nothing was approved by
+ * software or by the caller that made the request.
+ */
+function humanOversightCriterion(q: ReviewQueueEvidence): ComputedCriterion {
+  const n = q.items.length;
+  const decided = q.items.filter((i) => i.status !== "pending");
+  const approved = decided.filter((i) => i.status === "approved").length;
+  const unattributed = decided.filter((i) => !i.decidedBy || !i.decidedAt);
+  const automated = decided.filter((i) => i.automated);
+  const missing = q.configuredTriggers.filter((t) => !q.items.some((i) => i.trigger === t));
+
+  const rating: AssessedRating =
+    n === 0 || unattributed.length > 0 || automated.length > 0
+      ? "critical"
+      : decided.length === 0
+        ? "at-risk"
+        : missing.length > 0
+          ? "adequate"
+          : "strong";
+
+  const byTrigger = [...new Set(q.items.map((i) => i.trigger))]
+    .map((t) => `${q.items.filter((i) => i.trigger === t).length} ${t}`)
+    .join(", ");
+  const evidence = [
+    n === 0
+      ? `The review queue ${q.source} holds no items: nothing has ever been held for a person.`
+      : `${n} item(s) held for a person: ${byTrigger}.`,
+    `${decided.length} decided (${approved} approved, ${decided.length - approved} rejected), ${n - decided.length} pending.`,
+    unattributed.length > 0
+      ? `${unattributed.length} decision(s) name no reviewer or no time: ${someIds(unattributed.map((i) => i.id))}.`
+      : "Every decision names a reviewer and a time.",
+    automated.length > 0
+      ? `${automated.length} auto-approval(s): decided by software or by the requesting caller: ${someIds(automated.map((i) => i.id))}.`
+      : "Zero auto-approvals: no decision was made by software or by the caller that made the request.",
+    q.configuredTriggers.length === 0
+      ? "No review trigger is configured in the gateway policy."
+      : missing.length > 0
+        ? `Configured triggers: ${q.configuredTriggers.join(", ")}; no item held yet by: ${missing.join(", ")}.`
+        : `Configured triggers: ${q.configuredTriggers.join(", ")}; each has held at least one item.`,
+  ];
+  const last = [...decided]
+    .sort((a, b) => (a.decidedAt ?? "").localeCompare(b.decidedAt ?? ""))
+    .at(-1);
+  if (last?.decidedBy && last.decidedAt) {
+    evidence.push(
+      `Latest decision: ${last.id} ${last.status} by ${last.decidedBy} at ${last.decidedAt}.`,
+    );
+  }
+
+  const ids = q.items.map((i) => i.id);
+  const span =
+    n === 0 ? "no items" : n === 1 ? `1 item: ${ids[0]}` : `${n} items, ${ids[0]} to ${ids[n - 1]}`;
+  const flagged = [...unattributed, ...automated].map((i) => i.id);
+  return {
+    state: "computed",
+    key: "human-oversight",
+    title: "Human oversight record",
+    rating,
+    headline: OVERSIGHT_HEADLINES[rating],
+    evidence,
+    citation: {
+      source: `${q.source} (${span}${flagged.length > 0 ? `; flagged: ${someIds(flagged)}` : ""})`,
+      threshold:
+        "Strong: every configured trigger has held at least one item, at least one item is decided, every decision names a reviewer and a time, and zero auto-approvals; Adequate: the same, but a configured trigger has held nothing yet; At risk: items held but none decided; Critical: an empty queue, or any decision that is automated, self-approved by the caller, or unattributed.",
+      wouldChange:
+        rating === "strong"
+          ? "Drops to Critical the moment a decision is recorded by software, by the requesting caller, or without a name and time."
+          : rating === "critical"
+            ? n === 0
+              ? "Rises once a trigger holds an item and a named person decides it (`reliability review approve <id> --as <name>`)."
+              : "Rises only when the queue holds no automated or unattributed decision; the queue is append-only, so start a new one and decide every item by name."
+            : rating === "at-risk"
+              ? "Rises when a named person decides a held item (`reliability review approve|reject <id> --as <name>`)."
+              : `Rises to Strong once each configured trigger has held an item (missing: ${missing.join(", ")}).`,
+    },
+  };
+}
+
 // ── E · Evaluated ──────────────────────────────────────────────────────────
 
 /** Minimum suite size for the breadth check. */
@@ -968,12 +1068,14 @@ export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions): S
   const dimensions: Dimension[] = [
     dimension("governed", [
       governanceCriterion(opts.governance),
-      stub(
-        "human-oversight",
-        "Human oversight record",
-        "4D",
-        "the review queue: low-confidence output held for a named approver, with approver and time recorded",
-      ),
+      opts.reviewQueue
+        ? humanOversightCriterion(opts.reviewQueue)
+        : stub(
+            "human-oversight",
+            "Human oversight record",
+            "4D",
+            "the review queue (`--review-queue <file>`): low-confidence output held for a named approver, with approver and time recorded",
+          ),
       stub(
         "boundary-register",
         "Boundary register",

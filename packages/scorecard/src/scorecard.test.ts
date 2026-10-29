@@ -7,6 +7,7 @@
  * Tests for buildScorecard: the five GRADE-letter dimensions (ADR 0016), the
  * computed/stubbed two-state criterion rule (no third state), purity, the
  * per-criterion bands, the worst-wins rollups, and honest degradation.
+ * Phase 4D adds G's human oversight criterion, computed from the review queue.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -23,6 +24,8 @@ import type {
   DimensionId,
   DrillEvidence,
   DrillEvidenceRecord,
+  ReviewEvidenceItem,
+  ReviewQueueEvidence,
   Scorecard,
 } from "./types.ts";
 import { FILLS_IN_PHASES, GRADE_DIMENSION_IDS, RATING_RANK } from "./types.ts";
@@ -795,5 +798,129 @@ describe("Rollback verified criterion (D, 4C)", () => {
   test("the union stays closed: the computed criterion has no fillsIn", () => {
     const x = crit(withDrill(drill()), "rollback");
     expect("fillsIn" in x).toBe(false);
+  });
+});
+
+// ── G · Governed: human oversight (Phase 4D, ADR 0019) ─────────────────────
+
+const ALL_TRIGGERS = ["low-confidence", "max-turns", "output-redaction", "requested"];
+
+/** One decided item; override any field. */
+function item(
+  id: string,
+  trigger: string,
+  over: Partial<ReviewEvidenceItem> = {},
+): ReviewEvidenceItem {
+  return {
+    id,
+    trigger,
+    status: "approved",
+    requestId: `req-${id}`,
+    queuedAt: "2026-10-29T14:00:00.000Z",
+    decidedBy: "support-lead",
+    decidedAt: "2026-10-29T14:05:00.000Z",
+    automated: false,
+    ...over,
+  };
+}
+
+/** A queue where every configured trigger has held a decided item. */
+function queue(over: Partial<ReviewQueueEvidence> = {}): ReviewQueueEvidence {
+  return {
+    source: "governance/drills/review-queue-2026-10-29.jsonl",
+    configuredTriggers: ALL_TRIGGERS,
+    items: [
+      item("rv-000000000001", "low-confidence"),
+      item("rv-000000000002", "max-turns", { status: "rejected" }),
+      item("rv-000000000003", "output-redaction"),
+      item("rv-000000000004", "requested"),
+    ],
+    ...over,
+  };
+}
+
+const withQueue = (q: ReviewQueueEvidence) => card(makeResult(12, 12), { reviewQueue: q });
+
+describe("Human oversight criterion (G, 4D)", () => {
+  test("without --review-queue it stays stubbed with fillsIn 4D", () => {
+    expect(crit(card(), "human-oversight")).toMatchObject({ state: "stubbed", fillsIn: "4D" });
+  });
+
+  test("every trigger held, every decision named and timed, no auto-approval: Strong, cited", () => {
+    const x = crit(withQueue(queue()), "human-oversight");
+    expect(x.state).toBe("computed");
+    if (x.state !== "computed") return;
+    expect(x.rating).toBe("strong");
+    expect(x.citation.source).toBe(
+      "governance/drills/review-queue-2026-10-29.jsonl (4 items, rv-000000000001 to rv-000000000004)",
+    );
+    expect(x.citation.threshold).toContain("zero auto-approvals");
+    expect(x.citation.wouldChange).toContain("Drops to Critical");
+    expect(text(x)).toContain("Zero auto-approvals");
+    expect(text(x)).toContain("Every decision names a reviewer and a time.");
+    expect(text(x)).toContain("3 approved, 1 rejected");
+    expect(dim(withQueue(queue()), "governed").criteria.map((c) => c.key)).toEqual([
+      "governance",
+      "human-oversight",
+      "boundary-register",
+    ]);
+  });
+
+  test("a configured trigger that never held anything is Adequate and named", () => {
+    const q = queue({ items: queue().items.filter((i) => i.trigger !== "output-redaction") });
+    const x = crit(withQueue(q), "human-oversight");
+    expect(x.rating).toBe("adequate");
+    expect(text(x)).toContain("no item held yet by: output-redaction");
+    expect(x.state === "computed" ? x.citation.wouldChange : "").toContain("output-redaction");
+  });
+
+  test("items held but none decided is At risk: nobody staffs the queue", () => {
+    const q = queue({
+      items: queue().items.map((i) => ({
+        ...i,
+        status: "pending" as const,
+        decidedBy: null,
+        decidedAt: null,
+      })),
+    });
+    expect(crit(withQueue(q), "human-oversight").rating).toBe("at-risk");
+  });
+
+  test("degraded canary: an item resolved without an approver drops G to Critical", () => {
+    const q = queue({
+      items: [...queue().items, item("rv-000000000005", "requested", { decidedBy: null })],
+    });
+    const c = withQueue(q);
+    const x = crit(c, "human-oversight");
+    expect(x.rating).toBe("critical");
+    expect(text(x)).toContain("1 decision(s) name no reviewer or no time: rv-000000000005");
+    expect(x.state === "computed" ? x.citation.source : "").toContain("flagged: rv-000000000005");
+    expect(dim(c, "governed").rating).toBe("critical");
+  });
+
+  test("degraded canary: an auto-approval (software or the requesting caller) drops G to Critical", () => {
+    const q = queue({
+      items: [
+        ...queue().items,
+        item("rv-000000000006", "low-confidence", { decidedBy: "gateway", automated: true }),
+      ],
+    });
+    const c = withQueue(q);
+    expect(crit(c, "human-oversight").rating).toBe("critical");
+    expect(text(crit(c, "human-oversight"))).toContain("1 auto-approval(s)");
+    expect(dim(c, "governed").rating).toBe("critical");
+  });
+
+  test("an empty queue is Critical", () => {
+    const x = crit(withQueue(queue({ items: [] })), "human-oversight");
+    expect(x.rating).toBe("critical");
+    expect(text(x)).toContain("nothing has ever been held for a person");
+  });
+
+  test("computed moves one criterion from stubbed to computed; the union stays closed", () => {
+    const c = withQueue(queue());
+    expect(c.meta.computedCriteria).toBe(7);
+    expect(c.meta.stubbedCriteria).toBe(8);
+    expect("fillsIn" in crit(c, "human-oversight")).toBe(false);
   });
 });

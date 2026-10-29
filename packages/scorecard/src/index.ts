@@ -59,6 +59,8 @@ export {
   RATING_LABEL,
   RATING_RANK,
   type Rating,
+  type ReviewEvidenceItem,
+  type ReviewQueueEvidence,
   type Scorecard,
   type StubbedCriterion,
 } from "./types.ts";

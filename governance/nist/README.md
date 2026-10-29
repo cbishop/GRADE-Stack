@@ -50,14 +50,14 @@ your organization.**
 
 ## Coverage by function
 
-**6 supported · 8 partial · 5 deployer-owned** across 19 categories. (MEASURE 3 and MANAGE 4 moved from supported to partial on 2026-10-28. Phase 4B added the gateway decision log as a runtime record to both; Phase 4C added the kill switch, a dated rollback drill and the release manifest to MANAGE 4 (and the kill switch to MANAGE 2). They stay partial because the real-model run (4F) and the review queue (4D) are still missing.)
+**6 supported · 8 partial · 5 deployer-owned** across 19 categories. (MEASURE 3 and MANAGE 4 moved from supported to partial on 2026-10-28. Phase 4B added the gateway decision log as a runtime record to both; Phase 4C added the kill switch, a dated rollback drill and the release manifest to MANAGE 4 (and the kill switch to MANAGE 2). Phase 4D added the human review queue to MANAGE 4. They stay partial because the real-model run and post-deployment re-scoring (4F) are still missing.)
 
 | Function | Supported | Partial | Deployer-owned | Reading |
 |---|---|---|---|---|
 | **GOVERN** (6) | 0 | 2 | 4 | Mostly your organization's program work; the stack supplies a board-legible communication artifact and supply-chain controls. |
 | **MAP** (5) | 3 | 1 | 1 | The stack categorizes itself, benchmarks capability/cost, and ships a risk mapping (OWASP); societal-impact characterization is yours. |
 | **MEASURE** (4) | 2 | 2 | 0 | The stack's strongest function: config-as-code evals and the scorecard, checked in CI. Tracking over time stops at merge; runtime records arrive in 4B. |
-| **MANAGE** (4) | 1 | 3 | 0 | Risk *response* in the request path is mechanized (gateway, eval-gate, turn bound); recovery has a kill switch, a dated drill and a release manifest (4C); strategy and vendor due-diligence are yours. |
+| **MANAGE** (4) | 1 | 3 | 0 | Risk *response* in the request path is mechanized (gateway, eval-gate, turn bound); recovery has a kill switch, a dated drill and a release manifest (4C); escalation reaches a named person through the review queue (4D); strategy and vendor due-diligence are yours. |
 
 ### GOVERN
 
@@ -96,7 +96,7 @@ your organization.**
 | MANAGE 1 — risks prioritized, responded to | 🟢 Supported | Gateway guardrails + eval-gate + enforced `--max-turns` |
 | MANAGE 2 — strategies minimize negative impacts | 🟡 Partial | Guardrails + degraded canary + sovereign variant + kill switch for MANAGE 2.4 deactivation (strategy is yours) |
 | MANAGE 3 — third-party risks managed | 🟡 Partial | Pinned lockfile + secret scan + OWASP ASI04 (due-diligence is yours) |
-| MANAGE 4 — treatments documented & monitored | 🟡 Partial | Scorecard + eval-gate CI + enforcement register + gateway decision log (4B) + kill switch, dated drill and release manifest (4C); the review queue arrives in 4D |
+| MANAGE 4 — treatments documented & monitored | 🟡 Partial | Scorecard + eval-gate CI + enforcement register + gateway decision log (4B) + kill switch, dated drill and release manifest (4C) + human review queue with recorded approvers (4D); production re-scoring arrives in 4F |
 
 ## Per-category detail
 

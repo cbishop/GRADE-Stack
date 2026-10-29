@@ -9,10 +9,10 @@ committed governance mappings into a rating under each of the five GRADE letters
 
 | Letter | Computed criteria | Not yet assessed (fills in) |
 |---|---|---|
-| **G · Governed** | Governance readiness (EU AI Act deployer module) | Human oversight record (4D); Boundary register (4E) |
+| **G · Governed** | Governance readiness (EU AI Act deployer module); Human oversight record (the review queue, with `--review-queue <file>`) | Human oversight record without a queue (4D); Boundary register (4E) |
 | **R · Reliable** | Reliability (pass rate + stability); Cost discipline (cost-per-success + waste) | none |
 | **A · Agentic** | Guardrail coverage (OWASP Agentic Top 10) | Declared vs observed autonomy and tool scope (4E) |
-| **D · Deployed** | Observability coverage (OpenTelemetry trace coverage) | Attributable and reconstructable (4B); Rollback verified (4C) |
+| **D · Deployed** | Observability coverage (OpenTelemetry trace coverage); Attributable and reconstructable (with `--decision-log <file>`); Rollback verified (with `--drills <dir>`) | Each of those three without its input (4B, 4C) |
 | **E · Evaluated** | Suite breadth (case count, refusal or OOD case, judge metric) | Real-model run freshness; Judge calibration; Post-deployment re-score (4F) |
 
 Every criterion is in one of two states: **computed**, with evidence and a

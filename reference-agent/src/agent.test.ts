@@ -4,8 +4,9 @@
 /**
  * @module reference-agent/agent.test
  *
- * Tests for the reference agent — the enforced turn bound and the degraded-mode
- * regression — run hermetically against a canned provider.
+ * Tests for the reference agent — the enforced turn bound, the degraded-mode
+ * regression, and (Phase 4D) the review hold — run hermetically against a
+ * canned provider.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -143,5 +144,42 @@ describe("runReferenceAgent — degraded mode", () => {
     const o = JSON.parse(result.raw);
     expect(typeof o.draft_reply).toBe("string");
     expect(typeof o.summary).toBe("string");
+  });
+});
+
+describe("runReferenceAgent — review hold (Phase 4D)", () => {
+  test("an unheld answer reports review not required", async () => {
+    const result = await runReferenceAgent(new FakeProvider(), SAMPLE_EMAIL, { degraded: false });
+    expect(result.review).toEqual({ required: false });
+  });
+
+  test("a gateway hold on the accepted answer surfaces as review { required, reason, id }", async () => {
+    const fake = new FakeProvider();
+    const held: ModelProvider = {
+      name: fake.name,
+      model: fake.model,
+      async generate(req: GenerateRequest): Promise<GenerateResult> {
+        const r = await fake.generate(req);
+        return {
+          ...r,
+          review: {
+            held: true,
+            id: "rv-0123456789ab",
+            trigger: "low-confidence",
+            reason:
+              "confidence 0.40 below the review threshold 0.60 after frontier escalation to bedrock",
+          },
+        };
+      },
+    };
+    const result = await runReferenceAgent(held, SAMPLE_EMAIL, { degraded: false });
+    expect(result.review).toEqual({
+      required: true,
+      id: "rv-0123456789ab",
+      reason:
+        "confidence 0.40 below the review threshold 0.60 after frontier escalation to bedrock",
+    });
+    // The triage itself is still returned, so a reviewer can read the draft.
+    expect(result.triage.category).toBe("billing");
   });
 });

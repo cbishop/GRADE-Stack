@@ -29,7 +29,7 @@ weakest computed criterion; the overall verdict is the weakest letter.
 
 | Letter | Computed today, from | Not yet assessed (fills in) |
 |---|---|---|
-| **G · Governed** | Governance readiness: EU AI Act deployer module | Human oversight record (4D); Boundary register (4E) |
+| **G · Governed** | Governance readiness: EU AI Act deployer module. Human oversight record: the review queue, when `--review-queue <file>` is given | Human oversight record without a queue (4D); Boundary register (4E) |
 | **R · Reliable** | Reliability: eval pass rate + run-to-run stability. Cost discipline: cost-per-success + waste fraction | none |
 | **A · Agentic** | Guardrail coverage: OWASP Agentic Top 10 mapping | Declared vs observed autonomy and tool scope (4E) |
 | **D · Deployed** | Observability coverage: real OTel trace coverage (connected? phases captured?). Attributable and Reconstructable: the gateway decision log, when `--decision-log <file>` is given. Rollback verified: the latest kill-switch drill record, when `--drills <dir>` is given | Attributable and Reconstructable without a log (4B); Rollback verified without a drill directory (4C) |
@@ -156,9 +156,13 @@ Be explicit about the boundary — silent omissions are the credibility risk:
 Every letter is graded, but these criteria are not yet assessed. Each is shown on
 the scorecard with the sub-phase that fills it in:
 
-- **Human oversight record** (G, 4D): no review queue holds an output for a named
-  approver yet, so human-in-the-loop is the deployer's process. The EU AI Act
-  Art 26 oversight obligation is rated *partial* for this reason.
+- **Human oversight record** (G, 4D): computed only when the client's review
+  queue is passed with `reliability scorecard --review-queue <file>`, run with the
+  gateway's `RELIABILITY_REVIEW_*` settings. Fill in `docs/human-oversight-map.md`
+  (who reviews which trigger, how fast, and how the send step honours a hold),
+  and run `bun scripts/review-drill.ts` to see a sample. EU AI Act Art 26
+  oversight is *supported* for the stack's part; staffing the queue is the
+  client's.
 - **Boundary register** (G, 4E) and **declared vs observed autonomy and tool
   scope** (A, 4E): policy is global today; per-agent limits are not declared or
   enforced.

@@ -279,9 +279,14 @@
           "name": "Kill switch + dated rollback drill + release manifest (recovery)",
           "ref": "packages/gateway/src/kill-switch.ts; packages/core/src/release.ts; docs/rollback-protocol.md; governance/drills/",
           "note": "Response and recovery are mechanized: halt and resume are logged, the drill is dated and graded by the scorecard (stale after 90 days), and every eval result names the release it measured so the last good version can be restored."
+        },
+        {
+          "name": "Human review queue (escalation to a named person, with the decision recorded)",
+          "ref": "packages/gateway/src/review-queue.ts; docs/human-oversight-map.md; governance/drills/",
+          "note": "Treatments the router cannot settle escalate to a person; every hold, approval and rejection is an event in an append-only queue and a line in the decision log, and a dated review drill exercises all four triggers."
         }
       ],
-      "note": "Partial: treatments are documented, checked before merge, and their runtime effect is logged per request; response and recovery now have a kill switch, a dated drill and a release manifest. Residual: no human review queue for escalation (Phase 4D), and no automatic trigger for the kill switch. Log retention, the rollback protocol's named people and communication plans for a specific deployment remain the deployer's."
+      "note": "Partial: treatments are documented, checked before merge, and their runtime effect is logged per request; response and recovery have a kill switch, a dated drill and a release manifest; escalation has a human review queue with a recorded approver and time. Residual: the CI gate still runs on the stub provider and nothing re-scores production traffic (Phase 4F), and the kill switch has no automatic trigger. Staffing the review queue, log retention, the rollback protocol's named people and communication plans for a specific deployment remain the deployer's."
     }
   ]
 }
