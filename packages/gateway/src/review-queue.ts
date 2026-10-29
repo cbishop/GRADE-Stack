@@ -489,8 +489,7 @@ export class ReviewQueue {
         callerId: item.callerId,
         trigger: item.trigger,
         policy: "human-review",
-        reason:
-          event.event === "rejected" ? event.reason : (event.note ?? "no note given"),
+        reason: event.event === "rejected" ? event.reason : (event.note ?? "no note given"),
       });
       await this.append(event);
       return deriveReviewItems([...events, event], this.path).find(
