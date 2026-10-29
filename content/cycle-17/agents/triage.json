@@ -1,0 +1,11 @@
+{
+  "id": "triage",
+  "owner": "support-lead@example.com",
+  "autonomyLevel": "L1",
+  "description": "Sample copy of agents/triage.json for the cycle-17 demo, with the owner filled in. The reference agent: triages one inbound support email and drafts a reply. It never sends; every draft is held for a named person.",
+  "allowedTools": ["lookup_account", "search_help_articles"],
+  "allowedModels": ["stub-deterministic", "gemma4", "claude-haiku-4-5"],
+  "maxTurns": 5,
+  "tokenCap": 800,
+  "reviewRequired": true
+}

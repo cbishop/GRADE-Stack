@@ -70,6 +70,14 @@ the command name (`reliability`) are intentionally different.
   <name> --reason <text>` records who decided and when; nothing approves
   without a name (ADR 0019; [oversight map](docs/human-oversight-map.md);
   [sample approval log](governance/drills/review-queue-2026-10-29.jsonl)).
+- **Per-agent boundaries, enforced at two chokepoints**: each agent has a
+  manifest (`agents/<id>.json`) declaring its owner, autonomy level (L0 suggest
+  only to L3 autonomous), tools, models, turn cap and token cap. With
+  `RELIABILITY_AGENTS_DIR` set, the gateway and the MCP server both require the
+  agent's bearer token (401 otherwise), the gateway enforces its models and
+  caps and holds every L1 response for review, and the MCP server refuses
+  undeclared tools before they run. Scorecard A grades declared against observed
+  (ADR 0020; [boundary register](docs/autonomy-boundary-register.md)).
 - **OpenTelemetry tracing** (GenAI conventions; Phoenix by default) so every
   agent run is one connected, inspectable trace.
 - **Governance mappings with teeth**: OWASP Agentic Top 10 (2026), NIST AI RMF
@@ -110,6 +118,8 @@ bun scripts/rollback-drill.ts                    # dated kill-switch drill → g
 bun run reliability review list --pending        # what the gateway held for a person
 bun run reliability review approve <id> --as you # release one, on the record
 bun scripts/review-drill.ts                      # ten held items, decided by name → governance/drills/
+bun run reliability agents list                  # each agent's level, tools, models and limits
+bun run reliability agents show triage           # one agent's boundary, and where it is enforced
 ```
 
 Provider selection precedence: `--provider` flag → `RELIABILITY_PROVIDER` env →
@@ -137,6 +147,19 @@ default, set it next to `RELIABILITY_ROUTER=1`), `RELIABILITY_REVIEW_ON_MAX_TURN
 `RELIABILITY_REVIEW_ON_REQUEST` (default on). `reliability scorecard
 --review-queue <file>`, run with the same settings, grades G's human oversight.
 
+Agent manifests are opt-in: `RELIABILITY_AGENTS_DIR=agents` on the gateway
+(`gateway serve`) and the MCP server (`mcp serve --http`) switches on
+authentication and per-agent enforcement at both. Tokens come from
+`RELIABILITY_AGENT_TOKENS` (`triage:<token>,...`) or a file
+`RELIABILITY_AGENT_TOKENS_FILE` (one `id:token` per line; default
+`./.reliability-agent-tokens` when present, git-ignored); each token is at least
+16 characters, for example `openssl rand -hex 24`. The agent sends its own token
+from `RELIABILITY_AGENT_TOKEN` to the gateway and to the MCP server (stdio, or
+HTTP via `RELIABILITY_MCP_URL`). Without `RELIABILITY_AGENTS_DIR` the stack runs
+single-agent as before and logs callers as unverified or `anonymous`.
+`reliability scorecard --agents agents --decision-log <file>` grades A's three
+boundary criteria and G's boundary register.
+
 ## Layout
 
 ```
@@ -150,7 +173,8 @@ packages/
 reference-agent/  the one task the whole build is measured on
 governance/       OWASP / NIST / EU AI Act mappings (machine-readable + CI-checked)
 content/          build-in-public artifacts, per cycle
-docs/             PRD, plan ledger, 17 ADRs, post-mortem
+agents/           per-agent manifests (autonomy level, tools, models, limits)
+docs/             PRD, plan ledger, 20 ADRs, post-mortem
 ```
 
 ## Development

@@ -191,12 +191,12 @@ The gap analysis found two pillars with no code at all (rollback, human review),
 7. **Docs:** `docs/autonomy-boundary-register.md`, one row per agent (level, tools, scopes, handoff rule, escalation owner), with agent-to-agent protocol stated as an out-of-scope boundary rather than left silent. OWASP ASI02 and ASI03 residuals updated.
 
 **Acceptance criteria:**
-- [ ] Two agents with different manifests behind one gateway are enforced differently; the bite tests above pass.
-- [ ] An undeclared tool call is refused at the MCP server and appears in the decision log with the caller id.
-- [ ] Scorecard A is computed, cites the manifest and log, and degrades on an undeclared tool call.
-- [ ] `docs/autonomy-boundary-register.md` exists with the reference agent's row.
-- [ ] **ADR 0020** records the manifest, bearer tokens, and the two-chokepoint enforcement.
-- [ ] **Artifact:** post draft in `content/cycle-17/`: "L0 to L3: say how much your agent may do, then prove it did no more."
+- [x] Two agents with different manifests behind one gateway are enforced differently; the bite tests above pass. *Evidence: `agent-boundary.test.ts` (A's token refused B's model, A's own token and turn caps, unknown or missing token 401 plus an `auth` line, disagreeing `x-caller-id` refused, L1 held without asking, verified caller, v2 unchanged as `anonymous`); `agent-manifest.test.ts` schema tests; built-binary smoke test with two manifests.*
+- [x] An undeclared tool call is refused at the MCP server and appears in the decision log with the caller id. *Evidence: `tool-scope.test.ts` (L0 call refused `tool-not-allowed` before it runs, logged as `tool` with `callerId` and `callerVerified`; HTTP and stdio); smoke test against the built `mcp serve --http`; `content/cycle-17/sample-decision-log.jsonl` (Ollama run).*
+- [x] Scorecard A is computed, cites the manifest and log, and degrades on an undeclared tool call. *Evidence: `reliability scorecard --agents <dir> --decision-log <file>`; `scorecard.test.ts` (three A criteria, G boundary register, attributable cap lifted; canary: an undeclared call that ran is Critical); smoke test (Adequate on a refused attempt, Critical on the fixture); `content/cycle-17/sample-scorecard.md`.*
+- [x] `docs/autonomy-boundary-register.md` exists with the reference agent's row. *Evidence: fill-in template with the four levels, `triage` (L1) and a labeled sample `helpdesk` (L0) row, and agent-to-agent protocol stated as an out-of-scope boundary.*
+- [x] **ADR 0020** records the manifest, bearer tokens, and the two-chokepoint enforcement. *Evidence: `docs/decisions/0020-agent-manifest-bearer-tokens-two-chokepoints.md`.*
+- [x] **Artifact:** post draft in `content/cycle-17/`: "L0 to L3: say how much your agent may do, then prove it did no more." *Evidence: `content/cycle-17/endofcycle-post.md` and `content/cycle-17/sample-scorecard.md`.*
 
 ---
 
