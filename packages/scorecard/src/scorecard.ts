@@ -12,7 +12,10 @@
  * fills it in. There is no third state. A letter's grade is its weakest computed
  * criterion; the overall verdict is the weakest letter. Pure: no clock, no I/O
  * (the drill's age is measured against an `asOf` the caller passes in).
- * Phase 4D computes G's *human oversight* from the review queue.
+ * Phase 4D computes G's *human oversight* from the review queue. Phase 4E
+ * computes A's three boundary criteria and G's *boundary register* from the
+ * agent manifests and the decision log, and lifts the cap on D's
+ * *attributable* now that callers can be verified.
  */
 
 import type { TraceCoverage } from "@grade-stack/core";
@@ -20,7 +23,10 @@ import { type CaseResult, type EvalRunResult, priceFor } from "@grade-stack/eval
 import type { GovernanceReadiness } from "./eu-ai-act.ts";
 import type { GuardrailCoverage } from "./owasp.ts";
 import type {
+  AgentBoundaryEvidence,
+  AgentManifestEvidence,
   AssessedRating,
+  BoundaryObservation,
   ComputedCriterion,
   Criterion,
   DecisionLogEvidence,
@@ -80,6 +86,13 @@ export interface ScorecardOptions {
    * `reliability scorecard --review-queue <file>` supplies it.
    */
   reviewQueue?: ReviewQueueEvidence;
+  /**
+   * The agent manifests and the decision log (Phase 4E). When given, A's three
+   * boundary criteria and G's *boundary register* are computed from them;
+   * when absent they stay stubbed. `reliability scorecard --agents <dir>
+   * --decision-log <file>` supplies it.
+   */
+  agents?: AgentBoundaryEvidence;
 }
 
 const DEFAULT_AGENT_TASK = "Support-email triage";
@@ -413,17 +426,25 @@ function logCitation(log: DecisionLogEvidence, flagged: string[], flaggedLabel: 
   return `${log.source} (${span}${flags})`;
 }
 
+/** The caller id a gateway logs when nobody identified themselves (4E). */
+const ANONYMOUS_CALLER = "anonymous";
+
 /**
  * Attributable: does every gateway decision say which request it was and who
  * asked? Computed from the decision log: the share of records carrying both a
- * request id and a caller id. Caller ids are self-asserted headers until 4E
- * authenticates them, so an all-attributed log tops out at Adequate.
+ * request id and a caller id (`anonymous` is no caller). A self-asserted
+ * caller id holds an all-attributed log at Adequate; Strong needs every caller
+ * verified by a bearer token (4E).
  */
 function attributableCriterion(log: DecisionLogEvidence): ComputedCriterion {
   const n = log.records.length;
-  const missing = log.records.filter((r) => !r.requestId || r.callerId === null);
+  const missing = log.records.filter(
+    (r) => !r.requestId || r.callerId === null || r.callerId === ANONYMOUS_CALLER,
+  );
   const attributed = n - missing.length;
-  const unverified = log.records.filter((r) => r.callerId !== null && !r.callerVerified).length;
+  const unverified = log.records.filter(
+    (r) => r.callerId !== null && r.callerId !== ANONYMOUS_CALLER && !r.callerVerified,
+  ).length;
   const share = n === 0 ? 0 : attributed / n;
 
   let rating: AssessedRating =
@@ -444,12 +465,14 @@ function attributableCriterion(log: DecisionLogEvidence): ComputedCriterion {
       : `${attributed} of ${n} decisions (${pct(share)}) carry both a request id and a caller id.`,
   ];
   if (missing.length > 0) {
-    evidence.push(`${missing.length} decision(s) have no caller id.`);
+    evidence.push(`${missing.length} decision(s) have no caller id (none sent, or anonymous).`);
   }
   if (unverified > 0) {
     evidence.push(
-      `${unverified} caller id(s) are self-asserted x-caller-id headers, logged as unverified; Phase 4E authenticates them.`,
+      `${unverified} caller id(s) are self-asserted x-caller-id headers, logged as unverified; agent manifests with bearer tokens verify them.`,
     );
+  } else if (n > 0 && missing.length === 0) {
+    evidence.push("Every caller id was verified by a bearer token.");
   }
 
   return {
@@ -471,8 +494,8 @@ function attributableCriterion(log: DecisionLogEvidence): ComputedCriterion {
         rating === "strong"
           ? "Drops if any decision is logged without a caller id or with an unverified one."
           : missing.length > 0
-            ? "Rises when every caller sends x-caller-id, so every record names who asked."
-            : "Reaching Strong needs verified caller ids (Phase 4E bearer tokens).",
+            ? "Rises when every caller identifies itself; run the gateway with agent manifests so every caller authenticates with a bearer token."
+            : "Reaches Strong when every caller authenticates with a bearer token (run the gateway with agent manifests, RELIABILITY_AGENTS_DIR).",
     },
   };
 }
@@ -867,6 +890,330 @@ function humanOversightCriterion(q: ReviewQueueEvidence): ComputedCriterion {
   };
 }
 
+// ── A · Agentic and G · Governed: declared boundaries vs observed (4E) ─────
+
+/** The manifest files cited, or the directory when it held none. */
+function manifestFiles(b: AgentBoundaryEvidence): string {
+  return b.manifests.length > 0
+    ? b.manifests.map((m) => m.file).join(", ")
+    : `${b.manifestsSource} (no manifests)`;
+}
+
+/** Cite the manifests, the log and the record ids the grade rests on. */
+function boundaryCitation(b: AgentBoundaryEvidence, flagged: string[], label: string): string {
+  const flags = flagged.length > 0 ? `; ${label}: ${someIds(flagged)}` : "";
+  return `${manifestFiles(b)} against ${b.logSource} (${b.observations.length} record(s)${flags})`;
+}
+
+type ToolObs = Extract<BoundaryObservation, { kind: "tool" }>;
+type RequestObs = Extract<BoundaryObservation, { kind: "request" }>;
+
+const toolObs = (b: AgentBoundaryEvidence) =>
+  b.observations.filter((o): o is ToolObs => o.kind === "tool");
+const requestObs = (b: AgentBoundaryEvidence) =>
+  b.observations.filter((o): o is RequestObs => o.kind === "request");
+const manifestsById = (b: AgentBoundaryEvidence) =>
+  new Map<string, AgentManifestEvidence>(b.manifests.map((m) => [m.id, m]));
+const call = (o: ToolObs) => `${o.callerId} called ${o.tool} (${o.requestId})`;
+
+const TOOL_SCOPE_HEADLINES: Record<AssessedRating, string> = {
+  strong: "Every tool an agent used was one its manifest declares.",
+  adequate:
+    "No undeclared tool ran, but the scope is untested or an agent tried to step outside it.",
+  "at-risk": "Tool use cannot be fully matched to what the agents declare.",
+  critical: "An agent used a tool its manifest does not declare.",
+};
+
+/**
+ * Every observed tool is declared: each tool call that ran (a `tool` line with
+ * action allow) is in its agent's `allowedTools`. A call refused at the MCP
+ * server shows the boundary held, but an agent that tries is worth a look.
+ */
+function toolScopeCriterion(b: AgentBoundaryEvidence): ComputedCriterion {
+  const byId = manifestsById(b);
+  const tools = toolObs(b);
+  const ran = tools.filter((o) => o.action === "allow");
+  const undeclared = ran.filter((o) => !byId.get(o.callerId)?.allowedTools.includes(o.tool));
+  const refused = tools.filter((o) => o.action === "block");
+  const rating: AssessedRating =
+    undeclared.length > 0
+      ? "critical"
+      : tools.length === 0 || refused.length > 0
+        ? "adequate"
+        : "strong";
+
+  const evidence = [
+    tools.length === 0
+      ? "No tool call has been observed in the log yet, so the declared tool scope is untested."
+      : undeclared.length > 0
+        ? `${undeclared.length} of ${ran.length} tool call(s) that ran were not declared: ${someIds(undeclared.map(call))}.`
+        : `${ran.length} tool call(s) ran; every one was declared in its agent's manifest.`,
+  ];
+  if (refused.length > 0) {
+    evidence.push(
+      `${refused.length} undeclared tool call(s) were refused at the MCP server before they ran (tool-not-allowed): ${someIds(refused.map(call))}. The boundary held.`,
+    );
+  }
+  evidence.push(
+    `Declared: ${b.manifests.map((m) => `${m.id} ${m.allowedTools.length > 0 ? m.allowedTools.join("/") : "no tools"}`).join("; ") || "no manifests"}.`,
+  );
+  return {
+    state: "computed",
+    key: "tool-scope",
+    title: "Every observed tool is declared",
+    rating,
+    headline: TOOL_SCOPE_HEADLINES[rating],
+    evidence,
+    citation: {
+      source: boundaryCitation(
+        b,
+        [...undeclared, ...refused].map((o) => o.requestId),
+        undeclared.length > 0 ? "undeclared calls" : "refused calls",
+      ),
+      threshold:
+        "Strong: at least one tool call observed and every call that ran is declared in its agent's manifest; Adequate: nothing undeclared ran, but no tool call is observed yet or an undeclared call was refused at the MCP server; Critical: any undeclared tool call ran.",
+      wouldChange:
+        rating === "strong"
+          ? "Drops to Adequate when an agent's undeclared call is refused, and to Critical if one runs."
+          : rating === "critical"
+            ? "Rises only when no undeclared call runs: run the MCP server with RELIABILITY_AGENTS_DIR so it refuses them, or declare the tool in the manifest."
+            : tools.length === 0
+              ? "Rises to Strong once agents' declared tool calls appear in the log (the MCP server logs every call it checks)."
+              : "Rises to Strong once a log period passes with no refused attempt; find out why the agent reached for a tool it was not given.",
+    },
+  };
+}
+
+const LEVEL_HEADLINES: Record<AssessedRating, string> = {
+  strong: "Every agent stayed within its declared autonomy level.",
+  adequate:
+    "No agent exceeded its level, but some attempts were refused or there is little to judge yet.",
+  "at-risk": "Agents' behaviour cannot be fully matched to their declared levels.",
+  critical: "An agent did more than its declared autonomy level allows.",
+};
+
+/**
+ * No call exceeded the declared level: an L0 agent ran zero tool calls, and an
+ * agent whose manifest requires review (every L1) had every released response
+ * held. Requests refused for a manifest limit and refused tool calls show the
+ * boundary held; they keep the grade at Adequate.
+ */
+function autonomyLevelCriterion(b: AgentBoundaryEvidence): ComputedCriterion {
+  const byId = manifestsById(b);
+  const level = (id: string | null) => (id === null ? undefined : byId.get(id));
+  const l0Ran = toolObs(b).filter(
+    (o) => o.action === "allow" && level(o.callerId)?.autonomyLevel === "L0",
+  );
+  const released = requestObs(b).filter(
+    (o) => (o.action === "allow" || o.action === "redact") && level(o.callerId)?.reviewRequired,
+  );
+  const unheld = released.filter((o) => !o.held);
+  const refused = [
+    ...toolObs(b).filter((o) => o.action === "block"),
+    ...requestObs(b).filter((o) => o.action === "block" && o.policy.startsWith("agent-")),
+  ];
+  const observed = b.observations.filter(
+    (o) => o.kind !== "auth" && o.callerId !== null && byId.has(o.callerId),
+  );
+  const rating: AssessedRating =
+    l0Ran.length > 0 || unheld.length > 0
+      ? "critical"
+      : observed.length === 0 || refused.length > 0
+        ? "adequate"
+        : "strong";
+
+  const ids = (lvl: string) => b.manifests.filter((m) => m.autonomyLevel === lvl).map((m) => m.id);
+  const evidence: string[] = [];
+  const l0 = ids("L0");
+  if (l0.length > 0) {
+    evidence.push(
+      l0Ran.length > 0
+        ? `L0 agents (${l0.join(", ")}) ran ${l0Ran.length} tool call(s), which suggest-only forbids: ${someIds(l0Ran.map(call))}.`
+        : `L0 agents (${l0.join(", ")}): zero tool calls ran.`,
+    );
+  }
+  const reviewed = b.manifests.filter((m) => m.reviewRequired).map((m) => m.id);
+  if (reviewed.length > 0) {
+    evidence.push(
+      unheld.length > 0
+        ? `Agents whose manifests require review (${reviewed.join(", ")}): ${unheld.length} of ${released.length} released response(s) were not held: ${someIds(unheld.map((o) => o.requestId))}.`
+        : `Agents whose manifests require review (${reviewed.join(", ")}): ${released.length} of ${released.length} released response(s) held for a named person.`,
+    );
+  }
+  if (refused.length > 0) {
+    evidence.push(
+      `${refused.length} call(s) outside a manifest were refused before they ran: ${someIds(refused.map((o) => `${o.requestId} (${o.policy})`))}.`,
+    );
+  }
+  if (observed.length === 0) {
+    evidence.push("No call from a manifest-bound agent is in the log yet.");
+  }
+  const other = b.manifests.filter((m) => m.autonomyLevel === "L2" || m.autonomyLevel === "L3");
+  if (other.length > 0) {
+    evidence.push(
+      `L2/L3 agents (${other.map((m) => m.id).join(", ")}) are bounded by their tools, models and caps; notification for L2 is the deployer's.`,
+    );
+  }
+  return {
+    state: "computed",
+    key: "autonomy-level",
+    title: "No call exceeded the declared level",
+    rating,
+    headline: LEVEL_HEADLINES[rating],
+    evidence,
+    citation: {
+      source: boundaryCitation(
+        b,
+        [...l0Ran.map((o) => o.requestId), ...unheld.map((o) => o.requestId)],
+        "over-level calls",
+      ),
+      threshold:
+        "Strong: calls observed, every L0 agent ran zero tool calls, every response of an agent whose manifest requires review (all L1) was held, and nothing was refused; Adequate: the same with refused attempts, or nothing observed yet; Critical: an L0 tool call ran, or a review-required response was released without a hold.",
+      wouldChange:
+        rating === "critical"
+          ? "Rises only when every L0 call is refused at the MCP server and every L1 response is held: run both chokepoints with RELIABILITY_AGENTS_DIR."
+          : rating === "adequate"
+            ? observed.length === 0
+              ? "Rises to Strong once manifest-bound agents' calls appear in the log, all within their levels."
+              : "Rises to Strong once a log period passes with nothing refused for exceeding a manifest."
+            : "Drops to Adequate on a refused attempt, and to Critical if an L0 tool call runs or an L1 response is released unheld.",
+    },
+  };
+}
+
+const AUTH_HEADLINES: Record<AssessedRating, string> = {
+  strong: "Every request and tool call came from an agent that proved who it was.",
+  adequate: "Nearly every call came from an authenticated agent; a few did not.",
+  "at-risk": "A meaningful share of calls came from callers that did not authenticate.",
+  critical: "Most calls cannot be tied to an authenticated agent.",
+};
+
+/**
+ * Every record carries an authenticated caller: the share of request and tool
+ * lines whose caller id came from a bearer token. Requests refused with 401
+ * are not counted (nothing ran), but they are reported.
+ */
+function authenticatedCallersCriterion(b: AgentBoundaryEvidence): ComputedCriterion {
+  const counted = b.observations.filter(
+    (o): o is RequestObs | ToolObs => o.kind === "request" || o.kind === "tool",
+  );
+  const unverified = counted.filter((o) => !o.callerVerified);
+  const n = counted.length;
+  const share = n === 0 ? 0 : (n - unverified.length) / n;
+  const rating: AssessedRating =
+    n === 0
+      ? "critical"
+      : share >= 1
+        ? "strong"
+        : share >= 0.9
+          ? "adequate"
+          : share >= 0.5
+            ? "at-risk"
+            : "critical";
+  const refused = b.observations.filter((o) => o.kind === "auth");
+  const evidence = [
+    n === 0
+      ? "The log holds no request or tool call to judge."
+      : `${n - unverified.length} of ${n} request and tool record(s) (${pct(share)}) carry a caller id verified by a bearer token.`,
+  ];
+  if (unverified.length > 0) {
+    evidence.push(
+      `${unverified.length} record(s) carry a self-asserted or anonymous caller: ${someIds(unverified.map((o) => o.requestId))}.`,
+    );
+  }
+  evidence.push(
+    refused.length > 0
+      ? `${refused.length} request(s) refused with 401 for want of a valid token (not counted: nothing ran).`
+      : "No request was refused with 401.",
+  );
+  return {
+    state: "computed",
+    key: "authenticated-callers",
+    title: "Every record carries an authenticated caller",
+    rating,
+    headline: AUTH_HEADLINES[rating],
+    evidence,
+    citation: {
+      source: boundaryCitation(
+        b,
+        unverified.map((o) => o.requestId),
+        "unauthenticated records",
+      ),
+      threshold:
+        "Share of request and tool records with a verified caller: Strong 100%, Adequate at least 90%, At risk at least 50%, else Critical; an empty log is Critical. 401 refusals are reported, not counted.",
+      wouldChange:
+        rating === "strong"
+          ? "Drops as soon as a request or tool call is served without a bearer token (a gateway or MCP server started without RELIABILITY_AGENTS_DIR)."
+          : "Rises when both chokepoints run with RELIABILITY_AGENTS_DIR, so every caller must present its bearer token.",
+    },
+  };
+}
+
+const REGISTER_HEADLINES: Record<AssessedRating, string> = {
+  strong: "Every agent has a manifest with a named owner and a row in the boundary register.",
+  adequate: "Agents have manifests, but the boundary register is missing some of them.",
+  "at-risk": "Agents have manifests, but no boundary register says who owns their limits.",
+  critical: "No agent manifest declares what any agent may do.",
+};
+
+/**
+ * Boundary register (G): every agent has a manifest naming an owner, and the
+ * boundary register (`docs/autonomy-boundary-register.md`) has a row for it.
+ */
+function boundaryRegisterCriterion(b: AgentBoundaryEvidence): ComputedCriterion {
+  const listed = b.register.agentIds;
+  const missing = listed === null ? [] : b.manifests.filter((m) => !listed.includes(m.id));
+  const extra = listed === null ? [] : listed.filter((id) => !b.manifests.some((m) => m.id === id));
+  const rating: AssessedRating =
+    b.manifests.length === 0
+      ? "critical"
+      : listed === null || missing.length === b.manifests.length
+        ? "at-risk"
+        : missing.length > 0
+          ? "adequate"
+          : "strong";
+  const evidence = [
+    b.manifests.length === 0
+      ? `No agent manifests in ${b.manifestsSource}.`
+      : `${b.manifests.length} manifest(s): ${b.manifests.map((m) => `${m.id} (${m.autonomyLevel}, owner ${m.owner}, ${m.allowedTools.length} tool(s))`).join("; ")}.`,
+    listed === null
+      ? `The boundary register ${b.register.source} was not found.`
+      : missing.length > 0
+        ? `No register row for: ${missing.map((m) => m.id).join(", ")}.`
+        : `The register has a row for every agent.`,
+  ];
+  if (extra.length > 0) evidence.push(`Register rows with no manifest: ${extra.join(", ")}.`);
+  return {
+    state: "computed",
+    key: "boundary-register",
+    title: "Boundary register",
+    rating,
+    headline: REGISTER_HEADLINES[rating],
+    evidence,
+    citation: {
+      source: `${b.register.source} against ${manifestFiles(b)}`,
+      threshold:
+        "Strong: every manifest names an owner and has a register row; Adequate: some agents lack a row; At risk: no register, or it names none of the agents; Critical: no manifests.",
+      wouldChange:
+        rating === "strong"
+          ? "Drops when an agent is added without a register row."
+          : rating === "critical"
+            ? "Rises once agents/<id>.json declares each agent (owner, level, tools, models, limits)."
+            : `Rises to Strong once ${b.register.source} has a row for every agent${missing.length > 0 ? ` (missing: ${missing.map((m) => m.id).join(", ")})` : ""}.`,
+    },
+  };
+}
+
+/** The agent ids in the boundary register's table: rows whose first cell is a backticked id. */
+export function parseBoundaryRegister(markdown: string): string[] {
+  const ids: string[] = [];
+  for (const line of markdown.split("\n")) {
+    const id = /^\|\s*`([A-Za-z0-9][A-Za-z0-9._:@-]{0,127})`\s*\|/.exec(line.trim())?.[1];
+    if (id && !ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 // ── E · Evaluated ──────────────────────────────────────────────────────────
 
 /** Minimum suite size for the breadth check. */
@@ -1076,12 +1423,14 @@ export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions): S
             "4D",
             "the review queue (`--review-queue <file>`): low-confidence output held for a named approver, with approver and time recorded",
           ),
-      stub(
-        "boundary-register",
-        "Boundary register",
-        "4E",
-        "the per-agent manifests and boundary register (autonomy level, allowed tools and models, turn and token limits)",
-      ),
+      opts.agents
+        ? boundaryRegisterCriterion(opts.agents)
+        : stub(
+            "boundary-register",
+            "Boundary register",
+            "4E",
+            "the per-agent manifests and boundary register (`--agents <dir>`): autonomy level, allowed tools and models, turn and token limits, owner",
+          ),
     ]),
     dimension("reliable", [
       reliabilityCriterion(result, stabilityFloor, source),
@@ -1089,12 +1438,20 @@ export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions): S
     ]),
     dimension("agentic", [
       guardrailsCriterion(opts.guardrails),
-      stub(
-        "autonomy-scope",
-        "Declared vs observed autonomy and tool scope",
-        "4E",
-        "per-agent manifests enforced at the gateway and MCP server, compared with the calls the decision log observed",
-      ),
+      ...(opts.agents
+        ? [
+            toolScopeCriterion(opts.agents),
+            autonomyLevelCriterion(opts.agents),
+            authenticatedCallersCriterion(opts.agents),
+          ]
+        : [
+            stub(
+              "autonomy-scope",
+              "Declared vs observed autonomy and tool scope",
+              "4E",
+              "per-agent manifests enforced at the gateway and MCP server (`--agents <dir> --decision-log <file>`), compared with the calls the decision log observed",
+            ),
+          ]),
     ]),
     dimension("deployed", [
       observabilityCriterion(opts.observability),

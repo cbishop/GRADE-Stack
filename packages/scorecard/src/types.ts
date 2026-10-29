@@ -82,9 +82,9 @@ export interface EvidenceCitation {
 /** One decision-log record, reduced to what the D criteria need (Phase 4B). */
 export interface DecisionLogEntry {
   requestId: string;
-  /** null when the record carries no caller id. */
+  /** null when the record carries no caller id; `anonymous` counts as none (4E). */
   callerId: string | null;
-  /** False while caller ids are self-asserted headers (4B); 4E authenticates them. */
+  /** True when the caller id came from a bearer token (4E); false for a self-asserted header. */
   callerVerified: boolean;
   /** True when the request's content was captured for reconstruction. */
   contentCaptured: boolean;
@@ -163,6 +163,64 @@ export interface ReviewQueueEvidence {
   items: ReviewEvidenceItem[];
   /** The review triggers the gateway policy switches on (each should have held something). */
   configuredTriggers: string[];
+}
+
+/** One agent manifest, reduced to what the A and G boundary criteria need (Phase 4E). */
+export interface AgentManifestEvidence {
+  id: string;
+  /** The manifest file, cited by the criteria. */
+  file: string;
+  owner: string;
+  autonomyLevel: "L0" | "L1" | "L2" | "L3";
+  allowedTools: string[];
+  allowedModels: string[];
+  maxTurns: number;
+  tokenCap: number;
+  reviewRequired: boolean;
+}
+
+/**
+ * One decision-log line, reduced to what the A criteria need (Phase 4E): a
+ * gateway request, a tool call checked at the MCP server, or a 401 at either.
+ */
+export type BoundaryObservation =
+  | {
+      kind: "request";
+      requestId: string;
+      callerId: string | null;
+      callerVerified: boolean;
+      action: "allow" | "redact" | "block" | "error";
+      policy: string;
+      /** True when the response was held for review (it names a review item). */
+      held: boolean;
+    }
+  | {
+      kind: "tool";
+      requestId: string;
+      callerId: string;
+      callerVerified: boolean;
+      tool: string;
+      /** `allow`: the tool ran; `block`: refused before it ran. */
+      action: "allow" | "block";
+      policy: string;
+    }
+  | { kind: "auth"; requestId: string; chokepoint: string; reason: string };
+
+/**
+ * The declared boundaries and the observed behaviour A's criteria compare
+ * (Phase 4E, ADR 0020): the agent manifests, the decision log both chokepoints
+ * write, and the boundary register G's criterion reads. Loaded and validated by
+ * the CLI; the scorecard stays pure.
+ */
+export interface AgentBoundaryEvidence {
+  /** The manifests directory. */
+  manifestsSource: string;
+  manifests: AgentManifestEvidence[];
+  /** The decision log file. */
+  logSource: string;
+  observations: BoundaryObservation[];
+  /** The boundary register and the agent ids it has rows for (null when the file is missing). */
+  register: { source: string; agentIds: string[] | null };
 }
 
 /** A criterion graded from evidence. */
