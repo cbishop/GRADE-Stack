@@ -34,7 +34,9 @@
  * show` explains why, `review approve --as` records who and when and refuses an
  * automated, empty or second approval, `gateway log --request` shows the chain,
  * and `scorecard --review-queue` computes G's human oversight; an automated
- * approval drops G and a decision with no approver fails loudly.
+ * approval drops G and a decision with no approver fails loudly. The review
+ * drill decides its ten items through the built binary, and its queue grades
+ * G's human oversight Strong with all four triggers configured.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -744,4 +746,32 @@ describe("built CLI binary: human review queue (4D)", () => {
     const list = await run(["review", "list", "--file", noApprover]);
     expect(list.code).toBe(1);
   }, 60_000);
+
+  test("the review drill decides ten items through the built binary; its queue grades G Strong", async () => {
+    const dir = join(workDir, "review-drills");
+    const proc = Bun.spawn(["bun", "scripts/review-drill.ts", "--out", dir, "--cli", binPath], {
+      cwd: repoRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, err, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    expect(code, err).toBe(0);
+    expect(out).toContain("PASSED");
+    expect(out.split("\n").filter((l) => /^\| \d+ \| `rv-/.test(l)).length).toBe(10);
+    const date = new Date().toISOString().slice(0, 10);
+    const queuePath = join(dir, `review-queue-${date}.jsonl`);
+    const card = await run(["scorecard", "--from", fixturePath, "--review-queue", queuePath], {
+      RELIABILITY_REVIEW_BELOW: "0.6",
+      RELIABILITY_REVIEW_ON_REDACTION: "1",
+    });
+    expect(card.code, card.err).toBe(0);
+    expect(card.out).toContain("#### Human oversight record: 🟢 Strong");
+    expect(card.out).toContain(
+      "Configured triggers: low-confidence, max-turns, output-redaction, requested; each has held at least one item.",
+    );
+  }, 90_000);
 });

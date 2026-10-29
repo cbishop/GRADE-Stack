@@ -30,3 +30,8 @@ gateway-captures/
 
 # Kill-switch halt file (Phase 4C); written by `reliability gateway halt`
 .reliability-halt
+
+# Human review queue (Phase 4D); written by the gateway and `reliability review`.
+# The committed sample lives in governance/drills/review-queue-<date>.jsonl.
+review-queue.jsonl
+review-queue.jsonl.lock
