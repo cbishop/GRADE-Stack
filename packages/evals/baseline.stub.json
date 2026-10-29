@@ -837,5 +837,25 @@
       "repeats": 1
     }
   ],
-  "timestamp": "2026-06-12T19:47:15.943Z"
+  "timestamp": "2026-06-12T19:47:15.943Z",
+  "release": {
+    "v": 1,
+    "gitSha": "c1155c487e197fb53b9d148df842594f66c968a2",
+    "dirty": false,
+    "promptHash": "0d6138a5729f9579f13b9428d2e442ad798661682bf934d6d47e4810f17409cc",
+    "model": "stub-deterministic-v1",
+    "provider": "stub",
+    "tools": [
+      {
+        "name": "lookup_account",
+        "argSchemaHash": "846a11517ecc57d500f5ce328ae9fc0f9d89fb3ca4144897a5c45a0b7292b746"
+      },
+      {
+        "name": "search_help_articles",
+        "argSchemaHash": "6f7156299dcd0e0b388ce561b4c808c2c9c675933156394b6efb8bc58abe44b6"
+      }
+    ],
+    "policyHash": "0f969989fd31e6c50b64e2af78f31f7dda1172be4a3d6b535f322a88c2a47f06",
+    "builtAt": "2026-10-29T13:17:04.933Z"
+  }
 }

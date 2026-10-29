@@ -132,4 +132,12 @@ describe("evaluateGate: the regression names the release change (4C)", () => {
     const v = evaluateGate({ ...result(12, 12), release: release("v2") }, baselineFromResult(base));
     expect(v.reasons.some((r) => r.startsWith("release change"))).toBe(false);
   });
+
+  test("the committed stub baseline carries a valid release manifest", async () => {
+    const { parseReleaseManifest } = await import("@grade-stack/core");
+    const raw = (await Bun.file(`${import.meta.dir}/../baseline.stub.json`).json()) as {
+      release?: unknown;
+    };
+    expect(() => parseReleaseManifest(raw.release, "baseline.stub.json")).not.toThrow();
+  });
 });
