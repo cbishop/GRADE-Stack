@@ -65,7 +65,7 @@ are reported separately and do not enter the denominator.
 | ASI06:2026 | Memory & Context Poisoning | ⚪ Out of scope | Stateless agent — no memory subsystem to poison; relevant only if a deployment adds persistent memory/RAG |
 | ASI07:2026 | Insecure Inter-Agent Communication | ⚪ Out of scope | Single-agent — no A2A channel to secure; relevant only in a multi-agent deployment |
 | ASI08:2026 | Cascading Agent Failures | 🟡 Partial | Enforced turn bound + token caps + eval-gate/degraded canary (no circuit-breakers) |
-| ASI09:2026 | Human-Agent Trust Exploitation | 🟡 Partial | Evidence-backed scorecard + validator/judge (no in-output uncertainty disclosure) |
+| ASI09:2026 | Human-Agent Trust Exploitation | 🟡 Partial | Evidence-backed scorecard + validator/judge + human review queue for low-confidence and flagged outputs (no in-output uncertainty disclosure; you staff the queue) |
 | ASI10:2026 | Rogue Agents | 🟡 Partial | Gateway kill switch + dated rollback drill + release manifest (4C); turn bound + sole-path gateway + baseline/canary + traces (no runtime anomaly detector) |
 
 **2 covered · 6 partial · 0 gaps over 8 applicable threats; 2 out of scope**

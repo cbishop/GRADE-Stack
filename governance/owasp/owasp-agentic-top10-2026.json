@@ -12,7 +12,11 @@
     "gap": "The reference architecture has no mechanism for this threat — explicitly flagged, never silently assumed safe."
   },
   "scopingNote": "Each threat also carries a `scored` flag. `scored: false` marks a threat that is out of architectural scope — it targets a capability this single-agent, stateless reference does not implement (a long-term memory store; an agent-to-agent channel). Such a threat is reported with its `residualGap` stating why the capability is absent, but is excluded from the weighted score's denominator: it is a scope boundary, NOT a deficiency to fix. The boundary becomes a real, scored obligation the moment a deployment adds that capability.",
-  "scoreWeights": { "covered": 1.0, "partial": 0.5, "gap": 0.0 },
+  "scoreWeights": {
+    "covered": 1.0,
+    "partial": 0.5,
+    "gap": 0.0
+  },
   "items": [
     {
       "id": "ASI01:2026",
@@ -185,9 +189,14 @@
           "name": "Validator + portable LLM-as-judge metric",
           "ref": "@grade-stack/core (zodValidator); packages/evals (validate:judge)",
           "note": "Guards against an over-promising draft reply — the Phase 2A finding caught a smaller model over-promising, which the judge metric flags."
+        },
+        {
+          "name": "Human review queue (low-confidence, non-converging and flagged outputs held for a named person)",
+          "ref": "packages/gateway/src/review-queue.ts; docs/human-oversight-map.md; ADR 0019",
+          "note": "Answers the router could not trust, agents that hit their turn bound and flagged requests are held, with the reason in plain language, until a named reviewer approves or rejects them; approvals by software or by the requesting agent are refused. Over-reliance is countered by putting a person, with the reason in front of them, between the agent and the action."
         }
       ],
-      "residualGap": "The agent's own output does not surface calibrated uncertainty/confidence to the end user. A deployment relied on for consequential decisions should add explicit uncertainty disclosure and human-in-the-loop confirmation."
+      "residualGap": "The agent's own output still does not surface calibrated uncertainty to the end user: the router's confidence decides what is held for a person but is not shown to the customer. Human-in-the-loop confirmation now exists as the review queue, but the deployer must staff it, set the review threshold, and make the send step honour a hold."
     },
     {
       "id": "ASI10:2026",

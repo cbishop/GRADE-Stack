@@ -95,10 +95,10 @@
         {
           "name": "Structured output (draft reply as a discrete field)",
           "ref": "@grade-stack/core (zodValidator); reference-agent/src/triage-schema.ts",
-          "note": "The agent returns its draft reply as a separate, schema-checked field, so an AI-generated disclosure is straightforward to attach before anything is sent. The agent only drafts; whether a human reviews the draft before it is sent is the deployer's process, not a stack mechanism."
+          "note": "The agent returns its draft reply as a separate, schema-checked field, so an AI-generated disclosure is straightforward to attach before anything is sent. The agent only drafts; a draft the gateway holds for review carries a review id, and a named person approves or rejects it before release (Phase 4D review queue)."
         }
       ],
-      "note": "Applies 2026-08-02. Residual: the disclosure text and policy are the deployer's, and the stack has no review step that holds a draft for a person until Phase 4D ships the review queue. A Code of Practice on AI-generated-content transparency was published 2026-06-10; signing it is one route to demonstrate compliance."
+      "note": "Applies 2026-08-02. Residual: the disclosure text and policy are the deployer's; the review queue can hold a draft for a person before it is sent, but the deployer must staff the queue and decide which drafts it holds. A Code of Practice on AI-generated-content transparency was published 2026-06-10; signing it is one route to demonstrate compliance."
     },
     {
       "id": "Art 26 (oversight)",
@@ -109,15 +109,20 @@
       "deferralNote": "If the Digital Omnibus is adopted, Annex III high-risk duties move to 2026-12-02 — not yet law (see omnibusStatus).",
       "penaltyTier": "Tier 2",
       "scored": true,
-      "stackSupport": "partial",
+      "stackSupport": "supported",
       "mechanisms": [
+        {
+          "name": "Human review queue: the router's third route (local, then frontier, then a named person)",
+          "ref": "packages/gateway/src/review-queue.ts; docs/decisions/0019-review-queue-event-log-and-three-route-order.md; docs/human-oversight-map.md; governance/drills/review-queue-2026-10-29.jsonl",
+          "note": "The gateway holds an output for a named person when local confidence stays below the review threshold after frontier escalation, when the agent cannot converge within its turn bound, when a configured redaction fires, or when the request asks for review. `reliability review approve|reject --as <name>` records who decided and when, in an append-only event log and the decision log; no code path approves without a named reviewer, and the agent cannot approve its own output. The scorecard grades the record (G, human oversight)."
+        },
         {
           "name": "Planner/Executor/Validator + enforced --max-turns + gateway guardrails",
           "ref": "@grade-stack/core (pev.ts, MaxTurnsError); packages/gateway/src/policy.ts; reference-agent",
-          "note": "The validator, the bounded loop and the gateway policies give a competent person a bounded, schema-checked output to oversee, and block or redact some outputs before they leave the stack."
+          "note": "The validator, the bounded loop and the gateway policies give the reviewer a bounded, schema-checked output to oversee, and block or redact some outputs before they leave the stack."
         }
       ],
-      "note": "Partial. Residual: human-in-the-loop is the deployer's process today. The stack has no review queue, no route that holds an output for a named person, and no record of who approved what; Phase 4D ships the review queue and approver record. Legally required only if your agent is Annex III high-risk; good practice regardless. The reference support-triage agent is most likely NOT Annex III."
+      "note": "Supported for the stack's part: outputs the router cannot trust, agents that do not converge, configured redactions and flagged requests are held for a named person, and every approval or rejection is recorded with who and when. Residual: the deployer must staff the queue (named, competent reviewers with the authority to reject, and a response time), choose the triggers and thresholds, and wire its send step to release only approved items; the gateway flags a held draft but does not stop a caller that ignores the flag. Legally required only if your agent is Annex III high-risk; good practice regardless. The reference support-triage agent is most likely NOT Annex III."
     },
     {
       "id": "Art 26(6) / Art 12",
@@ -220,5 +225,9 @@
       "note": "On the GPAI model provider (e.g. the foundation-model vendor behind your agent), not on you as a deployer. The provider abstraction lets you choose a compliant provider, but the obligation is theirs."
     }
   ],
-  "scoreWeights": { "supported": 1.0, "partial": 0.5, "deployer-owned": 0.0 }
+  "scoreWeights": {
+    "supported": 1.0,
+    "partial": 0.5,
+    "deployer-owned": 0.0
+  }
 }
