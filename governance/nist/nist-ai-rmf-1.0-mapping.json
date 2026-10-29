@@ -236,9 +236,14 @@
           "name": "Gateway guardrails + degraded-mode canary + sovereign/air-gapped variant",
           "ref": "packages/gateway; reference-agent (degraded mode); Phase 3D (sovereign variant)",
           "note": "Implements concrete impact-minimization controls (PII redaction, injection denial, an on-prem option)."
+        },
+        {
+          "name": "Gateway kill switch (MANAGE 2.4: disengage or deactivate)",
+          "ref": "packages/gateway/src/kill-switch.ts; scripts/rollback-drill.ts; governance/drills/; ADR 0018",
+          "note": "Every agent behind the gateway can be halted without a restart and resumed, each action logged with actor and reason; a dated drill records time-to-halt and zero provider calls after the halt."
         }
       ],
-      "note": "Partial: the stack implements impact-minimization controls; the strategy and stakeholder input that direct them are the deployer's."
+      "note": "Partial: the stack implements impact-minimization controls and a tested way to deactivate the system (the kill switch); the strategy and stakeholder input that direct them, and the decision of when to pull the switch, are the deployer's."
     },
     {
       "id": "MANAGE 3",
@@ -269,9 +274,14 @@
           "name": "Gateway decision log (runtime monitoring record)",
           "ref": "packages/gateway/src/decision-log.ts; docs/logging-and-retention.md",
           "note": "The treatments the gateway applies at runtime (blocks, redactions, escalations) are recorded per request and read back with `reliability gateway log`, so their effect is monitored, not assumed."
+        },
+        {
+          "name": "Kill switch + dated rollback drill + release manifest (recovery)",
+          "ref": "packages/gateway/src/kill-switch.ts; packages/core/src/release.ts; docs/rollback-protocol.md; governance/drills/",
+          "note": "Response and recovery are mechanized: halt and resume are logged, the drill is dated and graded by the scorecard (stale after 90 days), and every eval result names the release it measured so the last good version can be restored."
         }
       ],
-      "note": "Partial: treatments are documented, checked before merge, and their runtime effect is logged per request, but response and recovery are not mechanized. Residual: no kill switch or recorded rollback drill (Phase 4C) and no human review queue for escalation (Phase 4D). Log retention and communication plans for a specific deployment remain the deployer's."
+      "note": "Partial: treatments are documented, checked before merge, and their runtime effect is logged per request; response and recovery now have a kill switch, a dated drill and a release manifest. Residual: no human review queue for escalation (Phase 4D), and no automatic trigger for the kill switch. Log retention, the rollback protocol's named people and communication plans for a specific deployment remain the deployer's."
     }
   ]
 }

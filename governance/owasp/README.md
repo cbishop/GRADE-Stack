@@ -66,7 +66,7 @@ are reported separately and do not enter the denominator.
 | ASI07:2026 | Insecure Inter-Agent Communication | ⚪ Out of scope | Single-agent — no A2A channel to secure; relevant only in a multi-agent deployment |
 | ASI08:2026 | Cascading Agent Failures | 🟡 Partial | Enforced turn bound + token caps + eval-gate/degraded canary (no circuit-breakers) |
 | ASI09:2026 | Human-Agent Trust Exploitation | 🟡 Partial | Evidence-backed scorecard + validator/judge (no in-output uncertainty disclosure) |
-| ASI10:2026 | Rogue Agents | 🟡 Partial | Turn bound + sole-path gateway + baseline/canary + traces (no runtime kill-switch) |
+| ASI10:2026 | Rogue Agents | 🟡 Partial | Gateway kill switch + dated rollback drill + release manifest (4C); turn bound + sole-path gateway + baseline/canary + traces (no runtime anomaly detector) |
 
 **2 covered · 6 partial · 0 gaps over 8 applicable threats; 2 out of scope**
 (ASI06, ASI07). Every applicable threat has a named mechanism — there are **no
