@@ -27,6 +27,14 @@
  * `release diff` explains two results in one sentence; the rollback drill runs
  * its halt and resume through the built binary and `scorecard --drills`
  * grades it, with a stale, missing or degraded drill dropping D.
+ *
+ * Phase 4D: a running built gateway with the router and `reviewBelow` holds a
+ * low-confidence `agent run` (which prints "held for review"), a max-turn
+ * failure and a `requiresReview` request; `review list` shows them, `review
+ * show` explains why, `review approve --as` records who and when and refuses an
+ * automated, empty or second approval, `gateway log --request` shows the chain,
+ * and `scorecard --review-queue` computes G's human oversight; an automated
+ * approval drops G and a decision with no approver fails loudly.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -566,4 +574,174 @@ describe("built CLI binary: rollback drill and rollback verified (4C)", () => {
     expect(card.code).toBe(1);
     expect(card.err).toContain("kill-switch-2026-10-01.json");
   }, 30_000);
+});
+
+// ── Phase 4D: the human review queue through the built binary ──────────────
+
+describe("built CLI binary: human review queue (4D)", () => {
+  test("a low-confidence run is held, explained, approved by name, logged as a chain, and graded", async () => {
+    const logPath = join(workDir, "review-decisions.jsonl");
+    const queuePath = join(workDir, "review-queue.jsonl");
+    const env = {
+      RELIABILITY_DECISION_LOG: logPath,
+      RELIABILITY_REVIEW_QUEUE: queuePath,
+      RELIABILITY_HALT_FILE: join(workDir, "no-halt-for-review"),
+      RELIABILITY_REVIEW_BELOW: "0.6",
+    };
+    const { url, proc } = await startGateway({
+      ...env,
+      RELIABILITY_ROUTER: "1",
+      RELIABILITY_ROUTER_LOCAL: "stub",
+      RELIABILITY_ROUTER_ESCALATE_TO: "stub",
+      // A consensus field the triage never carries: every local vote disagrees,
+      // so the router escalates with confidence 0 and the third route applies.
+      RELIABILITY_ROUTER_CONSENSUS_FIELDS: "risk_band",
+    });
+    const agentEnv = { ...env, RELIABILITY_GATEWAY_URL: url };
+    let heldId = "";
+    let turnsId = "";
+    try {
+      const held = await run(["agent", "run"], agentEnv);
+      expect(held.code, held.err).toBe(0);
+      expect(held.out).toContain("review:   held for review (rv-");
+      heldId = /held for review \((rv-[0-9a-f]{12})\)/.exec(held.out)?.[1] ?? "";
+      expect(heldId).not.toBe("");
+
+      const turns = await run(["agent", "run", "--max-turns", "0"], agentEnv);
+      expect(turns.code).toBe(1);
+      expect(turns.err).toContain("held for review: rv-");
+      turnsId = /held for review: (rv-[0-9a-f]{12})/.exec(turns.err)?.[1] ?? "";
+
+      const res = await fetch(`${url}/v1/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-caller-id": "triage" },
+        body: JSON.stringify({
+          target: "stub",
+          request: {
+            system: "You are a customer-support triage assistant.",
+            messages: [{ role: "user", content: SMOKE_EMAIL }],
+            requiresReview: true,
+          },
+        }),
+      });
+      const body = (await res.json()) as {
+        ok: boolean;
+        review?: { held: boolean; trigger: string };
+      };
+      expect(res.status).toBe(200);
+      expect(body.review).toMatchObject({ held: true, trigger: "requested" });
+    } finally {
+      proc.kill();
+      await proc.exited;
+    }
+
+    const list = await run(["review", "list"], env);
+    expect(list.code, list.err).toBe(0);
+    expect(list.out).toContain(`${heldId} [pending] low-confidence`);
+    expect(list.out).toContain(`${turnsId} [pending] max-turns`);
+    expect(list.out).toContain("3 item(s) in ");
+    const pending = await run(["review", "list", "--pending", "--json"], env);
+    const items = JSON.parse(pending.out) as { id: string; requestId: string }[];
+    expect(items.length).toBe(3);
+    const heldRequest = items.find((i) => i.id === heldId)?.requestId ?? "";
+
+    const show = await run(["review", "show", heldId], env);
+    expect(show.code, show.err).toBe(0);
+    expect(show.out).toContain(
+      "Why held: confidence 0.00 below the review threshold 0.60 after frontier escalation to stub.",
+    );
+    expect(show.out).toContain("Decision: pending.");
+
+    // No approval without a named person: empty, automated, or missing --as.
+    expect((await run(["review", "approve", heldId, "--as", ""], env)).code).toBe(1);
+    const auto = await run(["review", "approve", heldId, "--as", "gateway"], env);
+    expect(auto.code).toBe(1);
+    expect(auto.err).toContain("automated identity");
+    expect((await run(["review", "approve", heldId], env)).code).not.toBe(0);
+
+    const approve = await run(
+      ["review", "approve", heldId, "--as", "you", "--note", "draft reads fine"],
+      env,
+    );
+    expect(approve.code, approve.err).toBe(0);
+    expect(approve.out).toMatch(
+      new RegExp(
+        `Review ${heldId} approved by you at \\d{4}-\\d{2}-\\d{2}T[0-9:.]+Z: draft reads fine\\.`,
+      ),
+    );
+    const twice = await run(["review", "approve", heldId, "--as", "you"], env);
+    expect(twice.code).toBe(1);
+    expect(twice.err).toContain("already approved by you");
+    const reject = await run(
+      ["review", "reject", turnsId, "--as", "you", "--reason", "no draft to send"],
+      env,
+    );
+    expect(reject.code, reject.err).toBe(0);
+    const after = await run(["review", "show", heldId], env);
+    expect(after.out).toContain("Decision: approved by you at ");
+
+    // The decision log shows the whole chain for the held request.
+    const chain = await run(["gateway", "log", "--request", heldRequest], env);
+    expect(chain.code, chain.err).toBe(0);
+    const lines = chain.out.trim().split("\n");
+    expect(lines.length).toBe(3);
+    expect(lines[0]).toContain(`held for human review as ${heldId}`);
+    expect(lines[1]).toContain("held for human review at ");
+    expect(lines[1]).toContain("trigger low-confidence");
+    expect(lines[2]).toContain(`Review ${heldId} for request ${heldRequest} approved by you at `);
+    const byReviewer = await run(["gateway", "log", "--caller", "you"], env);
+    expect(byReviewer.out.trim().split("\n").length).toBe(2);
+
+    const card = await run(["scorecard", "--from", fixturePath, "--review-queue", queuePath], env);
+    expect(card.code, card.err).toBe(0);
+    expect(card.out).toContain("#### Human oversight record: 🟢 Strong");
+    expect(card.out).toContain(`**Source:** ${queuePath} (3 items, `);
+    expect(card.out).toContain("Zero auto-approvals");
+    expect(card.out).not.toContain("fills in Phase 4D");
+  }, 120_000);
+
+  test("degraded canary: an automated approval drops G; an approval with no approver fails loudly", async () => {
+    const at = "2026-10-29T10:00:00.000Z";
+    const q = (id: string, trigger: string) =>
+      JSON.stringify({
+        v: 1,
+        event: "queued",
+        id,
+        at,
+        requestId: `req-${id}`,
+        callerId: "triage",
+        trigger,
+        reason: "held for the smoke test",
+        outputSha256: null,
+      });
+    const auto = join(workDir, "auto-approved.jsonl");
+    writeFileSync(
+      auto,
+      [
+        q("rv-00000000000a", "max-turns"),
+        q("rv-00000000000b", "requested"),
+        JSON.stringify({ v: 1, event: "approved", id: "rv-00000000000a", at, by: "clarke" }),
+        JSON.stringify({ v: 1, event: "approved", id: "rv-00000000000b", at, by: "triage" }),
+      ].join("\n"),
+    );
+    const card = await run(["scorecard", "--from", fixturePath, "--review-queue", auto]);
+    expect(card.code, card.err).toBe(0);
+    expect(card.out).toContain("#### Human oversight record: 🔴 Critical");
+    expect(card.out).toContain("### G · Governed: 🔴 Critical");
+    expect(card.out).toContain("flagged: rv-00000000000b");
+
+    const noApprover = join(workDir, "no-approver.jsonl");
+    writeFileSync(
+      noApprover,
+      [
+        q("rv-00000000000c", "requested"),
+        JSON.stringify({ v: 1, event: "approved", id: "rv-00000000000c", at }),
+      ].join("\n"),
+    );
+    const bad = await run(["scorecard", "--from", fixturePath, "--review-queue", noApprover]);
+    expect(bad.code).toBe(1);
+    expect(bad.err).toContain(`${noApprover}:2: by`);
+    const list = await run(["review", "list", "--file", noApprover]);
+    expect(list.code).toBe(1);
+  }, 60_000);
 });
