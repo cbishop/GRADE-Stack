@@ -49,8 +49,10 @@ deployer's policy, stated in `docs/logging-and-retention.md`.
 request JSON and of the text returned to the caller (after redaction), never
 the text. `RELIABILITY_TRACE_CONTENT=1` turns on content capture: one JSON file
 per request id under `RELIABILITY_CAPTURE_DIR` (default `./gateway-captures/`),
-holding the request and the returned text, and the prompt and raw model output
-on the `chat` span (`gen_ai.input.messages`, `gen_ai.output.messages`). The
+holding the request and the returned text, the prompt on the `chat` span
+(`gen_ai.input.messages`), and the returned text on the `gateway.generate`
+request span (`gen_ai.output.messages`), set after output redaction from the
+same string written to the capture file. The
 capture hashes to the log line, which is what makes a run reconstructable.
 Capture is local, so the sovereign variant's egress guard (ADR 0012) is
 unaffected.
@@ -105,10 +107,15 @@ Critical.
   4E, and only traffic through the gateway is logged. Governance readiness rises
   from 0.58 to 0.67, still At risk. NIST MEASURE 3 and MANAGE 4 name the log as
   a mechanism but stay `partial`; their other residuals (4C, 4D, 4F) remain.
-- **The `chat` span holds the raw model output when capture is on,** before
-  output redaction, while the capture file holds the redacted text. A deployer
-  who exports traces with capture on must treat the trace backend as holding
-  personal data. `docs/logging-and-retention.md` says so.
+- **No span holds raw model output, even with capture on.** The first 4B cut
+  wrote the model's output on the `chat` span before redaction, so a trace
+  could carry an SSN the capture file had redacted. Fixed: the core `chat`
+  wrapper no longer records output, and the gateway records the redacted text
+  on the request span, once, from the string it captures. A `gateway.test.ts`
+  test fails if any exported span attribute holds the unredacted value. The
+  prompt is still recorded as sent (input is blocked, never redacted), so a
+  deployer who exports traces with capture on must still treat the trace
+  backend as holding personal data. `docs/logging-and-retention.md` says so.
 - **By default *reconstructable* reads Critical,** because the default log holds
   hashes only. That is the honest grade for a deployment that cannot replay a
   request; turning capture on and stating a retention period is what moves it.

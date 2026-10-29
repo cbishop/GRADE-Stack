@@ -89,8 +89,11 @@ the request's line in the gateway decision log, so a log line and its trace
 join on it (ADR 0017).
 
 Prompt and output content stay off spans by default. `RELIABILITY_TRACE_CONTENT=1`
-records them on `chat` spans as `gen_ai.input.messages` and
-`gen_ai.output.messages`. The output there is the raw model text, before the
-gateway's output redaction, so with capture on a trace backend holds personal
-data. See [`docs/logging-and-retention.md`](logging-and-retention.md).
+records the prompt on `chat` spans as `gen_ai.input.messages` and the returned
+output on the `gateway.generate` span as `gen_ai.output.messages`. The gateway
+sets the output after its output redaction, from the same text it writes to the
+capture file, so no span carries raw model output; a `gateway.test.ts` test
+fails if any span attribute holds the unredacted value. The prompt is what the
+caller sent and is not redacted, so with capture on a trace backend can still
+hold personal data. See [`docs/logging-and-retention.md`](logging-and-retention.md).
 

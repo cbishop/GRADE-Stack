@@ -38,10 +38,14 @@ is strict, so a record with a text field fails validation and is not written.
 
 - One JSON file per request id in the capture directory, holding the request
   and the text returned to the caller (PII already redacted).
-- Prompt and **raw** model output on the `chat` span, as `gen_ai.input.messages`
-  and `gen_ai.output.messages`. The span holds the model output *before* output
-  redaction. If trace export is on, treat the trace backend as holding personal
-  data.
+- The prompt on the `chat` span as `gen_ai.input.messages`, and the returned
+  output on the `gateway.generate` request span as `gen_ai.output.messages`.
+  The gateway writes that output after redaction, from the same text it writes
+  to the capture file, so no span holds the raw model output (enforced by a
+  `gateway.test.ts` test that fails if any span attribute carries the
+  unredacted SSN). The prompt is not redacted: whatever the caller sent,
+  personal data included, reaches the trace. If trace export is on, treat the
+  trace backend as holding personal data.
 
 ## 3. Where it is kept
 
@@ -104,8 +108,8 @@ attributes trimmed):
 
 | Span | Attributes |
 |---|---|
-| `gateway.generate` (root) | `grade_stack.request_id=sample-7f3a`, `grade_stack.caller_id=triage`, `enduser.id=triage` |
-| `chat llama3.2` | the same three, plus `gen_ai.system=ollama`, `gen_ai.usage.input_tokens=52`, `gen_ai.usage.output_tokens=30`, `gen_ai.input.messages`, `gen_ai.output.messages` |
+| `gateway.generate` (root) | `grade_stack.request_id=sample-7f3a`, `grade_stack.caller_id=triage`, `enduser.id=triage`, `gen_ai.output.messages` (the redacted output, identical to the capture's `output`) |
+| `chat llama3.2` | the same three identity attributes, plus `gen_ai.system=ollama`, `gen_ai.usage.input_tokens=52`, `gen_ai.usage.output_tokens=30`, `gen_ai.input.messages` |
 
 The log line and the trace join on `sample-7f3a`.
 
@@ -136,4 +140,7 @@ The log line and the trace join on `sample-7f3a`.
 SHA-256 of `output` equals `outputSha256` (both verified `true` for this run).
 So the capture is the content the log line describes; editing the capture
 without also editing the log breaks the match. The raw model output, with the
-unredacted number, appears only on the `chat` span's `gen_ai.output.messages`.
+unredacted number, is on no span and in no file: the request span's
+`gen_ai.output.messages` carries the redacted text. The number does appear in
+the prompt (`request` here, `gen_ai.input.messages` on the `chat` span) because
+the caller sent it; input is checked and blocked, never redacted.

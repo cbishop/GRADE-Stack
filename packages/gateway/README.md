@@ -112,7 +112,7 @@ reliability gateway log --request 7f3a --json            # the full record
 | Variable | Default | Meaning |
 |---|---|---|
 | `RELIABILITY_DECISION_LOG` | `./gateway-decisions.jsonl` | decision log file (append-only, never truncated) |
-| `RELIABILITY_TRACE_CONTENT` | *(off)* | `1` records prompt and output on `chat` spans and mirrors them to the capture dir |
+| `RELIABILITY_TRACE_CONTENT` | *(off)* | `1` records the prompt on `chat` spans and the redacted output on the request span, and mirrors both to the capture dir |
 | `RELIABILITY_CAPTURE_DIR` | `./gateway-captures` | one JSON per request id (returned text, PII already redacted) |
 
 ## Prove both halves of the contract
