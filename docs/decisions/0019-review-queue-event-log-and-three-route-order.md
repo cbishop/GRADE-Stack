@@ -139,7 +139,15 @@ No environment variable disables a safety mechanism (the 4C approach):
   is sent; a deployer's integration must check the item's status first.
 - **The self-approval check is only as good as the caller id.** Caller ids are
   self-asserted headers until 4E authenticates them; an agent that sends no
-  caller id cannot be matched.
+  caller id cannot be matched. *Closed in 4E (ADR 0020):* `agent run` sends its
+  bearer token (`RELIABILITY_AGENT_TOKEN`), the item records the authenticated
+  agent id, and `review approve --as triage` is refused as the requesting
+  caller. Without manifests the caller is `anonymous`, itself refused as an
+  approver.
+- **L1 agents are held by their manifest (4E).** The `requiresReview` flag this
+  ADR anticipated for L1 agents is set by the gateway from the manifest
+  (`reviewRequired`, mandatory at L1), not by the agent, and it holds even when
+  `RELIABILITY_REVIEW_ON_REQUEST=0`.
 - **Pending items do not expire.** There is no response-time timer or backlog
   alarm; the oversight map asks the deployer to name one.
 - **Earlier attempts can leave items.** If a held answer fails the agent's

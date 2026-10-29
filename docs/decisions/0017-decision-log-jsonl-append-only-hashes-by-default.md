@@ -75,6 +75,13 @@ id.
 with bearer tokens. The scorecard caps *attributable* at Adequate while any
 caller id is unverified.
 
+> **Update (Phase 4E, ADR 0020).** Closed. With agent manifests
+> (`RELIABILITY_AGENTS_DIR`) the caller id comes from a bearer token, the record
+> says `callerVerified: true`, and an `x-caller-id` that disagrees with the
+> token is refused with 401. Without manifests the header is still logged as
+> unverified, and a request with no caller id is logged as `anonymous`.
+> *Attributable* reaches Strong when every caller is verified.
+
 **7. Two computed D criteria.** With `reliability scorecard --decision-log
 <file>`: *attributable* is the share of records with both a request id and a
 caller id (Strong at 100% and verified); *reconstructable* is the share with
@@ -104,7 +111,8 @@ Critical.
 
 - EU AI Act Art 12 / Art 26(6) moves back to `supported`, with the residual
   stated: retention is the deployer's policy, caller ids are unverified until
-  4E, and only traffic through the gateway is logged. Governance readiness rises
+  4E (closed by ADR 0020 when manifests are configured), and only traffic
+  through the gateway is logged. Governance readiness rises
   from 0.58 to 0.67, still At risk. NIST MEASURE 3 and MANAGE 4 name the log as
   a mechanism but stay `partial`; their other residuals (4C, 4D, 4F) remain.
 - **No span holds raw model output, even with capture on.** The first 4B cut

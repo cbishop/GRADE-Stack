@@ -22,7 +22,7 @@ upstream error. Each line is validated against the `DecisionRecord` schema
 | Field | Answers | Notes |
 |---|---|---|
 | `requestId` | which request | From `x-request-id`, else generated. Same value as the `grade_stack.request_id` span attribute. |
-| `callerId`, `callerVerified` | who asked | From `x-caller-id`; `null` when absent. Self-asserted until Phase 4E, so `callerVerified` is `false`. |
+| `callerId`, `callerVerified` | who asked | With agent manifests (Phase 4E), the agent the bearer token authenticated, and `callerVerified` is `true`. Without them, the self-asserted `x-caller-id` (`callerVerified: false`), or `anonymous` when none is sent. |
 | `at` | when | ISO 8601 UTC, request start. |
 | `action`, `stage` | what the gateway did | `allow`, `redact`, `block` or `error`; `input` or `output` for blocks and redactions. |
 | `policy`, `reason` | why | The policy that fired (`prompt-injection`, `secret-exfiltration`, `pii-redaction`, `confidence-router`, ...) and a reason that never echoes the matched text. |

@@ -146,7 +146,7 @@
           "note": "Produces one connected, inspectable trace per run when export is switched on; root and chat spans carry the same request id and caller id as the decision log, so a log line and its trace join."
         }
       ],
-      "note": "Supported for the stack's part: the gateway records every decision automatically, attributable and, with capture on, reconstructable. Residual: retention is the deployer's policy (Art 26(6) asks for at least six months; the stack never deletes and never enforces a period; state it in docs/logging-and-retention.md), caller ids are self-asserted headers until Phase 4E authenticates them, trace export stays opt-in, and only requests through the gateway are logged. Legally required only for Annex III high-risk systems."
+      "note": "Supported for the stack's part: the gateway records every decision automatically, attributable and, with capture on, reconstructable. Residual: retention is the deployer's policy (Art 26(6) asks for at least six months; the stack never deletes and never enforces a period; state it in docs/logging-and-retention.md), caller ids are verified by bearer tokens only when the deployer configures agent manifests (Phase 4E, ADR 0020; otherwise they are self-asserted headers or anonymous), trace export stays opt-in, and only requests through the gateway are logged. Legally required only for Annex III high-risk systems."
     },
     {
       "id": "Art 26 (monitoring)",

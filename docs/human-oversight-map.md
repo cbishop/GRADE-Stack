@@ -35,7 +35,7 @@ the hold; **your send step must check it** (section 6).
 | `low-confidence` | the router escalated and local agreement was below `reviewBelow` | `RELIABILITY_REVIEW_BELOW` (0..1, or `off`) | off | <fill in, e.g. 0.60> |
 | `max-turns` | the agent hit its turn bound without a valid answer | `RELIABILITY_REVIEW_ON_MAX_TURNS` | on | <fill in> |
 | `output-redaction` | the PII guardrail redacted the answer | `RELIABILITY_REVIEW_ON_REDACTION` | off | <fill in> |
-| `requested` | the request set `requiresReview` (L1 agents, Phase 4E) | `RELIABILITY_REVIEW_ON_REQUEST` | on | <fill in> |
+| `requested` | the request set `requiresReview`, or the agent's manifest requires review (every L1 agent, Phase 4E; held even when the env switch is off) | `RELIABILITY_REVIEW_ON_REQUEST` | on | <fill in> |
 
 - **Router threshold in this deployment:** <fill in, `RELIABILITY_ROUTER_THRESHOLD`>
 - **Why this review threshold:** <fill in: what share of traffic it holds, and who agreed to that load>

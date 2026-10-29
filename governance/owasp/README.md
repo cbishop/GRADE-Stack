@@ -58,8 +58,8 @@ are reported separately and do not enter the denominator.
 | ID | Threat | Status | Primary mechanism (or boundary) |
 |---|---|---|---|
 | ASI01:2026 | Agent Goal Hijack | 🟡 Partial | Gateway server-side prompt-injection / override denial (sole model path) |
-| ASI02:2026 | Tool Misuse & Exploitation | 🟡 Partial | Name-blind tool selection + tool/resource control model + turn bound |
-| ASI03:2026 | Agent Identity & Privilege Abuse | 🟢 Covered | Structural credential isolation — agent holds no provider credentials |
+| ASI02:2026 | Tool Misuse & Exploitation | 🟡 Partial | Name-blind tool selection + tool/resource control model + turn bound + per-agent tool scope at the MCP server (no per-argument scope, rate limit or side-effect sandbox) |
+| ASI03:2026 | Agent Identity & Privilege Abuse | 🟢 Covered | Structural credential isolation + per-agent bearer tokens and manifests at the gateway and MCP server (static tokens, no rotation) |
 | ASI04:2026 | Agentic Supply Chain Compromise | 🟡 Partial | Secret scan + pinned lockfile + name-blind selection (no SCA / tool signing) |
 | ASI05:2026 | Unexpected Code Execution | 🟢 Covered | No code-execution surface; validator is Zod schema-parse, not execution |
 | ASI06:2026 | Memory & Context Poisoning | ⚪ Out of scope | Stateless agent — no memory subsystem to poison; relevant only if a deployment adds persistent memory/RAG |
