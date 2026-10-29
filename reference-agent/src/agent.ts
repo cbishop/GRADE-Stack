@@ -13,8 +13,11 @@
  * Phase 4C stamps the release manifest (`./release`) onto the root span.
  * Phase 4D: when the gateway holds the accepted answer for a named person, the
  * result says so (`review: { required, reason, id }`).
+ * Phase 4E: each run opens its own gateway session (`withSession`), so the
+ * gateway's per-session turn cap from the agent's manifest bounds each run.
  */
 
+import { randomUUID } from "node:crypto";
 import type {
   AgentStep,
   Executor,
@@ -239,7 +242,8 @@ export async function runReferenceAgent(
   // Every model call (tool selection + the PEV executor) flows through this
   // wrapper, so each one emits a GenAI `chat` span under the right parent. It is
   // transparent and a no-op when tracing is off (Phase 2D).
-  const tracedProvider = traceProvider(provider);
+  // 4E: one gateway session per run, so the manifest's turn cap is per run.
+  const tracedProvider = traceProvider(provider.withSession?.(randomUUID()) ?? provider);
 
   // The root span: the whole run hangs off it, giving one connected trace
   // (plan → tool calls → validation). No-op when tracing is inactive.

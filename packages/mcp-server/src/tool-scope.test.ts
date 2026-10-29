@@ -89,8 +89,11 @@ async function inMemory(guard: ToolScopeGuard | null): Promise<Client> {
 
 const LOOKUP = { name: "lookup_account", arguments: { email: "dana@acme-retail.example" } };
 
-function textOf(res: { content?: unknown }): string {
-  const content = (res.content ?? []) as { type: string; text?: string }[];
+function textOf(res: unknown): string {
+  const content = ((res as { content?: unknown }).content ?? []) as {
+    type: string;
+    text?: string;
+  }[];
   return content.map((c) => c.text ?? "").join("");
 }
 

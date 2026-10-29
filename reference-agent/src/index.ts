@@ -29,10 +29,12 @@ export {
   connectSupportTools,
   type Grounding,
   groundTriage,
+  MCP_URL_ENV,
   parseSelection,
   type RemoteTool,
   type SupportToolsClient,
   selectTool,
+  ToolRefusedError,
   type ToolSelection,
 } from "./mcp.ts";
 export { type ReferenceReleaseOptions, referenceAgentRelease } from "./release.ts";

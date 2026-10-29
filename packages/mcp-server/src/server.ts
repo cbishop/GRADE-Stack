@@ -12,9 +12,15 @@
  * (not names, not prompt rules) are written to be the sole basis a model needs
  * to choose between them — `search_help_articles` is deliberately present as a
  * second, plausible option so description-driven selection is observable.
+ *
+ * Phase 4E (ADR 0020): given a {@link ToolScopeGuard}, every tool call is
+ * checked against the caller's manifest before its handler runs; a refused call
+ * returns an MCP tool error (`isError`) naming the policy, and the tool's data
+ * is never read. Without a guard the server behaves as in v2.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import {
   findAccountByEmail,
@@ -22,6 +28,7 @@ import {
   searchHelpArticles,
   TRIAGE_POLICY,
 } from "./data.ts";
+import type { ToolScopeGuard } from "./tool-scope.ts";
 
 /** Stable identity reported to clients on connect. */
 export const SERVER_INFO = { name: "grade-stack-support", version: "0.1.0" } as const;
@@ -39,12 +46,45 @@ export const SUPPORT_TOOL_INPUT_SCHEMAS = {
   search_help_articles: { query: z.string().describe("Free-text search query.") },
 } as const;
 
+export interface SupportServerOptions {
+  /**
+   * The caller's tool boundary (Phase 4E). When set, each tool call is checked
+   * and logged before it runs; null or absent means no manifests (v2).
+   */
+  guard?: ToolScopeGuard | null;
+}
+
+/**
+ * Run a tool handler only if the guard allows it. A refusal is an MCP tool
+ * error whose text starts with the policy, so a client can tell
+ * `tool-not-allowed` from a tool that failed.
+ */
+function scoped<A>(
+  guard: ToolScopeGuard | null | undefined,
+  tool: string,
+  handler: (args: A) => CallToolResult,
+): (args: A) => Promise<CallToolResult> {
+  return async (args: A) => {
+    if (guard) {
+      const decision = await guard.check(tool, args);
+      if (!decision.allowed) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: `${decision.policy}: ${decision.reason}` }],
+        };
+      }
+    }
+    return handler(args);
+  };
+}
+
 /**
  * Construct the support-desk MCP server with its one resource and two tools.
  * Pure and side-effect-free — the caller attaches a transport (`./connect`).
  */
-export function createSupportMcpServer(): McpServer {
+export function createSupportMcpServer(opts: SupportServerOptions = {}): McpServer {
   const server = new McpServer(SERVER_INFO);
+  const guard = opts.guard;
 
   // ── Resource: application-controlled reference data ───────────────────────
   // The triage policy is stable guidance the *application* decides to surface.
@@ -82,7 +122,7 @@ export function createSupportMcpServer(): McpServer {
         "depends on the customer's actual billing or account state.",
       inputSchema: SUPPORT_TOOL_INPUT_SCHEMAS.lookup_account,
     },
-    ({ email }) => {
+    scoped(guard, "lookup_account", ({ email }: { email: string }): CallToolResult => {
       const account = findAccountByEmail(email);
       if (!account) {
         return {
@@ -108,7 +148,7 @@ export function createSupportMcpServer(): McpServer {
         content: [{ type: "text", text: JSON.stringify(structured) }],
         structuredContent: structured,
       };
-    },
+    }),
   );
 
   // ── Tool: the distractor that makes selection observable ──────────────────
@@ -127,13 +167,13 @@ export function createSupportMcpServer(): McpServer {
         "specific account state.",
       inputSchema: SUPPORT_TOOL_INPUT_SCHEMAS.search_help_articles,
     },
-    ({ query }) => {
+    scoped(guard, "search_help_articles", ({ query }: { query: string }): CallToolResult => {
       const articles = searchHelpArticles(query);
       return {
         content: [{ type: "text", text: JSON.stringify(articles) }],
         structuredContent: { articles },
       };
-    },
+    }),
   );
 
   return server;
