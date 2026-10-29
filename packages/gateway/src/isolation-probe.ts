@@ -18,6 +18,11 @@
  *
  * Exits 0 only when every proof holds, so a spawning parent (the `gateway demo`
  * command, or a test) can gate on the exit code as well as parse the report.
+ *
+ * Phase 4D: the probe also sends one triage draft flagged `requiresReview` and
+ * reports whether the gateway held it for a named person (`heldForReview`, the
+ * review id and reason). That is shown by `gateway demo`; it is not one of the
+ * isolation proofs, so it does not change the exit code.
  */
 
 import {
@@ -47,6 +52,10 @@ interface ProbeReport {
   directFactoryRefused: boolean;
   /** A raw provider call failed for lack of credentials in this process. */
   directProviderFailed: boolean;
+  /** A draft flagged for review came back held by the gateway (Phase 4D; informational). */
+  heldForReview: boolean;
+  reviewId?: string;
+  reviewReason?: string;
   notes: string[];
 }
 
@@ -61,6 +70,7 @@ async function main(): Promise<number> {
     bypassBlocked: false,
     directFactoryRefused: false,
     directProviderFailed: false,
+    heldForReview: false,
     notes: [],
   };
 
@@ -104,6 +114,26 @@ async function main(): Promise<number> {
         `bypass call errored non-guardrail: ${err instanceof Error ? err.message : err}`,
       );
     }
+  }
+
+  // ── Phase 4D: a draft flagged for review is held for a named person ───────
+  try {
+    const provider = createProvider(target);
+    const draft = await provider.generate({
+      system: TRIAGE_SYSTEM,
+      messages: [{ role: "user", content: "Please refund the duplicate charge on invoice 8812." }],
+      maxTokens: 256,
+      requiresReview: true,
+    });
+    if (draft.review) {
+      report.heldForReview = true;
+      report.reviewId = draft.review.id;
+      report.reviewReason = draft.review.reason;
+    } else {
+      report.notes.push("draft flagged for review came back without a hold");
+    }
+  } catch (err) {
+    report.notes.push(`review draft call failed: ${err instanceof Error ? err.message : err}`);
   }
 
   // ── Structural proof, part 1: the factory refuses a credentialed provider ─

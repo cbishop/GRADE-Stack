@@ -16,6 +16,7 @@ export {
   type RunAgentOptions,
   runReferenceAgent,
   type TriageResult,
+  type TriageReview,
 } from "./agent.ts";
 export {
   BASE_SYSTEM_PROMPT,
