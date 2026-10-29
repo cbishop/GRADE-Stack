@@ -63,6 +63,13 @@ the command name (`reliability`) are intentionally different.
   policy hash), and `reliability release diff` says what changed. A dated drill
   proves the switch works (ADR 0018; [rollback protocol](docs/rollback-protocol.md);
   [drill record](governance/drills/kill-switch-2026-10-29.json)).
+- A **human review queue**, the router's third route: an answer the local model
+  could not settle even after frontier escalation, an agent that hit its turn
+  bound, a configured redaction, or a request that asks for review is held for a
+  named person. `reliability review approve <id> --as <name>` or `reject --as
+  <name> --reason <text>` records who decided and when; nothing approves
+  without a name (ADR 0019; [oversight map](docs/human-oversight-map.md);
+  [sample approval log](governance/drills/review-queue-2026-10-29.jsonl)).
 - **OpenTelemetry tracing** (GenAI conventions; Phoenix by default) so every
   agent run is one connected, inspectable trace.
 - **Governance mappings with teeth**: OWASP Agentic Top 10 (2026), NIST AI RMF
@@ -100,6 +107,9 @@ bun run reliability gateway log                  # what the gateway decided, and
 bun run reliability gateway halt --by you --reason drill   # kill switch; `gateway resume --by you` undoes it
 bun run reliability release diff a.json b.json   # what changed between two eval results
 bun scripts/rollback-drill.ts                    # dated kill-switch drill → governance/drills/
+bun run reliability review list --pending        # what the gateway held for a person
+bun run reliability review approve <id> --as you # release one, on the record
+bun scripts/review-drill.ts                      # ten held items, decided by name → governance/drills/
 ```
 
 Provider selection precedence: `--provider` flag → `RELIABILITY_PROVIDER` env →
@@ -118,6 +128,14 @@ gateway's environment, or the halt file `RELIABILITY_HALT_FILE` (default
 code in the release manifest when there is no `.git`. `reliability scorecard
 --drills governance/drills` grades D's rollback verified criterion from the
 latest drill (`--as-of <date>` shows a stale one).
+
+The review queue goes to `RELIABILITY_REVIEW_QUEUE` (default
+`./review-queue.jsonl`, append-only). Its triggers: `RELIABILITY_REVIEW_BELOW`
+(hold an escalated answer whose local agreement was below this; off by
+default, set it next to `RELIABILITY_ROUTER=1`), `RELIABILITY_REVIEW_ON_MAX_TURNS`
+(default on), `RELIABILITY_REVIEW_ON_REDACTION` (default off) and
+`RELIABILITY_REVIEW_ON_REQUEST` (default on). `reliability scorecard
+--review-queue <file>`, run with the same settings, grades G's human oversight.
 
 ## Layout
 
