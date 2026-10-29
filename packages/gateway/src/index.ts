@@ -49,6 +49,19 @@ export {
   resolveDecisionLogPath,
   sha256Hex,
 } from "./decision-log.ts";
+export {
+  DEFAULT_DRILL_PROBES,
+  DEFAULT_TIME_TO_HALT_THRESHOLD_MS,
+  type DrillOptions,
+  type DrillRecord,
+  DrillRecordError,
+  DrillRecordSchema,
+  drillFileName,
+  parseDrillRecord,
+  readLatestDrill,
+  runKillSwitchDrill,
+  writeDrillRecord,
+} from "./drill.ts";
 export { describeDecision } from "./explain.ts";
 export { GatewayService, type GatewayServiceOptions } from "./gateway.ts";
 export {
