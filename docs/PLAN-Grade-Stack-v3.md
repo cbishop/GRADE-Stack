@@ -1,6 +1,6 @@
 # Build Plan v3 — Grade Stack: the assurance loop
 
-**Owner:** Clarke Bishop · **Status:** in progress. Written 2026-10-28 at commit `e5882b1`; Phase 4A complete 2026-10-28 (branch `v3-4a-honesty-grade-dimensions`); Phase 4B complete 2026-10-28 (branch `v3-4b-decision-log`) · **Source of truth for what:** [`docs/PRD-Grade-Stack-v2.md`](./PRD-Grade-Stack-v2.md) (product context, stack, non-goals) plus [`docs/gap-analysis-assurance-loop-2026-10-28.md`](./gap-analysis-assurance-loop-2026-10-28.md) (the gaps v3 closes) · **Predecessor:** [`docs/PLAN-Grade-Stack-v2.md`](./PLAN-Grade-Stack-v2.md) (complete, 13 cycles)
+**Owner:** Clarke Bishop · **Status:** in progress. Written 2026-10-28 at commit `e5882b1`; Phase 4A complete 2026-10-28 (branch `v3-4a-honesty-grade-dimensions`); Phase 4B complete 2026-10-28 (branch `v3-4b-decision-log`); Phase 4C complete 2026-10-29 (branch `v3-4c-kill-switch-release-manifest`) · **Source of truth for what:** [`docs/PRD-Grade-Stack-v2.md`](./PRD-Grade-Stack-v2.md) (product context, stack, non-goals) plus [`docs/gap-analysis-assurance-loop-2026-10-28.md`](./gap-analysis-assurance-loop-2026-10-28.md) (the gaps v3 closes) · **Predecessor:** [`docs/PLAN-Grade-Stack-v2.md`](./PLAN-Grade-Stack-v2.md) (complete, 13 cycles)
 
 v2 built the stack. v3 closes the four-pillar assurance loop the gap analysis measured it against: trusted evaluation, full traceability, rollback, and a human review queue, plus explicit boundaries as autonomy rises. Every sub-phase turns one "missing" or "partial" row of the gap table into a mechanism with a test that proves it bites, a readback that explains it in plain language, and a scorecard criterion computed from its record.
 
@@ -140,12 +140,12 @@ The gap analysis found two pillars with no code at all (rollback, human review),
 8. **Governance:** OWASP ASI10 residual narrows to "no runtime anomaly detector"; the kill switch is now the named mechanism.
 
 **Acceptance criteria:**
-- [ ] `reliability gateway halt` followed by `reliability agent run` yields a kill-switch violation and no model call; `resume` restores it.
-- [ ] Eval results and the root span carry the release manifest; `release diff` explains a prompt change in one sentence.
-- [ ] `bun scripts/rollback-drill.ts` writes a dated drill record and the scorecard cites it.
-- [ ] `docs/rollback-protocol.md` exists as a fill-in template with the drill's dated result.
-- [ ] **ADR 0018** records halt-file plus env triggers and the manifest fields.
-- [ ] **Artifact:** post draft in `content/cycle-15/`: "we pulled the kill switch on purpose; here is the record."
+- [x] `reliability gateway halt` followed by `reliability agent run` yields a kill-switch violation and no model call; `resume` restores it. *Evidence: `kill-switch.test.ts` (spy provider never resolved or called after halt, plain and router paths, halt file and `RELIABILITY_HALT=1`); built-binary smoke test halts a running `gateway serve`, `agent run` exits 1 with policy kill-switch, every logged line while halted has `servedBy: null`, resume restores.*
+- [x] Eval results and the root span carry the release manifest; `release diff` explains a prompt change in one sentence. *Evidence: `EvalRunResult.release` stamped by `runEvalSuite`; `agent.run` span carries `grade_stack.release.*` (`trace.test.ts`); `release.test.ts`, `gate.test.ts` (regression names the diff); committed stub baseline carries its manifest; smoke test runs `release show` and `release diff`.*
+- [x] `bun scripts/rollback-drill.ts` writes a dated drill record and the scorecard cites it. *Evidence: `governance/drills/kill-switch-2026-10-29.json` (143.2 ms to halt, 0 provider calls after halt); `reliability scorecard --drills governance/drills` grades Rollback verified Strong citing the file; `scorecard.test.ts` and the smoke test cover stale, missing, degraded and malformed drills.*
+- [x] `docs/rollback-protocol.md` exists as a fill-in template with the drill's dated result. *Evidence: trigger, who can pull it, time-to-halt, in-flight handling, restoring the last good manifest, and the 2026-10-29 drill table.*
+- [x] **ADR 0018** records halt-file plus env triggers and the manifest fields. *Evidence: `docs/decisions/0018-kill-switch-halt-file-and-env-triggers-and-release-manifest.md`.*
+- [x] **Artifact:** post draft in `content/cycle-15/`: "we pulled the kill switch on purpose; here is the record." *Evidence: `content/cycle-15/endofcycle-post.md` and `content/cycle-15/sample-scorecard.md`.*
 
 ---
 

@@ -115,6 +115,30 @@ reliability gateway log --request 7f3a --json            # the full record
 | `RELIABILITY_TRACE_CONTENT` | *(off)* | `1` records the prompt on `chat` spans and the redacted output on the request span, and mirrors both to the capture dir |
 | `RELIABILITY_CAPTURE_DIR` | `./gateway-captures` | one JSON per request id (returned text, PII already redacted) |
 
+## Kill switch (Phase 4C)
+
+The first thing every `generate` call does is check whether the gateway is
+halted. While halted it refuses with `{ ok: false, violation: { policy:
+"kill-switch" } }` (HTTP 503) before any provider is resolved, on the plain and
+router paths alike, and logs the refusal like any other decision. Two triggers,
+both read per request, so a running gateway halts without a restart:
+
+```bash
+reliability gateway halt --by clarke --reason "bad release"   # writes the halt file, logs a halt line
+reliability gateway resume --by clarke                        # removes it, logs a resume line
+reliability gateway log --caller clarke                       # "Gateway halted by clarke at ...: bad release. ..."
+bun scripts/rollback-drill.ts                                 # dated drill → governance/drills/kill-switch-<date>.json
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RELIABILITY_HALT` | *(off)* | `1`/`true` halts this gateway process; only a restart without it clears it |
+| `RELIABILITY_HALT_FILE` | `.reliability-halt` | halt file `{ by, reason, at }`; a malformed file keeps the gateway halted |
+
+Requests already past the check finish; every request after it is refused. See
+[ADR 0018](../../docs/decisions/0018-kill-switch-halt-file-and-env-triggers-and-release-manifest.md)
+and the deployer's [rollback protocol](../../docs/rollback-protocol.md).
+
 ## Prove both halves of the contract
 
 ```bash
