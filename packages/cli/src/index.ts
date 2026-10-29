@@ -13,7 +13,10 @@
  * show` / `release diff` (the release manifest), and `scorecard --drills` (D's
  * rollback verified criterion). Phase 4D adds `review list|show|approve|reject`
  * (the human review queue), "held for review" on `agent run`, and `scorecard
- * --review-queue` (G's human oversight criterion).
+ * --review-queue` (G's human oversight criterion). Phase 4E adds `agents
+ * list|show` (the manifest readback), the agent and tool-scope lines on `gateway
+ * serve` and `mcp serve --http`, and `scorecard --agents` (A's boundary
+ * criteria and G's boundary register).
  */
 
 import { readFile } from "node:fs/promises";
@@ -48,21 +51,28 @@ import {
   runEvalSuite,
 } from "@grade-stack/evals";
 import {
+  AGENTS_DIR_ENV,
   configuredTriggers,
   DecisionLog,
   type DecisionRecord,
   deriveReviewItems,
+  describeAgent,
   describeDecision,
   describeReviewItem,
+  explainAgent,
   explainReviewItem,
   HALT_ENV,
   haltGateway,
   ISOLATION_PROBE_BIN,
+  isAuthRecord,
   isAutomatedActor,
   isControlRecord,
   isolatedAgentEnv,
   isRequestRecord,
   isReviewRecord,
+  isToolRecord,
+  type LoadedManifest,
+  loadAgentManifests,
   type ReviewItem,
   type ReviewPolicy,
   ReviewQueue,
@@ -78,11 +88,14 @@ import {
 } from "@grade-stack/gateway";
 import { serveHttp, serveStdio } from "@grade-stack/mcp-server";
 import {
+  type AgentBoundaryEvidence,
+  type BoundaryObservation,
   buildScorecard,
   computeGovernanceReadiness,
   computeGuardrailCoverage,
   type DecisionLogEvidence,
   type DrillEvidence,
+  parseBoundaryRegister,
   parseEuAiActModule,
   parseOwaspMapping,
   parseRetentionPeriod,
@@ -133,6 +146,81 @@ function loadGovernanceReadiness() {
 
 /** Default logging-and-retention record the reconstructable criterion reads (Phase 4B). */
 const DEFAULT_LOGGING_RECORD = "docs/logging-and-retention.md";
+
+/** Default boundary register G's boundary register criterion reads (Phase 4E). */
+const DEFAULT_BOUNDARY_REGISTER = "docs/autonomy-boundary-register.md";
+
+/** The manifests directory: `--dir`, else RELIABILITY_AGENTS_DIR, else ./agents. */
+function agentsDir(explicit?: string): string {
+  return explicit ?? process.env[AGENTS_DIR_ENV] ?? "agents";
+}
+
+/**
+ * Read the agent manifests (each schema-validated; a malformed one throws) and
+ * the decision log (every line validated) for A's boundary criteria, plus the
+ * boundary register's rows for G (Phase 4E).
+ */
+async function loadAgentEvidence(
+  dir: string,
+  logPath: string,
+  registerPath: string,
+): Promise<AgentBoundaryEvidence> {
+  const manifests = loadAgentManifests(dir);
+  const observations: BoundaryObservation[] = [];
+  for (const r of await readDecisionLog(logPath)) {
+    if (isRequestRecord(r)) {
+      observations.push({
+        kind: "request",
+        requestId: r.requestId,
+        callerId: r.callerId,
+        callerVerified: r.callerVerified,
+        action: r.action,
+        policy: r.policy,
+        held: r.reviewId !== undefined,
+      });
+    } else if (isToolRecord(r)) {
+      observations.push({
+        kind: "tool",
+        requestId: r.requestId,
+        callerId: r.callerId,
+        callerVerified: r.callerVerified,
+        tool: r.tool,
+        action: r.action,
+        policy: r.policy,
+      });
+    } else if (isAuthRecord(r)) {
+      observations.push({
+        kind: "auth",
+        requestId: r.requestId,
+        chokepoint: r.chokepoint,
+        reason: r.reason,
+      });
+    }
+  }
+  let agentIds: string[] | null = null;
+  try {
+    agentIds = parseBoundaryRegister(await readFile(registerPath, "utf8"));
+  } catch {
+    agentIds = null;
+  }
+  return {
+    manifestsSource: dir,
+    manifests: manifests.map(({ manifest: m, file }) => ({
+      id: m.id,
+      file,
+      owner: m.owner,
+      autonomyLevel: m.autonomyLevel,
+      allowedTools: m.allowedTools,
+      allowedModels: m.allowedModels,
+      maxTurns: m.maxTurns,
+      tokenCap: m.tokenCap,
+      reviewRequired: m.reviewRequired,
+    })),
+    logSource: logPath,
+    observations,
+    register: { source: registerPath, agentIds },
+  };
+}
 
 /**
  * Read and schema-validate a decision log (a malformed line throws, never
@@ -278,6 +366,12 @@ agent
           console.log(
             `mcp:      policy resource loaded; tool selected: ${sel ? sel.tool : "(none)"}`,
           );
+          const refused = result.grounding.refused;
+          if (refused) {
+            console.log(
+              `          ${refused.tool} refused by the MCP server: ${refused.policy}: ${refused.reason}`,
+            );
+          }
         }
         if (result.review.required) {
           console.log(`review:   held for review (${result.review.id}): ${result.review.reason}`);
@@ -344,6 +438,11 @@ mcp
     if (opts.http) {
       const handle = serveHttp({ port: Number.parseInt(opts.port, 10) });
       console.error(`support MCP server listening at ${handle.url}`);
+      console.error(
+        handle.agents
+          ? `tool scope: ${handle.agents.manifests.length} agent manifest(s) from ${process.env[AGENTS_DIR_ENV]}; bearer token required; undeclared tools refused (tool-not-allowed); decision log: ${handle.decisionLogPath}`
+          : `tool scope: off (no ${AGENTS_DIR_ENV}); every tool is open to every caller, as in v2`,
+      );
     } else {
       await serveStdio();
     }
@@ -399,6 +498,16 @@ gateway
     console.error(
       `review queue: ${handle.reviewQueuePath}; holds for a named person: ${describeTriggers(handle.review)}`,
     );
+    if (handle.agents) {
+      const untokened = handle.agents.untokened();
+      console.error(
+        `agents: ${handle.agents.manifests.map((m) => `${m.manifest.id} (${m.manifest.autonomyLevel})`).join(", ")} from ${process.env[AGENTS_DIR_ENV]}; bearer token required (401 otherwise)${untokened.length > 0 ? `; no token for: ${untokened.join(", ")}` : ""}`,
+      );
+    } else {
+      console.error(
+        `agents: none (no ${AGENTS_DIR_ENV}); single-agent mode, caller ids unverified or anonymous`,
+      );
+    }
   });
 
 gateway
@@ -412,7 +521,7 @@ gateway
   .option("--request <id>", "only this request id")
   .option(
     "--caller <id>",
-    "only this caller id (or, for halt, resume and review lines, this actor)",
+    "only this caller id (or, for halt, resume and review lines, this actor; for 401 lines, the claimed caller)",
   )
   .option("--json", "print the matching records as JSON")
   .action(
@@ -450,7 +559,9 @@ gateway
               ? r.actor === opts.caller
               : isReviewRecord(r)
                 ? r.actor === opts.caller || r.callerId === opts.caller
-                : r.callerId === opts.caller)),
+                : isAuthRecord(r)
+                  ? r.claimedCallerId === opts.caller
+                  : r.callerId === opts.caller)),
       );
       if (opts.json) {
         console.log(JSON.stringify(matching, null, 2));
@@ -786,6 +897,71 @@ sovereign
       }
     },
   );
+
+const agentsCmd = program
+  .command("agents")
+  .description("Read back the agent manifests: level, owner, tools, models and limits (Phase 4E)");
+
+const AGENTS_DIR_HELP = `manifests directory (default: ${AGENTS_DIR_ENV} or ./agents)`;
+
+/** Load the manifests or say why not (a malformed manifest fails loudly). */
+function loadManifestsOrFail(dir: string): LoadedManifest[] | null {
+  try {
+    return loadAgentManifests(dir);
+  } catch (err) {
+    console.error(
+      `Could not read agent manifests: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exitCode = 1;
+    return null;
+  }
+}
+
+agentsCmd
+  .command("list")
+  .description("One line per agent: level, owner, tools, models, turn and token caps, review")
+  .option("-d, --dir <path>", AGENTS_DIR_HELP)
+  .option("--json", "print the manifests as JSON")
+  .action((opts: { dir?: string; json?: boolean }) => {
+    const dir = agentsDir(opts.dir);
+    const loaded = loadManifestsOrFail(dir);
+    if (!loaded) return;
+    if (opts.json) {
+      console.log(JSON.stringify(loaded, null, 2));
+      return;
+    }
+    if (loaded.length === 0) {
+      console.log(`No agent manifests in ${dir}.`);
+      return;
+    }
+    for (const a of loaded) console.log(describeAgent(a));
+    console.log(`\n${loaded.length} agent(s) in ${dir}.`);
+  });
+
+agentsCmd
+  .command("show")
+  .description("Explain one agent's boundary and where each limit is enforced")
+  .argument("<id>", "agent id")
+  .option("-d, --dir <path>", AGENTS_DIR_HELP)
+  .option("--json", "print the manifest as JSON")
+  .action((id: string, opts: { dir?: string; json?: boolean }) => {
+    const dir = agentsDir(opts.dir);
+    const loaded = loadManifestsOrFail(dir);
+    if (!loaded) return;
+    const agent = loaded.find((a) => a.manifest.id === id);
+    if (!agent) {
+      console.error(
+        `No agent "${id}" in ${dir} (agents: ${loaded.map((a) => a.manifest.id).join(", ") || "none"}).`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(agent, null, 2));
+      return;
+    }
+    for (const line of explainAgent(agent)) console.log(line);
+  });
 
 const review = program
   .command("review")
@@ -1167,6 +1343,15 @@ program
     "--review-queue <file>",
     "compute G's human oversight criterion from a review queue (4D); triggers come from RELIABILITY_REVIEW_*",
   )
+  .option(
+    "--agents <dir>",
+    "compute A's boundary criteria and G's boundary register from the agent manifests in <dir> and the --decision-log (4E)",
+  )
+  .option(
+    "--boundary-register <file>",
+    "boundary register whose agent rows G's boundary register criterion reads",
+    DEFAULT_BOUNDARY_REGISTER,
+  )
   .action(
     async (opts: {
       provider?: string;
@@ -1181,7 +1366,34 @@ program
       drills?: string;
       asOf?: string;
       reviewQueue?: string;
+      agents?: string;
+      boundaryRegister: string;
     }) => {
+      // A compares declared boundaries with observed calls: it needs the log too.
+      let agentEvidence: AgentBoundaryEvidence | undefined;
+      if (opts.agents) {
+        if (!opts.decisionLog) {
+          console.error(
+            "--agents needs --decision-log <file>: A compares the manifests with the calls the decision log observed",
+          );
+          process.exitCode = 1;
+          return;
+        }
+        try {
+          agentEvidence = await loadAgentEvidence(
+            opts.agents,
+            opts.decisionLog,
+            opts.boundaryRegister,
+          );
+        } catch (err) {
+          console.error(
+            `Could not read agent manifests "${opts.agents}" or decision log "${opts.decisionLog}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      }
+
       // Read the decision log first: a malformed line fails the command loudly
       // before any eval work, rather than grading from a partial log.
       let decisionLog: DecisionLogEvidence | undefined;
@@ -1277,6 +1489,7 @@ program
         ...(decisionLog ? { decisionLog } : {}),
         ...(drill ? { drill } : {}),
         ...(reviewQueue ? { reviewQueue } : {}),
+        ...(agentEvidence ? { agents: agentEvidence } : {}),
       });
 
       const wantMd = opts.format === "md" || opts.format === "both";
