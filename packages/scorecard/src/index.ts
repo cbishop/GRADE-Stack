@@ -55,6 +55,7 @@ export {
   type DimensionId,
   type DrillEvidence,
   type DrillEvidenceRecord,
+  type EvalRecordEvidence,
   type EvidenceCitation,
   FILLS_IN_PHASES,
   type FillsInPhase,

@@ -16,10 +16,16 @@
  * --review-queue` (G's human oversight criterion). Phase 4E adds `agents
  * list|show` (the manifest readback), the agent and tool-scope lines on `gateway
  * serve` and `mcp serve --http`, and `scorecard --agents` (A's boundary
- * criteria and G's boundary register).
+ * criteria and G's boundary register). Phase 4F adds `eval run --from-traces`
+ * (post-deployment re-scoring of the gateway's capture directory) and `--max-cost`,
+ * `eval calibrate` (judge-vs-human agreement), `eval record` (the eval record,
+ * `docs/eval-record.md`), and `scorecard --eval-record` (E's freshness,
+ * calibration and post-deployment criteria).
  */
 
-import { readFile } from "node:fs/promises";
+import { existsSync, readdirSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import { join, relative } from "node:path";
 import {
   AIRGAP_ENV,
   createDirectProvider,
@@ -42,13 +48,29 @@ import {
 } from "@grade-stack/core";
 import {
   baselineFromResult,
+  buildEvalRecord,
+  type CalibrationReport,
+  calibrate,
+  DEFAULT_EVAL_RECORD,
+  DEFAULT_LABELS_FILE,
+  describeCalibration,
+  describeEvalRecord,
   type EvalRunResult,
+  evalsRoot,
   evaluateGate,
   formatGateVerdict,
   formatRunResult,
+  parseCalibrationLabels,
+  parseEvalRecord,
+  parseResultsFile,
+  type RecordInput,
+  renderEvalRecord,
   renderRunHtml,
   renderRunMarkdown,
   runEvalSuite,
+  runTraceRescore,
+  seedLabels,
+  suiteConfigPath,
 } from "@grade-stack/evals";
 import {
   AGENTS_DIR_ENV,
@@ -95,6 +117,7 @@ import {
   computeGuardrailCoverage,
   type DecisionLogEvidence,
   type DrillEvidence,
+  type EvalRecordEvidence,
   parseBoundaryRegister,
   parseEuAiActModule,
   parseOwaspMapping,
@@ -1206,55 +1229,239 @@ evalCmd
     },
   );
 
+/** Read and validate one results JSON file. */
+async function readResults(file: string): Promise<EvalRunResult> {
+  return parseResultsFile(JSON.parse(await readFile(file, "utf8")), file);
+}
+
+/** Plain-language lines for a trace re-score: what was read, what failed, by request id. */
+function formatTraceRescore(result: EvalRunResult): string {
+  const t = result.traces;
+  if (!t) return "";
+  const lines = [
+    `re-scored ${t.rescored} captured production run(s) from ${t.dir}: ${result.summary.passed} passed, ${result.summary.failed} failed (judge: ${result.judgeProvider}).`,
+  ];
+  if (t.skipped.length > 0) {
+    const reasons = new Map<string, number>();
+    for (const k of t.skipped) reasons.set(k.reason, (reasons.get(k.reason) ?? 0) + 1);
+    lines.push(
+      `skipped ${t.skipped.length} capture(s): ${[...reasons].map(([r, n]) => `${n} ${r}`).join("; ")}.`,
+    );
+  }
+  for (const c of result.cases.filter((x) => !x.pass)) {
+    const failed = c.trace.flatMap((s) => s.checks.filter((k) => !k.pass).map((k) => k.metric));
+    lines.push(
+      `  request ${c.requestId ?? c.id} from ${c.callerId ?? "an unknown caller"} failed ${failed.join(", ") || "its checks"}; see \`reliability gateway log --request ${c.requestId ?? c.id}\`.`,
+    );
+  }
+  return lines.join("\n");
+}
+
 evalCmd
   .command("run")
-  .description("Execute the eval suite against the reference agent; emit structured results")
+  .description(
+    "Execute the eval suite against the reference agent, or re-score captured production runs (--from-traces); emit structured results. Exit 1 when a case fails, 2 when the cost cap is exceeded",
+  )
   .option("-p, --provider <provider>", "agent model provider: bedrock | ollama")
   .option(
     "-J, --judge-provider <provider>",
     "LLM-as-judge provider (defaults to --provider): bedrock | ollama",
   )
+  .option(
+    "--from-traces <dir>",
+    "re-score the gateway's capture directory (RELIABILITY_CAPTURE_DIR) through the suite's assertions instead of running the agent; the judge runs on -J, else -p (4F)",
+  )
   .option("-r, --repeat <n>", "run each case N times to measure flakiness", "1")
   .option("-j, --concurrency <n>", "max concurrent cases", "3")
   .option("-n, --first-n <n>", "run only the first N cases (smoke run)")
+  .option("--max-cost <usd>", "exit 2 if the run's total cost exceeds this (0 = no cap)", "0")
   .option("--json", "emit structured JSON results to stdout instead of a summary")
   .option("-o, --out <file>", "write structured JSON results to a file")
   .action(
     async (opts: {
       provider?: string;
       judgeProvider?: string;
+      fromTraces?: string;
       repeat: string;
       concurrency: string;
       firstN?: string;
+      maxCost: string;
       json?: boolean;
       out?: string;
     }) => {
-      const result = await runEvalSuite({
-        provider: opts.provider,
-        judgeProvider: opts.judgeProvider,
-        repeats: Number.parseInt(opts.repeat, 10),
-        concurrency: Number.parseInt(opts.concurrency, 10),
-        firstN: opts.firstN === undefined ? undefined : Number.parseInt(opts.firstN, 10),
-      });
+      let result: EvalRunResult;
+      if (opts.fromTraces) {
+        try {
+          result = await runTraceRescore({
+            dir: opts.fromTraces,
+            judgeProvider: opts.judgeProvider ?? opts.provider,
+            concurrency: Number.parseInt(opts.concurrency, 10),
+          });
+        } catch (err) {
+          console.error(
+            `Could not re-score "${opts.fromTraces}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      } else {
+        result = await runEvalSuite({
+          provider: opts.provider,
+          judgeProvider: opts.judgeProvider,
+          repeats: Number.parseInt(opts.repeat, 10),
+          concurrency: Number.parseInt(opts.concurrency, 10),
+          firstN: opts.firstN === undefined ? undefined : Number.parseInt(opts.firstN, 10),
+        });
+      }
 
       if (opts.out) {
         await Bun.write(opts.out, `${JSON.stringify(result, null, 2)}\n`);
       }
+      const maxUsd = Number.parseFloat(opts.maxCost);
+      const overCap = maxUsd > 0 && result.summary.cost.totalUsd > maxUsd;
       if (opts.json) {
         console.log(JSON.stringify(result, null, 2));
       } else {
         console.log(`\n${formatRunResult(result)}`);
+        if (result.source === "traces") console.log(`\n${formatTraceRescore(result)}`);
         if (opts.out) {
           console.log(`\nstructured results written to ${opts.out}`);
         }
       }
+      if (overCap) {
+        console.error(
+          `COST CAP: run cost $${result.summary.cost.totalUsd.toFixed(4)} exceeds cap $${maxUsd.toFixed(4)}.`,
+        );
+      }
       // A failing suite is a real, reportable outcome — exit non-zero so scripts
-      // and (in Phase 1B) CI can gate on it.
-      if (result.summary.failed > 0) {
+      // and CI can gate on it. The cost cap is a harder failure (exit 2), so the
+      // nightly job can record failing cases yet still fail on overspend.
+      if (overCap) {
+        process.exitCode = 2;
+      } else if (result.summary.failed > 0) {
         process.exitCode = 1;
       }
     },
   );
+
+evalCmd
+  .command("calibrate")
+  .description(
+    "Judge-vs-human agreement and Cohen's kappa on the hand-labeled set (4F). Exit 1 below the threshold, 2 when unlabeled or too few labels",
+  )
+  .option("-l, --labels <file>", "the labels file", DEFAULT_LABELS_FILE)
+  .option(
+    "--seed <results>",
+    "fill unseeded judge verdicts and outputs from a real-model results JSON (never the human labels), write the labels file, then report",
+  )
+  .option("--json", "print the calibration report as JSON")
+  .action(async (opts: { labels: string; seed?: string; json?: boolean }) => {
+    let labels: ReturnType<typeof parseCalibrationLabels>;
+    try {
+      labels = parseCalibrationLabels(JSON.parse(await readFile(opts.labels, "utf8")));
+    } catch (err) {
+      console.error(
+        `Could not read labels "${opts.labels}": ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.seed) {
+      try {
+        const seeded = seedLabels(labels, await readResults(opts.seed), opts.seed);
+        labels = seeded.labels;
+        await writeFile(opts.labels, `${JSON.stringify(labels, null, 2)}\n`);
+        console.log(
+          `seeded ${seeded.seeded} judge verdict(s) from ${opts.seed} into ${opts.labels}; human labels untouched.`,
+        );
+      } catch (err) {
+        console.error(
+          `Could not seed from "${opts.seed}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+    }
+    const report = calibrate(labels, opts.labels);
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log(describeCalibration(report));
+      for (const d of report.disagreements) {
+        console.log(`  ${d.id}: judge ${d.judge ? "pass" : "fail"}, human ${d.human}`);
+      }
+    }
+    // Seeding is preparation, not a verdict; otherwise the status is the exit code.
+    if (!opts.seed) {
+      process.exitCode = report.status === "pass" ? 0 : report.status === "fail" ? 1 : 2;
+    }
+  });
+
+evalCmd
+  .command("record")
+  .description(
+    "Generate the eval record (docs/eval-record.md): suite hash, committed baselines, last real-model run, judge calibration, last production re-score (4F)",
+  )
+  .option(
+    "-r, --results <files...>",
+    "results JSON files: real-model runs (the nightly artifact) and `eval run --from-traces` re-scores",
+  )
+  .option("-l, --labels <file>", "the calibration labels file", DEFAULT_LABELS_FILE)
+  .option(
+    "-o, --out <file>",
+    "the eval record to write (deployer fields are kept)",
+    DEFAULT_EVAL_RECORD,
+  )
+  .option("--json", "print the computed record as JSON")
+  .action(async (opts: { results?: string[]; labels: string; out: string; json?: boolean }) => {
+    let record: ReturnType<typeof buildEvalRecord>;
+    try {
+      const suitePath = suiteConfigPath();
+      const suiteText = await readFile(suitePath, "utf8");
+      const suite = Bun.YAML.parse(suiteText) as { tests?: unknown[] };
+      const root = evalsRoot();
+      const baselines: RecordInput[] = [];
+      for (const f of readdirSync(root)
+        .filter((n) => /^baseline.*\.json$/.test(n))
+        .sort()) {
+        const file = relative(process.cwd(), join(root, f));
+        baselines.push({ file, result: await readResults(join(root, f)) });
+      }
+      const results: RecordInput[] = [];
+      for (const file of opts.results ?? []) {
+        results.push({ file, result: await readResults(file) });
+      }
+      const calibration: CalibrationReport = calibrate(
+        parseCalibrationLabels(JSON.parse(await readFile(opts.labels, "utf8"))),
+        opts.labels,
+      );
+      record = buildEvalRecord({
+        generatedAt: new Date().toISOString(),
+        suite: {
+          path: relative(process.cwd(), suitePath),
+          text: suiteText,
+          caseCount: suite.tests?.length ?? 0,
+        },
+        baselines,
+        results,
+        calibration,
+      });
+      const existing = existsSync(opts.out) ? await readFile(opts.out, "utf8") : undefined;
+      await writeFile(opts.out, renderEvalRecord(record, existing));
+    } catch (err) {
+      console.error(
+        `Could not write the eval record: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(record, null, 2));
+      return;
+    }
+    for (const line of describeEvalRecord(record)) console.log(line);
+    console.log(`\neval record written to ${opts.out}`);
+  });
 
 evalCmd
   .command("gate")
@@ -1337,7 +1544,7 @@ program
   )
   .option(
     "--as-of <iso>",
-    "date the drill's age is measured against (default: now); a later date shows a stale drill",
+    "date the drill's and the eval record's ages are measured against (default: now); a later date shows them stale",
   )
   .option(
     "--review-queue <file>",
@@ -1351,6 +1558,10 @@ program
     "--boundary-register <file>",
     "boundary register whose agent rows G's boundary register criterion reads",
     DEFAULT_BOUNDARY_REGISTER,
+  )
+  .option(
+    "--eval-record <file>",
+    "compute E's real-model freshness, judge calibration and post-deployment re-score from the eval record (4F)",
   )
   .action(
     async (opts: {
@@ -1368,7 +1579,33 @@ program
       reviewQueue?: string;
       agents?: string;
       boundaryRegister: string;
+      evalRecord?: string;
     }) => {
+      const asOfDate = opts.asOf ? new Date(opts.asOf) : new Date();
+      if (Number.isNaN(asOfDate.getTime())) {
+        console.error(`--as-of "${opts.asOf}" is not an ISO date or time`);
+        process.exitCode = 1;
+        return;
+      }
+
+      // The eval record: a missing or malformed computed block fails loudly.
+      let evalRecord: EvalRecordEvidence | undefined;
+      if (opts.evalRecord) {
+        try {
+          evalRecord = {
+            source: opts.evalRecord,
+            record: parseEvalRecord(await readFile(opts.evalRecord, "utf8")),
+            asOf: asOfDate.toISOString(),
+          };
+        } catch (err) {
+          console.error(
+            `Could not read eval record "${opts.evalRecord}": ${err instanceof Error ? err.message : String(err)}`,
+          );
+          process.exitCode = 1;
+          return;
+        }
+      }
+
       // A compares declared boundaries with observed calls: it needs the log too.
       let agentEvidence: AgentBoundaryEvidence | undefined;
       if (opts.agents) {
@@ -1490,6 +1727,7 @@ program
         ...(drill ? { drill } : {}),
         ...(reviewQueue ? { reviewQueue } : {}),
         ...(agentEvidence ? { agents: agentEvidence } : {}),
+        ...(evalRecord ? { evalRecord } : {}),
       });
 
       const wantMd = opts.format === "md" || opts.format === "both";

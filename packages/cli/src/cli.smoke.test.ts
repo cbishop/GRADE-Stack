@@ -1216,9 +1216,9 @@ describe("built CLI binary: post-deployment re-scoring, calibration and the eval
       recordPath,
       "--json",
     ]);
-    expect((JSON.parse(recJson.out) as { suite: { definitionHash: string } }).suite.definitionHash).toMatch(
-      /^[0-9a-f]{64}$/,
-    );
+    expect(
+      (JSON.parse(recJson.out) as { suite: { definitionHash: string } }).suite.definitionHash,
+    ).toMatch(/^[0-9a-f]{64}$/);
 
     // Scorecard E is fully computed from the record and cites it.
     const card = await run(["scorecard", "--from", fixturePath, "--eval-record", recordPath]);

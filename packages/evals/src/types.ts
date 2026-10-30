@@ -7,6 +7,8 @@
  * The eval result schema — planner/executor/validator phases, per-case traces,
  * and the run summary — shaped now to survive the Phase 2A agent refactor.
  * Phase 4C adds the release manifest that names the version a run measured.
+ * Phase 4F adds where a run's outputs came from (`source`): the suite run live,
+ * or captured production traffic re-scored, with the request id on every case.
  */
 
 import type { ReleaseManifest, TokenUsage } from "@grade-stack/core";
@@ -65,6 +67,38 @@ export interface CaseResult {
   stability: number;
   /** Number of repeats this case was run. */
   repeats: number;
+  /**
+   * The gateway request id this case was captured under (Phase 4F, re-scored
+   * traces only), so a failing production run joins its decision-log line,
+   * its trace and any review item.
+   */
+  requestId?: string;
+  /** The caller the captured request came from (re-scored traces only). */
+  callerId?: string | null;
+}
+
+/** Where a result's outputs came from (Phase 4F). Absent means `suite`. */
+export type EvalSource = "suite" | "traces";
+
+/** A capture file `--from-traces` did not re-score, and why. */
+export interface TraceSkip {
+  file: string;
+  requestId: string | null;
+  reason: string;
+}
+
+/** What a trace re-score read (Phase 4F, `source: "traces"` only). */
+export interface TraceProvenance {
+  /** The 4B capture directory that was re-scored. */
+  dir: string;
+  /** Capture files found. */
+  captures: number;
+  /** Captured triage answers re-scored (one case each). */
+  rescored: number;
+  skipped: TraceSkip[];
+  /** Capture time of the earliest and latest re-scored request. */
+  firstCapturedAt: string | null;
+  lastCapturedAt: string | null;
 }
 
 /** The structured JSON emitted by `reliability eval run`. */
@@ -85,6 +119,14 @@ export interface EvalRunResult {
    * written before 4C lack it; every new run stamps one.
    */
   release?: ReleaseManifest;
+  /**
+   * `suite` for a live run of the suite, `traces` for captured production
+   * outputs re-scored by `eval run --from-traces` (Phase 4F). Results written
+   * before 4F lack it and are suite runs.
+   */
+  source?: EvalSource;
+  /** What a trace re-score read; present only when `source` is `traces`. */
+  traces?: TraceProvenance;
 }
 
 export interface EvalSummary {

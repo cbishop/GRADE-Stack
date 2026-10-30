@@ -1368,7 +1368,9 @@ describe("Evaluated criteria from the eval record (E, 4F)", () => {
     ).toBe("at-risk");
     expect(
       crit(
-        withRecord(evalRecord({ calibration: calib({ agreement: 0.7, kappa: 0.4, status: "fail" }) })),
+        withRecord(
+          evalRecord({ calibration: calib({ agreement: 0.7, kappa: 0.4, status: "fail" }) }),
+        ),
         "judge-calibration",
       ).rating,
     ).toBe("critical");

@@ -47,7 +47,10 @@
       "version": "0.0.0",
       "dependencies": {
         "@grade-stack/core": "workspace:*",
+        "@grade-stack/gateway": "workspace:*",
+        "@grade-stack/mcp-server": "workspace:*",
         "reference-agent": "workspace:*",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
         "promptfoo": "^0.121.15",

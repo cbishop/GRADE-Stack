@@ -229,7 +229,11 @@ describe("seedLabels", () => {
     const { labels, seeded } = seedLabels(unseeded(), nightly(), "nightly.json");
     expect(seeded).toBe(2);
     const first = labels.labels[0];
-    expect(first?.judge).toEqual({ pass: false, score: 0.65, reason: "judge on billing-duplicate-charge" });
+    expect(first?.judge).toEqual({
+      pass: false,
+      score: 0.65,
+      reason: "judge on billing-duplicate-charge",
+    });
     expect(first?.output).toBe('{"draft_reply":"billing-duplicate-charge"}');
     expect(first?.seededFrom).toBe("nightly.json@2026-10-30T07:00:00.000Z");
     expect(first?.human).toBeNull();
@@ -273,8 +277,8 @@ describe("labels file schema", () => {
   });
 
   test("duplicate label ids fail loudly", () => {
-    expect(() => parseCalibrationLabels(file([label(0, true, "pass"), label(0, true, "pass")]))).toThrow(
-      /duplicate/,
-    );
+    expect(() =>
+      parseCalibrationLabels(file([label(0, true, "pass"), label(0, true, "pass")])),
+    ).toThrow(/duplicate/);
   });
 });

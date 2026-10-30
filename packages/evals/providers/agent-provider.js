@@ -4,10 +4,12 @@
 // promptfoo custom provider. promptfoo runs on Node, so this file stays plain
 // Node-loadable ESM and never imports our Bun/TypeScript code directly. Every
 // model call is delegated to the Bun bridge (`src/bridge.ts`), which is the one
-// seam to `@grade-stack/core`. Two modes, selected by `config.mode`:
-//   - "agent": run the reference agent over the case's SupportEmail vars.
-//   - "judge": forward a rendered grading prompt as one raw completion, so the
+// seam to `@grade-stack/core`. Three modes, selected by `config.mode`:
+//   - "agent":  run the reference agent over the case's SupportEmail vars.
+//   - "judge":  forward a rendered grading prompt as one raw completion, so the
 //     LLM-as-judge metric also flows through the provider abstraction.
+//   - "replay": return the case's captured production output (Phase 4F trace
+//     re-scoring, `vars.captured_output`); the bridge applies degraded mode.
 
 import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
@@ -77,6 +79,11 @@ export default class GradeStackProvider {
       }
 
       const vars = context.vars ?? {};
+      if (this.mode === "replay") {
+        const replayed = await callBridge({ mode: "replay", output: vars.captured_output ?? "" });
+        return { output: replayed.output, tokenUsage: replayed.tokenUsage };
+      }
+
       const response = await callBridge({
         mode: "agent",
         provider: this.provider,

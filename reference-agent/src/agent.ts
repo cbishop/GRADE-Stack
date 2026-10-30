@@ -115,7 +115,12 @@ export interface RunAgentOptions {
   mcp?: boolean | SupportToolsClient;
 }
 
-function resolveDegraded(explicit?: boolean): boolean {
+/**
+ * Whether degraded mode is on: an explicit flag, else `RELIABILITY_DEGRADED`.
+ * Exported (Phase 4F) so trace re-scoring applies the same canary to replayed
+ * outputs that a live run applies to fresh ones.
+ */
+export function resolveDegraded(explicit?: boolean): boolean {
   if (explicit !== undefined) return explicit;
   const v = process.env.RELIABILITY_DEGRADED?.toLowerCase();
   return v === "1" || v === "true";
@@ -143,7 +148,7 @@ function taskFromEmail(email: SupportEmail): string {
  * *after* the agent has converged, so degradation is a deliberate sabotage of a
  * known-good result, never an input to any rating.
  */
-function degrade(text: string): string {
+export function degradeOutput(text: string): string {
   try {
     const o = JSON.parse(text) as Record<string, unknown>;
     delete o.draft_reply;
@@ -154,9 +159,15 @@ function degrade(text: string): string {
   }
 }
 
+/**
+ * The first line of every triage prompt. Trace re-scoring (Phase 4F) uses it to
+ * tell a captured triage answer from the agent's other model calls.
+ */
+export const TRIAGE_PROMPT_LEAD = "Triage the following support email.";
+
 function renderUserPrompt(email: SupportEmail): string {
   return [
-    "Triage the following support email.",
+    TRIAGE_PROMPT_LEAD,
     "",
     `From: ${email.from}`,
     `Subject: ${email.subject}`,
@@ -287,7 +298,7 @@ export async function runReferenceAgent(
       });
 
       return {
-        raw: degraded ? degrade(result.text) : result.text,
+        raw: degraded ? degradeOutput(result.text) : result.text,
         triage: result.value,
         steps: result.steps,
         usage: result.usage,

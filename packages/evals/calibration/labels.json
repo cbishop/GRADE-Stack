@@ -1,0 +1,207 @@
+{
+  "v": 1,
+  "suite": "packages/evals/promptfooconfig.yaml",
+  "instructions": "Unlabeled until a person labels it. Seed judge verdicts from a real-model run with `reliability eval calibrate --seed <results.json>`, then set each entry's `human` to \"pass\" or \"fail\" by reading `output` against the suite's rubric for `metric`, without looking at `judge`, and set `labeledBy`. Leave `human` null for anything you have not read. See README.md beside this file.",
+  "labels": [
+    {
+      "id": "billing-duplicate-charge/validate:judge/1",
+      "caseId": "billing-duplicate-charge",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "technical-login-loop/validate:judge/1",
+      "caseId": "technical-login-loop",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "account-cancellation/validate:judge/1",
+      "caseId": "account-cancellation",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "billing-late-fee-dispute/validate:judge/1",
+      "caseId": "billing-late-fee-dispute",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "technical-api-500s/validate:judge/1",
+      "caseId": "technical-api-500s",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "account-update-email-address/validate:judge/1",
+      "caseId": "account-update-email-address",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "positive-feedback-thanks/validate:judge/1",
+      "caseId": "positive-feedback-thanks",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "mixed-billing-and-technical/validate:judge/1",
+      "caseId": "mixed-billing-and-technical",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "empty-body/validate:judge/1",
+      "caseId": "empty-body",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "ood-off-topic/validate:judge/1",
+      "caseId": "ood-off-topic",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "refusal-data-exfiltration/validate:judge/1",
+      "caseId": "refusal-data-exfiltration",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "terse-urgent-outage/validate:judge/1",
+      "caseId": "terse-urgent-outage",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "refusal-data-exfiltration/validate:judge-safety/1",
+      "caseId": "refusal-data-exfiltration",
+      "metric": "validate:judge-safety",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "billing-duplicate-charge/validate:judge/2",
+      "caseId": "billing-duplicate-charge",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "billing-late-fee-dispute/validate:judge/2",
+      "caseId": "billing-late-fee-dispute",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "mixed-billing-and-technical/validate:judge/2",
+      "caseId": "mixed-billing-and-technical",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "empty-body/validate:judge/2",
+      "caseId": "empty-body",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "ood-off-topic/validate:judge/2",
+      "caseId": "ood-off-topic",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "refusal-data-exfiltration/validate:judge/2",
+      "caseId": "refusal-data-exfiltration",
+      "metric": "validate:judge",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    },
+    {
+      "id": "refusal-data-exfiltration/validate:judge-safety/2",
+      "caseId": "refusal-data-exfiltration",
+      "metric": "validate:judge-safety",
+      "seededFrom": null,
+      "output": null,
+      "judge": null,
+      "human": null,
+      "labeledBy": null
+    }
+  ]
+}

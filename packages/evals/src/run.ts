@@ -7,10 +7,12 @@
  * Runs the eval suite by spawning promptfoo against the provider bridge, then
  * normalizes its raw output into a structured EvalRunResult — folding repeats
  * into per-case stability and computing cost-per-success. Every result is
- * stamped with the reference agent's release manifest (Phase 4C).
+ * stamped with the reference agent's release manifest (Phase 4C) and, from
+ * Phase 4F, with `source: "suite"` (re-scored traces use `./traces`).
  */
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -27,8 +29,37 @@ import {
   type TraceStep,
 } from "./types.ts";
 
-const PKG_ROOT = resolve(import.meta.dir, "..");
-const CONFIG_PATH = join(PKG_ROOT, "promptfooconfig.yaml");
+/** Env overriding where the evals package (promptfoo config, providers) lives. */
+export const EVALS_DIR_ENV = "RELIABILITY_EVALS_DIR";
+/** The suite definition, relative to the evals package. */
+export const SUITE_CONFIG_FILE = "promptfooconfig.yaml";
+
+/**
+ * The evals package directory: the promptfoo config, its provider and the
+ * bridge live here, and promptfoo runs from it. Resolved from this module when
+ * run from source, else from the working directory (`packages/evals`), so the
+ * bundled CLI in `dist/` finds it too (the 4F lesson of `SERVER_BIN`: a path
+ * from `import.meta` is wrong once bundled). `RELIABILITY_EVALS_DIR` overrides.
+ */
+export function evalsRoot(): string {
+  const candidates = [
+    process.env[EVALS_DIR_ENV],
+    resolve(import.meta.dir, ".."),
+    join(process.cwd(), "packages", "evals"),
+  ].filter((c): c is string => typeof c === "string" && c.length > 0);
+  const found = candidates.find((c) => existsSync(join(c, SUITE_CONFIG_FILE)));
+  if (!found) {
+    throw new Error(
+      `cannot find the eval suite (${SUITE_CONFIG_FILE}); run from the repo root or set ${EVALS_DIR_ENV}`,
+    );
+  }
+  return found;
+}
+
+/** Absolute path to the suite definition (the promptfoo config). */
+export function suiteConfigPath(): string {
+  return join(evalsRoot(), SUITE_CONFIG_FILE);
+}
 
 export interface RunEvalOptions {
   /** Provider for the agent under test. Resolved like the CLI (env/default). */
@@ -125,14 +156,15 @@ export function foldCase(id: string, rows: PromptfooRow[]): CaseResult {
   };
 }
 
-function normalize(
-  output: PromptfooOutput,
+/** Fold promptfoo's rows (repeats grouped by case) into cases and a run summary. */
+export function normalizeRows(
+  rows: PromptfooRow[],
   provider: string,
   model: string,
   judgeProvider: string,
 ): Omit<EvalRunResult, "timestamp"> {
   const byCase = new Map<string, PromptfooRow[]>();
-  for (const row of output.results.results) {
+  for (const row of rows) {
     const id = row.testCase.description ?? "unnamed";
     const list = byCase.get(id);
     if (list) {
@@ -169,16 +201,37 @@ function normalize(
   };
 }
 
-/** Spawn promptfoo and return the path it wrote, or throw on a real failure. */
-function spawnPromptfoo(outPath: string, opts: RunEvalOptions): Promise<void> {
+/** Read promptfoo's output file, failing loudly when the run wrote none. */
+export async function readPromptfooRows(outPath: string): Promise<PromptfooRow[]> {
+  let raw: string;
+  try {
+    raw = await readFile(outPath, "utf8");
+  } catch {
+    throw new Error(
+      "promptfoo produced no output file — the eval run failed before writing results.",
+    );
+  }
+  return (JSON.parse(raw) as PromptfooOutput).results.results;
+}
+
+/**
+ * Spawn promptfoo on a config and resolve once it exits, or throw on a real
+ * failure. `configPath` defaults to the suite; trace re-scoring passes its own.
+ */
+export function spawnPromptfoo(
+  outPath: string,
+  opts: RunEvalOptions,
+  configPath: string = suiteConfigPath(),
+): Promise<void> {
   const provider = resolveProviderName(opts.provider);
   const judgeProvider = resolveProviderName(opts.judgeProvider ?? opts.provider);
+  const root = evalsRoot();
   const args = [
     "x",
     "promptfoo",
     "eval",
     "-c",
-    CONFIG_PATH,
+    configPath,
     "--no-cache",
     "--repeat",
     String(opts.repeats ?? 1),
@@ -193,7 +246,7 @@ function spawnPromptfoo(outPath: string, opts: RunEvalOptions): Promise<void> {
 
   return new Promise((resolvePromise, reject) => {
     const child = spawn("bun", args, {
-      cwd: PKG_ROOT,
+      cwd: root,
       stdio: ["ignore", "inherit", "inherit"],
       env: {
         ...process.env,
@@ -242,17 +295,9 @@ export async function runEvalSuite(opts: RunEvalOptions = {}): Promise<EvalRunRe
 
   try {
     await spawnPromptfoo(outPath, opts);
-    let raw: string;
-    try {
-      raw = await readFile(outPath, "utf8");
-    } catch {
-      throw new Error(
-        "promptfoo produced no output file — the eval run failed before writing results.",
-      );
-    }
-    const parsed = JSON.parse(raw) as PromptfooOutput;
-    const normalized = normalize(parsed, provider, model, judgeProvider);
-    return { ...normalized, timestamp: new Date().toISOString(), release };
+    const rows = await readPromptfooRows(outPath);
+    const normalized = normalizeRows(rows, provider, model, judgeProvider);
+    return { ...normalized, timestamp: new Date().toISOString(), release, source: "suite" };
   } finally {
     await rm(outPath, { force: true }).catch(() => {});
   }

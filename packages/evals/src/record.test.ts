@@ -26,7 +26,9 @@ import {
 } from "./record.ts";
 import type { EvalRunResult } from "./types.ts";
 
-function result(over: Partial<EvalRunResult> & { passed?: number; total?: number } = {}): EvalRunResult {
+function result(
+  over: Partial<EvalRunResult> & { passed?: number; total?: number } = {},
+): EvalRunResult {
   const total = over.total ?? 12;
   const passed = over.passed ?? 11;
   const provider = over.provider ?? "bedrock";
@@ -89,12 +91,21 @@ function record() {
     generatedAt: "2026-10-30T15:00:00.000Z",
     suite: { ...SUITE, caseCount: 12 },
     baselines: [
-      { file: "packages/evals/baseline.stub.json", result: result({ provider: "stub", model: "stub-deterministic-v1", passed: 12 }) },
+      {
+        file: "packages/evals/baseline.stub.json",
+        result: result({ provider: "stub", model: "stub-deterministic-v1", passed: 12 }),
+      },
     ],
     results: [
-      { file: "runs/old.json", result: result({ timestamp: "2026-10-01T07:00:00.000Z", passed: 12 }) },
+      {
+        file: "runs/old.json",
+        result: result({ timestamp: "2026-10-01T07:00:00.000Z", passed: 12 }),
+      },
       { file: "runs/new.json", result: result({ timestamp: "2026-10-30T07:00:00.000Z" }) },
-      { file: "runs/stub.json", result: result({ provider: "stub", timestamp: "2026-10-30T09:00:00.000Z" }) },
+      {
+        file: "runs/stub.json",
+        result: result({ provider: "stub", timestamp: "2026-10-30T09:00:00.000Z" }),
+      },
       {
         file: "runs/rescore.json",
         result: result({
@@ -135,7 +146,12 @@ describe("buildEvalRecord", () => {
     expect(r.suite.definitionHash).toBe(suiteDefinitionHash(SUITE.text));
     expect(r.suite.caseCount).toBe(12);
     expect(r.baselines).toEqual([
-      expect.objectContaining({ file: "packages/evals/baseline.stub.json", provider: "stub", passed: 12, total: 12 }),
+      expect.objectContaining({
+        file: "packages/evals/baseline.stub.json",
+        provider: "stub",
+        passed: 12,
+        total: 12,
+      }),
     ]);
     // The newest non-stub suite run; the stub run and the re-score are not real-model runs.
     expect(r.lastRealModelRun).toMatchObject({
@@ -193,7 +209,9 @@ describe("renderEvalRecord and parseEvalRecord", () => {
   });
 
   test("a record without the computed block, or with a malformed one, fails loudly", () => {
-    expect(() => parseEvalRecord("# Eval record\nnothing computed here\n")).toThrow(/computed block/);
+    expect(() => parseEvalRecord("# Eval record\nnothing computed here\n")).toThrow(
+      /computed block/,
+    );
     const broken = renderEvalRecord(record()).replace('"v": 1', '"v": 2');
     expect(() => parseEvalRecord(broken)).toThrow();
   });
