@@ -145,6 +145,7 @@ bun run reliability eval run --from-traces gateway-captures -J bedrock --out res
 # Exit 0 at the bar (80% agreement and kappa 0.6 over 10+ pairs), 1 below, 2 unlabeled.
 bun run reliability eval calibrate
 bun run reliability eval calibrate --seed nightly.json   # fill judge verdicts first
+bun run reliability eval label     # label the seeded entries blind, one screen each
 
 # Write docs/eval-record.md: suite hash, baselines, last real-model run,
 # calibration, last re-score. The scorecard's E letter reads it.

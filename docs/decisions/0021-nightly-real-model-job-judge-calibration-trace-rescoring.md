@@ -45,7 +45,10 @@ status, so neither the labels file nor a hand-edited record can lower the bar.
 An unlabeled set reports `unlabeled` (exit 2); below the bar exits 1.
 `--seed <results>` fills judge verdicts from a real-model run, one slot per
 case and metric per run, never touching human labels, and refuses a
-stub-judged run. The committed set holds twenty entries and is unlabeled
+stub-judged run. `eval label` is the labeling path: it walks each seeded,
+unlabeled entry with the case input, the rubric and the agent output, asks
+pass or fail before revealing the judge's verdict (blind), and saves after
+every answer. The committed set holds twenty entries and is unlabeled
 until Clarke labels it.
 
 **3. Trace re-scoring through the suite's own assertions.** `eval run

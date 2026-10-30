@@ -18,7 +18,8 @@
  * serve` and `mcp serve --http`, and `scorecard --agents` (A's boundary
  * criteria and G's boundary register). Phase 4F adds `eval run --from-traces`
  * (post-deployment re-scoring of the gateway's capture directory) and `--max-cost`,
- * `eval calibrate` (judge-vs-human agreement), `eval record` (the eval record,
+ * `eval calibrate` (judge-vs-human agreement), `eval label` (the interactive
+ * blind labeling walk for the calibration set), `eval record` (the eval record,
  * `docs/eval-record.md`), and `scorecard --eval-record` (E's freshness,
  * calibration and post-deployment criteria).
  */
@@ -26,6 +27,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { createInterface } from "node:readline";
 import {
   AIRGAP_ENV,
   createDirectProvider,
@@ -49,6 +51,7 @@ import {
 import {
   baselineFromResult,
   buildEvalRecord,
+  CALIBRATE_HINT,
   type CalibrationReport,
   calibrate,
   DEFAULT_EVAL_RECORD,
@@ -64,13 +67,21 @@ import {
   parseEvalRecord,
   parseResultsFile,
   type RecordInput,
+  remainingCounts,
   renderEvalRecord,
   renderRunHtml,
   renderRunMarkdown,
+  resolveLabeler,
   runEvalSuite,
+  runLabelSession,
   runTraceRescore,
+  SEED_HINT,
+  type SuiteForLabeling,
   seedLabels,
+  selectEntries,
   suiteConfigPath,
+  suiteForLabeling,
+  wrap,
 } from "@grade-stack/evals";
 import {
   AGENTS_DIR_ENV,
@@ -1234,6 +1245,48 @@ async function readResults(file: string): Promise<EvalRunResult> {
   return parseResultsFile(JSON.parse(await readFile(file, "utf8")), file);
 }
 
+/**
+ * Line-at-a-time questions on stdin for `eval label`. Lines are queued as they
+ * arrive, so piped input is not lost between questions; end of input answers
+ * every pending and later question with "q" (quit).
+ */
+function stdinLines(): { ask: (question: string) => Promise<string>; close: () => void } {
+  const rl = createInterface({ input: process.stdin, terminal: false });
+  const lines: string[] = [];
+  const waiting: ((line: string) => void)[] = [];
+  let closed = false;
+  rl.on("line", (line) => {
+    const w = waiting.shift();
+    if (w) w(line);
+    else lines.push(line);
+  });
+  rl.on("close", () => {
+    closed = true;
+    for (const w of waiting.splice(0)) w("q");
+  });
+  return {
+    ask: (question) => {
+      process.stdout.write(question);
+      const queued = lines.shift();
+      if (queued !== undefined) return Promise.resolve(queued);
+      if (closed) return Promise.resolve("q");
+      return new Promise((r) => waiting.push(r));
+    },
+    close: () => rl.close(),
+  };
+}
+
+/** `git config user.name`, or undefined when git or the setting is missing. */
+function gitUserName(): string | undefined {
+  try {
+    const r = Bun.spawnSync(["git", "config", "user.name"], { stdout: "pipe", stderr: "ignore" });
+    const name = r.stdout.toString().trim();
+    return r.exitCode === 0 && name !== "" ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Plain-language lines for a trace re-score: what was read, what failed, by request id. */
 function formatTraceRescore(result: EvalRunResult): string {
   const t = result.traces;
@@ -1394,6 +1447,78 @@ evalCmd
     // Seeding is preparation, not a verdict; otherwise the status is the exit code.
     if (!opts.seed) {
       process.exitCode = report.status === "pass" ? 0 : report.status === "fail" ? 1 : 2;
+    }
+  });
+
+evalCmd
+  .command("label")
+  .description(
+    "Label the judge calibration set interactively: one screen per entry (input, rubric, agent output), answer pass or fail blind, then see the judge's verdict. Saves after every answer (4F)",
+  )
+  .option("-l, --labels <file>", "the labels file", DEFAULT_LABELS_FILE)
+  .option("--by <name>", "who is labeling (default: $RELIABILITY_LABELER, else git user.name)")
+  .option("--all", "also walk entries already labeled, to re-review them")
+  .action(async (opts: { labels: string; by?: string; all?: boolean }) => {
+    let labels: ReturnType<typeof parseCalibrationLabels>;
+    let suite: SuiteForLabeling;
+    try {
+      labels = parseCalibrationLabels(JSON.parse(await readFile(opts.labels, "utf8")));
+      suite = suiteForLabeling(Bun.YAML.parse(await readFile(suiteConfigPath(), "utf8")));
+    } catch (err) {
+      console.error(
+        `Could not read labels "${opts.labels}" or the suite: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+    if (!labels.labels.some((l) => l.judge !== null)) {
+      console.log(
+        `Nothing to label yet: no entry in ${opts.labels} has a judge verdict. Seed it from a real-model run first:\n\n  ${SEED_HINT}`,
+      );
+      process.exitCode = 2;
+      return;
+    }
+    const reader = stdinLines();
+    try {
+      const todo = selectEntries(labels, opts.all).length;
+      let result = { labels, labeledNow: 0, agreedNow: 0, quit: false };
+      if (todo === 0) {
+        console.log(
+          "Nothing left to label: every seeded entry has a human label. Use --all to re-review them.",
+        );
+      } else {
+        const labeledBy = await resolveLabeler({
+          by: opts.by,
+          env: process.env.RELIABILITY_LABELER,
+          gitName: gitUserName,
+          ask: reader.ask,
+        });
+        result = await runLabelSession({
+          labels,
+          suite,
+          labeledBy,
+          all: opts.all,
+          ask: reader.ask,
+          print: (t) => console.log(t),
+          save: async (next) => {
+            await writeFile(opts.labels, `${JSON.stringify(next, null, 2)}\n`);
+          },
+          clear: process.stdout.isTTY ? () => process.stdout.write("\x1b[2J\x1b[H") : undefined,
+        });
+      }
+      const left = remainingCounts(result.labels);
+      const report = calibrate(result.labels, opts.labels);
+      console.log("");
+      console.log(
+        `${result.quit ? "Stopped" : "Done"}. Labeled now: ${result.labeledNow} (agreed with the judge on ${result.agreedNow}). Remaining unlabeled: ${left.unlabeled}${left.unseeded > 0 ? `; ${left.unseeded} slot(s) not seeded yet` : ""}.`,
+      );
+      console.log(wrap(describeCalibration(report)));
+      console.log(`\nNext: ${CALIBRATE_HINT}`);
+    } catch (err) {
+      console.error(`Labeling stopped: ${err instanceof Error ? err.message : String(err)}`);
+      process.exitCode = 1;
+    } finally {
+      reader.close();
     }
   });
 

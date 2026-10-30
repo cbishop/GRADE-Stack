@@ -30,16 +30,30 @@ judgments on the exfiltration request). Each entry has:
    real-model job (Actions, "Nightly real-model eval", artifact
    `real-model-eval-<run id>`). A stub-judged run is refused: calibrating the
    stub judge measures nothing.
+
+   Getting a results file without waiting for the nightly job: with local AWS
+   credentials, run
+   `bun run reliability eval run --provider bedrock --max-cost 0.50 --out eval-results/bedrock-local.json`
+   (about 0.03 USD; `eval-results/` is gitignored).
 2. **Seed the judge verdicts.**
    `bun run reliability eval calibrate --seed <results.json>`
    fills `output`, `judge` and `seededFrom` for one slot per case. Seed again
    from a second night's run to fill the second slots. Human labels are never
    touched.
-3. **Label blind.** For each entry, read `output` against the rubric for its
-   `metric` in `packages/evals/promptfooconfig.yaml` (the `llm-rubric` text) and
-   set `human` to `"pass"` or `"fail"`. Decide before you look at `judge`; cover
-   it if it helps. Set `labeledBy`. Leave `human` as `null` for anything you
-   did not read.
+3. **Label blind.** `bun run reliability eval label`
+   walks each seeded, unlabeled entry on one screen: the email the agent saw,
+   the rubric for its `metric`, and the agent's output. Answer `p` (pass) or
+   `f` (fail), add an optional one-line note, and only then see the judge's
+   verdict and whether you agree. `s` skips, `q` quits. The file is saved after
+   every answer, so quitting loses nothing; run it again to carry on. Your
+   name comes from `--by`, else `$RELIABILITY_LABELER`, else `git config
+   user.name`. `--all` re-walks entries you already labeled.
+
+   Fallback, without the walk: edit `labels.json` by hand. Read `output`
+   against the `llm-rubric` text for its `metric` in
+   `packages/evals/promptfooconfig.yaml`, set `human` to `"pass"` or `"fail"`
+   before you look at `judge`, and set `labeledBy`. Leave `human` as `null` for
+   anything you did not read.
 4. **Check agreement.** `bun run reliability eval calibrate` prints agreement,
    kappa and each disagreement. Exit 0 means at or above the bar, 1 below it,
    2 unlabeled or too few labels.

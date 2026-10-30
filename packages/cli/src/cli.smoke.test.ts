@@ -46,6 +46,9 @@
  * `tool-not-allowed` and logs it with the caller id; `agent run --mcp` reaches
  * the HTTP MCP server with its token; and `scorecard --agents` computes A,
  * which drops to Critical on a log with an undeclared tool call.
+ *
+ * Phase 4F: `eval label` on an unseeded labels file exits 2 and prints the
+ * seed command, from the built binary.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -1180,6 +1183,16 @@ describe("built CLI binary: post-deployment re-scoring, calibration and the eval
       seedPath,
       readFileSync(join(repoRoot, "packages/evals/calibration/labels.json"), "utf8"),
     );
+    // The labeling walk refuses an unseeded set with the one command that seeds it.
+    const unseededPath = join(workDir, "labels-unseeded.json");
+    writeFileSync(
+      unseededPath,
+      readFileSync(join(repoRoot, "packages/evals/calibration/labels.json"), "utf8"),
+    );
+    const unseeded = await run(["eval", "label", "--labels", unseededPath, "--by", "smoke"]);
+    expect(unseeded.code, unseeded.err).toBe(2);
+    expect(unseeded.out).toContain("bun run reliability eval calibrate --seed <results.json>");
+
     const seed = await run(["eval", "calibrate", "--labels", seedPath, "--seed", nightlyPath]);
     expect(seed.code, seed.err).toBe(0);
     expect(seed.out).toContain("seeded");

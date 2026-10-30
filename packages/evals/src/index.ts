@@ -6,7 +6,8 @@
  *
  * Public surface of the evals package — the suite runner, the regression gate,
  * cost-per-success pricing, the CLI formatters, and the result types. Phase 4F
- * adds trace re-scoring, judge calibration and the eval record.
+ * adds trace re-scoring, judge calibration (and its labeling walk) and the
+ * eval record.
  */
 
 export {
@@ -34,6 +35,28 @@ export {
   type GateOptions,
   type GateVerdict,
 } from "./gate.ts";
+export {
+  type Ask,
+  CALIBRATE_HINT,
+  type CaseInput,
+  formatAgentOutput,
+  formatCaseInput,
+  LABEL_WRAP_WIDTH,
+  type LabelSessionOptions,
+  type LabelSessionResult,
+  type Print,
+  remainingCounts,
+  renderEntryScreen,
+  renderReveal,
+  resolveLabeler,
+  rubricFor,
+  runLabelSession,
+  SEED_HINT,
+  type SuiteForLabeling,
+  selectEntries,
+  suiteForLabeling,
+  wrap,
+} from "./label.ts";
 export {
   type CostBreakdown,
   computeCost,
