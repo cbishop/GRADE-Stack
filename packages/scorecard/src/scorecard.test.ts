@@ -10,12 +10,20 @@
  * Phase 4D adds G's human oversight criterion, computed from the review queue.
  * Phase 4E adds A's three boundary criteria and G's boundary register, computed
  * from the agent manifests and the decision log, and lifts the 4B cap on
- * *attributable* now that callers can be verified.
+ * *attributable* now that callers can be verified. Phase 4F computes E's
+ * real-model freshness, judge calibration and post-deployment re-score from the
+ * eval record, with a stale record and a degraded re-score as canaries.
  */
 
 import { describe, expect, test } from "bun:test";
 import type { TraceCoverage } from "@grade-stack/core";
-import { type CaseResult, computeCost, type EvalRunResult } from "@grade-stack/evals";
+import {
+  type CalibrationReport,
+  type CaseResult,
+  computeCost,
+  type EvalRecord,
+  type EvalRunResult,
+} from "@grade-stack/evals";
 import type { GovernanceReadiness } from "./eu-ai-act.ts";
 import type { GuardrailCoverage } from "./owasp.ts";
 import {
@@ -35,6 +43,7 @@ import type {
   DimensionId,
   DrillEvidence,
   DrillEvidenceRecord,
+  EvalRecordEvidence,
   ReviewEvidenceItem,
   ReviewQueueEvidence,
   Scorecard,
@@ -1219,5 +1228,184 @@ describe("Attributable after 4E: the cap is lifted", () => {
   test("a caller logged as anonymous (no manifests, no header) counts as no caller", () => {
     const x = crit(withLog(dlog(4, () => ({ callerId: "anonymous" }))), "attributable");
     expect(x.rating).toBe("critical");
+  });
+});
+
+// ── E · Evaluated: the eval record (Phase 4F, ADR 0021) ────────────────────
+
+/** A calibration summary; defaults describe a passing, labeled set. */
+function calib(over: Partial<CalibrationReport> = {}): CalibrationReport {
+  return {
+    labelsFile: "packages/evals/calibration/labels.json",
+    total: 20,
+    seeded: 20,
+    labeled: 20,
+    agree: 19,
+    agreement: 0.95,
+    kappa: 0.89,
+    confusion: { bothPass: 12, bothFail: 7, judgePassHumanFail: 1, judgeFailHumanPass: 0 },
+    thresholds: { minAgreement: 0.8, minKappa: 0.6, minLabeled: 10 },
+    status: "pass",
+    disagreements: [{ id: "case-40/validate:judge/1", judge: true, human: "fail" }],
+    ...over,
+  };
+}
+
+/** An eval record generated on 2026-10-30, judged as of `asOf`; override any field. */
+function evalRecord(
+  over: Partial<EvalRecord> = {},
+  asOf = "2026-10-31T00:00:00.000Z",
+): EvalRecordEvidence {
+  return {
+    source: "docs/eval-record.md",
+    asOf,
+    record: {
+      v: 1,
+      generatedAt: "2026-10-30T15:00:00.000Z",
+      suite: {
+        path: "packages/evals/promptfooconfig.yaml",
+        definitionHash: "a".repeat(64),
+        caseCount: 12,
+      },
+      baselines: [],
+      lastRealModelRun: {
+        file: "eval-results/bedrock-2026-10-30.json",
+        timestamp: "2026-10-30T07:00:00.000Z",
+        provider: "bedrock",
+        model: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        judgeProvider: "bedrock",
+        passed: 11,
+        total: 12,
+        passRate: 11 / 12,
+        totalUsd: 0.03,
+        failedCases: ["billing-duplicate-charge"],
+      },
+      calibration: calib(),
+      lastRescore: {
+        file: "eval-results/rescore-2026-10-30.json",
+        timestamp: "2026-10-30T08:00:00.000Z",
+        captureDir: "gateway-captures",
+        judgeProvider: "bedrock",
+        passed: 10,
+        total: 10,
+        passRate: 1,
+        skipped: 0,
+        failedRequestIds: [],
+        firstCapturedAt: "2026-10-29T10:00:00.000Z",
+        lastCapturedAt: "2026-10-29T18:00:00.000Z",
+      },
+      ...over,
+    },
+  };
+}
+
+const withRecord = (r: EvalRecordEvidence) => card(makeResult(12, 12), { evalRecord: r });
+
+describe("Evaluated criteria from the eval record (E, 4F)", () => {
+  test("without --eval-record the three 4F criteria stay stubbed", () => {
+    for (const k of ["real-model-freshness", "judge-calibration", "post-deployment-rescore"]) {
+      expect(crit(card(), k)).toMatchObject({ state: "stubbed", fillsIn: "4F" });
+    }
+  });
+
+  test("a fresh, calibrated, re-scored record makes E fully computed and Strong, citing the record", () => {
+    const c = withRecord(evalRecord());
+    const e = dim(c, "evaluated");
+    expect(e.criteria.every((x) => x.state === "computed")).toBe(true);
+    expect(e.rating).toBe("strong");
+    for (const k of ["real-model-freshness", "judge-calibration", "post-deployment-rescore"]) {
+      const x = crit(c, k);
+      expect(x.state).toBe("computed");
+      if (x.state !== "computed") continue;
+      expect(x.citation.source).toContain("docs/eval-record.md");
+      expect(x.citation.threshold.length).toBeGreaterThan(0);
+      expect(x.citation.wouldChange.length).toBeGreaterThan(0);
+    }
+    const f = crit(c, "real-model-freshness");
+    expect(text(f)).toContain("bedrock");
+    expect(text(f)).toContain("11 of 12");
+    expect(f.state === "computed" ? f.citation.threshold : "").toContain("30 days");
+    expect(f.state === "computed" ? f.citation.wouldChange : "").toContain("2026-11-29");
+    expect(text(crit(c, "judge-calibration"))).toContain("95%");
+    expect(c.meta.stubbedCriteria).toBe(6);
+  });
+
+  test("degraded canary: a stale record (real run over 30 days old) drops E", () => {
+    const stale = withRecord(evalRecord({}, "2026-12-15T00:00:00.000Z"));
+    expect(crit(stale, "real-model-freshness").rating).toBe("at-risk");
+    expect(crit(stale, "post-deployment-rescore").rating).toBe("at-risk");
+    expect(RATING_RANK[dim(stale, "evaluated").rating as "at-risk"]).toBeLessThan(
+      RATING_RANK.strong,
+    );
+    const ancient = withRecord(evalRecord({}, "2027-03-01T00:00:00.000Z"));
+    expect(crit(ancient, "real-model-freshness").rating).toBe("critical");
+  });
+
+  test("no real-model run recorded is Critical: an eval never run on the real model is a belief", () => {
+    const x = crit(withRecord(evalRecord({ lastRealModelRun: null })), "real-model-freshness");
+    expect(x.rating).toBe("critical");
+    expect(text(x)).toContain("No real-model run");
+  });
+
+  test("calibration: unlabeled and insufficient are At risk, below threshold is Critical", () => {
+    const unlabeled = calib({
+      seeded: 0,
+      labeled: 0,
+      agree: 0,
+      agreement: null,
+      kappa: null,
+      status: "unlabeled",
+      disagreements: [],
+    });
+    const x = crit(withRecord(evalRecord({ calibration: unlabeled })), "judge-calibration");
+    expect(x.rating).toBe("at-risk");
+    expect(text(x)).toContain("unlabeled");
+    expect(
+      crit(
+        withRecord(evalRecord({ calibration: calib({ labeled: 6, status: "insufficient" }) })),
+        "judge-calibration",
+      ).rating,
+    ).toBe("at-risk");
+    expect(
+      crit(
+        withRecord(evalRecord({ calibration: calib({ agreement: 0.7, kappa: 0.4, status: "fail" }) })),
+        "judge-calibration",
+      ).rating,
+    ).toBe("critical");
+  });
+
+  test("calibration is re-judged against the fixed threshold, not the record's own status", () => {
+    // A hand-edited record claiming "pass" with kappa 0.3 is still Critical.
+    const forged = calib({ agreement: 0.9, kappa: 0.3, status: "pass" });
+    expect(crit(withRecord(evalRecord({ calibration: forged })), "judge-calibration").rating).toBe(
+      "critical",
+    );
+  });
+
+  test("degraded canary: a re-score whose cases fail (RELIABILITY_DEGRADED=1) drops E to Critical", () => {
+    const degraded = evalRecord({
+      lastRescore: {
+        ...(evalRecord().record.lastRescore as NonNullable<EvalRecord["lastRescore"]>),
+        passed: 0,
+        passRate: 0,
+        failedRequestIds: ["req-a", "req-b"],
+      },
+    });
+    const x = crit(withRecord(degraded), "post-deployment-rescore");
+    expect(x.rating).toBe("critical");
+    expect(text(x)).toContain("req-a");
+    expect(dim(withRecord(degraded), "evaluated").rating).toBe("critical");
+  });
+
+  test("no production re-score is Critical", () => {
+    const x = crit(withRecord(evalRecord({ lastRescore: null })), "post-deployment-rescore");
+    expect(x.rating).toBe("critical");
+    expect(text(x)).toContain("--from-traces");
+  });
+
+  test("the union stays closed: computed E criteria carry no fillsIn", () => {
+    for (const k of ["real-model-freshness", "judge-calibration", "post-deployment-rescore"]) {
+      expect("fillsIn" in crit(withRecord(evalRecord()), k)).toBe(false);
+    }
   });
 });

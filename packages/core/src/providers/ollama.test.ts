@@ -6,6 +6,8 @@
  *
  * Tests for the Ollama provider over a stubbed transport — content/token
  * mapping, system-message handling, error paths — plus provider-name resolution.
+ * Phase 4F: `maxTokens` reaches Ollama as `num_predict`, so a manifest token cap
+ * bounds real output.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -52,6 +54,41 @@ describe("OllamaProvider", () => {
         { role: "user", content: "help" },
       ],
     });
+  });
+
+  test("bite: maxTokens is passed as num_predict and bounds a reply longer than the cap", async () => {
+    // A fake Ollama that honours num_predict the way the real server does:
+    // generation stops after that many tokens (one word per token here).
+    const natural = Array.from({ length: 60 }, (_, i) => `word${i}`);
+    let sent: { options?: { num_predict?: number; temperature?: number } } = {};
+    const fakeOllama = (async (_url: string, init: RequestInit) => {
+      sent = JSON.parse(init.body as string);
+      const cap = sent.options?.num_predict;
+      const words = cap !== undefined && cap >= 0 ? natural.slice(0, cap) : natural;
+      return new Response(
+        JSON.stringify({
+          message: { content: words.join(" ") },
+          prompt_eval_count: 5,
+          eval_count: words.length,
+        }),
+        { status: 200 },
+      );
+    }) as unknown as typeof fetch;
+
+    const provider = new OllamaProvider({ fetchFn: fakeOllama });
+    const capped = await provider.generate({
+      messages: [{ role: "user", content: "write a long reply" }],
+      maxTokens: 8,
+    });
+    expect(sent.options?.num_predict).toBe(8);
+    expect(sent.options?.temperature).toBe(0);
+    expect(capped.usage.outputTokens).toBe(8);
+    expect(capped.text.split(" ").length).toBe(8);
+
+    // No cap: the request leaves num_predict unset and the natural reply comes back.
+    const free = await provider.generate({ messages: [{ role: "user", content: "again" }] });
+    expect(sent.options && "num_predict" in sent.options).toBe(false);
+    expect(free.usage.outputTokens).toBe(60);
   });
 
   test("throws on a non-OK response", async () => {
