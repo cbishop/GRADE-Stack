@@ -1184,10 +1184,25 @@ describe("built CLI binary: post-deployment re-scoring, calibration and the eval
       readFileSync(join(repoRoot, "packages/evals/calibration/labels.json"), "utf8"),
     );
     // The labeling walk refuses an unseeded set with the one command that seeds it.
+    // Built from the committed file with every seed stripped, so the test holds
+    // whether or not the committed set has been seeded from a real run.
     const unseededPath = join(workDir, "labels-unseeded.json");
+    const committed = JSON.parse(
+      readFileSync(join(repoRoot, "packages/evals/calibration/labels.json"), "utf8"),
+    );
     writeFileSync(
       unseededPath,
-      readFileSync(join(repoRoot, "packages/evals/calibration/labels.json"), "utf8"),
+      JSON.stringify({
+        ...committed,
+        labels: committed.labels.map((l: Record<string, unknown>) => ({
+          ...l,
+          seededFrom: null,
+          output: null,
+          judge: null,
+          human: null,
+          labeledBy: null,
+        })),
+      }),
     );
     const unseeded = await run(["eval", "label", "--labels", unseededPath, "--by", "smoke"]);
     expect(unseeded.code, unseeded.err).toBe(2);
