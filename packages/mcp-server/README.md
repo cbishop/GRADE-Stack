@@ -57,7 +57,7 @@ reliability mcp serve            # this process now speaks MCP on stdio
 ```
 
 ```ts
-import { connectSupportTools } from "reference-agent"; // spawns bun <SERVER_BIN>
+import { connectSupportTools } from "reference-agent"; // re-runs its entry script with `mcp serve`
 const client = await connectSupportTools();
 const tools = await client.listTools();
 ```
@@ -121,5 +121,4 @@ with its own process and its own tokens file, for a real boundary. Without
   attached); a `ToolScopeGuard` checks each tool call (Phase 4E).
 - `serveStdio()` / `serveHttp({ port, path, agents, decisionLog })` — attach a transport.
 - `ToolScopeGuard`, `resolveStdioToolGuard()` — the per-caller tool boundary.
-- `SERVER_BIN` — absolute path to the stdio launcher (`bun <SERVER_BIN>`).
 - `TRIAGE_POLICY_URI`, plus the fixtures (`ACCOUNTS`, `HELP_ARTICLES`, …).

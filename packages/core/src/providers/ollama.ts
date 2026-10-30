@@ -5,7 +5,8 @@
  * @module core/providers/ollama
  *
  * The local model provider backed by the Ollama REST API (`/api/chat`) — the
- * dev/variant model path on the M4 Mac Studio.
+ * dev/variant model path on the M4 Mac Studio. `maxTokens` is sent as Ollama's
+ * `num_predict` (Phase 4F), so a manifest token cap bounds real output.
  */
 
 import type { ChatMessage, GenerateRequest, GenerateResult, ModelProvider } from "../types.ts";
@@ -56,7 +57,12 @@ export class OllamaProvider implements ModelProvider {
         model: this.model,
         messages: toOllamaMessages(request),
         stream: false,
-        options: { temperature: request.temperature ?? 0 },
+        options: {
+          temperature: request.temperature ?? 0,
+          // Ollama's output-token cap; without it the gateway's per-agent token
+          // cap (4E) would bound the request but not what the model writes.
+          ...(request.maxTokens !== undefined ? { num_predict: request.maxTokens } : {}),
+        },
       }),
     });
 
