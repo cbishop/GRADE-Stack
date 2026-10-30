@@ -214,6 +214,7 @@ The gap analysis found two pillars with no code at all (rollback, human review),
 5. **Eval record.** `reliability eval record` generates `docs/eval-record.md`: suite definition hash, committed baselines, last real-model run (date, model, result), calibration agreement, last production re-score date.
 6. **Scorecard E criteria** computed from the eval record: *freshness* (last real-model run within 30 days), *calibration* (agreement at or above the threshold), *post-deployment* (a production sample re-scored within 30 days), plus the 4A suite-breadth criterion. Degraded: a stale record drops E.
 7. **Local Stop hook.** Wire `.claude/hooks/eval-gate.sh` to the stub gate (seconds, hermetic) so the `CLAUDE.md` promise is finally true, or delete both the placeholder and the promise. Default: wire it.
+8. **Carried-over fixes from 4E (decided 2026-10-30).** (a) *Stdio MCP from the built binary:* the reference agent spawns the MCP server over stdio with `bun <SERVER_BIN>`, where `SERVER_BIN` is `bin.ts` resolved from `import.meta.url`; after `bun build` that resolves to `dist/bin.ts`, which does not exist. Fix: the agent spawns the running CLI itself (`process.execPath` plus the current entry script) with `mcp serve`, which works identically from source and from `dist/`; drop the `SERVER_BIN` export. Test first: a built-binary smoke case runs `agent run --mcp` against the stub provider with no `RELIABILITY_MCP_URL`. (b) *Ollama ignores `maxTokens`:* pass `num_predict` so the manifest token cap bounds real output; test with a cap smaller than the model's natural reply.
 
 **Acceptance criteria:**
 - [ ] Nightly real-model job runs on `main` under the cost cap; a Bedrock baseline is committed after two agreeing runs.
@@ -221,6 +222,7 @@ The gap analysis found two pillars with no code at all (rollback, human review),
 - [ ] `eval run --from-traces` re-scores a captured production sample with request ids preserved.
 - [ ] `docs/eval-record.md` is generated, and scorecard E is fully computed and cites it.
 - [ ] The local Stop hook runs the stub gate or is removed together with its promise.
+- [ ] `agent run --mcp` works from the built binary over stdio with no `RELIABILITY_MCP_URL`; Ollama output is bounded by `maxTokens`.
 - [ ] **ADR 0021** records the nightly job, calibration threshold, and trace re-scoring.
 - [ ] **Artifact:** post draft in `content/cycle-18/`: "an eval you have not run on the real model lately is a belief, not a measurement."
 
