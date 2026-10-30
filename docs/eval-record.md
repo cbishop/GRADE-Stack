@@ -27,18 +27,18 @@
 
 <!-- eval-record:computed:begin -->
 
-Generated 2026-10-30T13:07:48.444Z by `reliability eval record`. Do not edit by hand; regenerate.
+Generated 2026-10-30T21:00:38.779Z by `reliability eval record`. Do not edit by hand; regenerate.
 
 - Suite: 12 cases in packages/evals/promptfooconfig.yaml, definition hash 7978c96385c4 (any edit to the suite changes it).
 - Committed baselines: packages/evals/baseline.stub.json (stub/stub-deterministic-v1, 12 of 12 passed).
-- No real-model run recorded in the results given: the suite's pass rate is measured only on the stub.
-- Judge calibration: unlabeled. packages/evals/calibration/labels.json holds 20 judged assertion(s), 0 seeded with a judge verdict, none labeled by a person, so no agreement is claimed. Label them (see the README beside the file); the bar is agreement of at least 80% and kappa of at least 0.6 over at least 10 labeled pairs.
+- Last real-model run: 2026-10-30 on bedrock (us.anthropic.claude-haiku-4-5-20251001-v1:0), judged by bedrock: 10 of 12 passed (83%), \$0.0159; failed: billing-duplicate-charge, account-cancellation. Source: eval-results/bedrock-2026-10-30T210022Z.json.
+- Judge calibration: unlabeled. packages/evals/calibration/labels.json holds 20 judged assertion(s), 12 seeded with a judge verdict, none labeled by a person, so no agreement is claimed. Label them (see the README beside the file); the bar is agreement of at least 80% and kappa of at least 0.6 over at least 10 labeled pairs.
 - No production re-score recorded: run `reliability eval run --from-traces <capture-dir> --out <file>` and pass the file to `eval record`.
 
 ```json
 {
   "v": 1,
-  "generatedAt": "2026-10-30T13:07:48.444Z",
+  "generatedAt": "2026-10-30T21:00:38.779Z",
   "suite": {
     "path": "packages/evals/promptfooconfig.yaml",
     "definitionHash": "7978c96385c4e5b76457c89d526f082b6ca5662731b26ed69ec1720ca22d7011",
@@ -56,11 +56,25 @@ Generated 2026-10-30T13:07:48.444Z by `reliability eval record`. Do not edit by 
       "gitSha": "c1155c487e197fb53b9d148df842594f66c968a2"
     }
   ],
-  "lastRealModelRun": null,
+  "lastRealModelRun": {
+    "file": "eval-results/bedrock-2026-10-30T210022Z.json",
+    "timestamp": "2026-10-30T21:00:37.943Z",
+    "provider": "bedrock",
+    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "judgeProvider": "bedrock",
+    "passed": 10,
+    "total": 12,
+    "passRate": 0.8333333333333334,
+    "totalUsd": 0.015904,
+    "failedCases": [
+      "billing-duplicate-charge",
+      "account-cancellation"
+    ]
+  },
   "calibration": {
     "labelsFile": "packages/evals/calibration/labels.json",
     "total": 20,
-    "seeded": 0,
+    "seeded": 12,
     "labeled": 0,
     "agree": 0,
     "agreement": null,
