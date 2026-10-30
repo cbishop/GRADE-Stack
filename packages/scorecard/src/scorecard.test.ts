@@ -8,6 +8,9 @@
  * computed/stubbed two-state criterion rule (no third state), purity, the
  * per-criterion bands, the worst-wins rollups, and honest degradation.
  * Phase 4D adds G's human oversight criterion, computed from the review queue.
+ * Phase 4E adds A's three boundary criteria and G's boundary register, computed
+ * from the agent manifests and the decision log, and lifts the 4B cap on
+ * *attributable* now that callers can be verified.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -15,8 +18,16 @@ import type { TraceCoverage } from "@grade-stack/core";
 import { type CaseResult, computeCost, type EvalRunResult } from "@grade-stack/evals";
 import type { GovernanceReadiness } from "./eu-ai-act.ts";
 import type { GuardrailCoverage } from "./owasp.ts";
-import { buildScorecard, parseRetentionPeriod, type ScorecardOptions } from "./scorecard.ts";
+import {
+  buildScorecard,
+  parseBoundaryRegister,
+  parseRetentionPeriod,
+  type ScorecardOptions,
+} from "./scorecard.ts";
 import type {
+  AgentBoundaryEvidence,
+  AgentManifestEvidence,
+  BoundaryObservation,
   Criterion,
   DecisionLogEntry,
   DecisionLogEvidence,
@@ -922,5 +933,291 @@ describe("Human oversight criterion (G, 4D)", () => {
     expect(c.meta.computedCriteria).toBe(7);
     expect(c.meta.stubbedCriteria).toBe(8);
     expect("fillsIn" in crit(c, "human-oversight")).toBe(false);
+  });
+});
+
+// ── Phase 4E: the A criteria and G's boundary register ─────────────────────
+
+function manifest(over: Partial<AgentManifestEvidence> = {}): AgentManifestEvidence {
+  return {
+    id: "triage",
+    file: "agents/triage.json",
+    owner: "support-lead@example.com",
+    autonomyLevel: "L1",
+    allowedTools: ["lookup_account", "search_help_articles"],
+    allowedModels: ["stub-deterministic"],
+    maxTurns: 4,
+    tokenCap: 800,
+    reviewRequired: true,
+    ...over,
+  };
+}
+
+const HELPDESK = manifest({
+  id: "helpdesk",
+  file: "agents/helpdesk.json",
+  owner: "kb-team@example.com",
+  autonomyLevel: "L0",
+  allowedTools: [],
+  allowedModels: ["frontier-test-model"],
+  maxTurns: 1,
+  tokenCap: 200,
+  reviewRequired: false,
+});
+
+/** A healthy two-agent log: triage looked an account up and was held; helpdesk only suggested. */
+function healthyObservations(): BoundaryObservation[] {
+  return [
+    {
+      kind: "tool",
+      requestId: "tool-1",
+      callerId: "triage",
+      callerVerified: true,
+      tool: "lookup_account",
+      action: "allow",
+      policy: "tool-scope",
+    },
+    {
+      kind: "request",
+      requestId: "req-1",
+      callerId: "triage",
+      callerVerified: true,
+      action: "allow",
+      policy: "guardrails",
+      held: true,
+    },
+    {
+      kind: "request",
+      requestId: "req-2",
+      callerId: "helpdesk",
+      callerVerified: true,
+      action: "allow",
+      policy: "guardrails",
+      held: false,
+    },
+  ];
+}
+
+function boundary(over: Partial<AgentBoundaryEvidence> = {}): AgentBoundaryEvidence {
+  return {
+    manifestsSource: "agents",
+    manifests: [manifest(), HELPDESK],
+    logSource: "gateway-decisions.jsonl",
+    observations: healthyObservations(),
+    register: { source: "docs/autonomy-boundary-register.md", agentIds: ["triage", "helpdesk"] },
+    ...over,
+  };
+}
+
+const withAgents = (b: AgentBoundaryEvidence) => card(makeResult(12, 12), { agents: b });
+
+const undeclaredCall: BoundaryObservation = {
+  kind: "tool",
+  requestId: "tool-x",
+  callerId: "triage",
+  callerVerified: true,
+  tool: "refund_invoice",
+  action: "allow",
+  policy: "tool-scope",
+};
+
+describe("A · Agentic boundary criteria (4E)", () => {
+  test("without --agents the A boundary criterion and G's register stay stubbed with fillsIn 4E", () => {
+    expect(crit(card(), "autonomy-scope")).toMatchObject({ state: "stubbed", fillsIn: "4E" });
+    expect(crit(card(), "boundary-register")).toMatchObject({ state: "stubbed", fillsIn: "4E" });
+  });
+
+  test("with --agents, A holds three computed boundary criteria, each citing the manifests and the log", () => {
+    const c = withAgents(boundary());
+    expect(dim(c, "agentic").criteria.map((x) => x.key)).toEqual([
+      "guardrails",
+      "tool-scope",
+      "autonomy-level",
+      "authenticated-callers",
+    ]);
+    for (const k of ["tool-scope", "autonomy-level", "authenticated-callers"]) {
+      const x = crit(c, k);
+      expect(x.state).toBe("computed");
+      if (x.state !== "computed") continue;
+      expect(x.rating).toBe("strong");
+      expect(x.citation.source).toContain("gateway-decisions.jsonl");
+      expect(x.citation.source).toContain("agents/triage.json");
+      expect(x.citation.threshold).toContain("Strong");
+      expect(x.citation.wouldChange.length).toBeGreaterThan(0);
+    }
+    expect(dim(c, "agentic").rating).toBe("strong");
+    expect(c.meta).toMatchObject({ computedCriteria: 10, stubbedCriteria: 7 });
+  });
+
+  test("degraded canary: an undeclared tool call drops A to Critical and is cited", () => {
+    const c = withAgents(boundary({ observations: [...healthyObservations(), undeclaredCall] }));
+    const x = crit(c, "tool-scope");
+    expect(x.rating).toBe("critical");
+    expect(text(x)).toContain("refund_invoice");
+    expect(x.state === "computed" ? x.citation.source : "").toContain("tool-x");
+    expect(dim(c, "agentic").rating).toBe("critical");
+  });
+
+  test("an undeclared tool refused at the MCP server degrades A to Adequate: the boundary held", () => {
+    const refused: BoundaryObservation = {
+      ...undeclaredCall,
+      callerId: "helpdesk",
+      tool: "lookup_account",
+      action: "block",
+      policy: "tool-not-allowed",
+    };
+    const c = withAgents(boundary({ observations: [...healthyObservations(), refused] }));
+    expect(crit(c, "tool-scope").rating).toBe("adequate");
+    expect(crit(c, "autonomy-level").rating).toBe("adequate");
+    expect(text(crit(c, "tool-scope"))).toContain("refused");
+  });
+
+  test("an L0 agent that executed a tool exceeded its level: Critical", () => {
+    const l0Call: BoundaryObservation = {
+      ...undeclaredCall,
+      callerId: "helpdesk",
+      tool: "lookup_account",
+    };
+    const x = crit(
+      withAgents(boundary({ observations: [...healthyObservations(), l0Call] })),
+      "autonomy-level",
+    );
+    expect(x.rating).toBe("critical");
+    expect(text(x)).toContain("L0");
+  });
+
+  test("an L1 agent's response released without a hold exceeded its level: Critical", () => {
+    const released: BoundaryObservation = {
+      kind: "request",
+      requestId: "req-unheld",
+      callerId: "triage",
+      callerVerified: true,
+      action: "allow",
+      policy: "guardrails",
+      held: false,
+    };
+    const x = crit(
+      withAgents(boundary({ observations: [...healthyObservations(), released] })),
+      "autonomy-level",
+    );
+    expect(x.rating).toBe("critical");
+    expect(text(x)).toContain("req-unheld");
+  });
+
+  test("no tool call observed yet: the declared scope is untested, so Adequate", () => {
+    const x = crit(
+      withAgents(
+        boundary({ observations: healthyObservations().filter((o) => o.kind !== "tool") }),
+      ),
+      "tool-scope",
+    );
+    expect(x.rating).toBe("adequate");
+    expect(text(x)).toContain("No tool call");
+  });
+
+  test("every record carries an authenticated caller: bands by verified share; 401s are not counted", () => {
+    const anon = (i: number): BoundaryObservation => ({
+      kind: "request",
+      requestId: `anon-${i}`,
+      callerId: "anonymous",
+      callerVerified: false,
+      action: "allow",
+      policy: "guardrails",
+      held: false,
+    });
+    const auth401: BoundaryObservation = {
+      kind: "auth",
+      requestId: "auth-1",
+      chokepoint: "gateway",
+      reason: "unknown bearer token",
+    };
+    const strong = crit(
+      withAgents(boundary({ observations: [...healthyObservations(), auth401] })),
+      "authenticated-callers",
+    );
+    expect(strong.rating).toBe("strong");
+    expect(text(strong)).toContain("1 request(s) refused with 401");
+    const base = healthyObservations();
+    const mixed = (k: number) => [...base, ...Array.from({ length: k }, (_, i) => anon(i))];
+    expect(
+      crit(withAgents(boundary({ observations: mixed(1) })), "authenticated-callers").rating,
+    ).toBe("at-risk"); // 75%
+    expect(
+      crit(withAgents(boundary({ observations: mixed(4) })), "authenticated-callers").rating,
+    ).toBe("critical"); // 43%
+    expect(crit(withAgents(boundary({ observations: [] })), "authenticated-callers").rating).toBe(
+      "critical",
+    );
+  });
+});
+
+describe("G · Boundary register (4E)", () => {
+  test("every manifest has a row in the register: Strong, citing both", () => {
+    const x = crit(withAgents(boundary()), "boundary-register");
+    expect(x.rating).toBe("strong");
+    expect(x.state === "computed" ? x.citation.source : "").toContain(
+      "docs/autonomy-boundary-register.md",
+    );
+    expect(text(x)).toContain("triage (L1");
+  });
+
+  test("an agent with no register row is Adequate and named; no register is At risk; no manifests Critical", () => {
+    const missing = crit(
+      withAgents(boundary({ register: { source: "r.md", agentIds: ["triage"] } })),
+      "boundary-register",
+    );
+    expect(missing.rating).toBe("adequate");
+    expect(text(missing)).toContain("helpdesk");
+    expect(
+      crit(
+        withAgents(boundary({ register: { source: "r.md", agentIds: null } })),
+        "boundary-register",
+      ).rating,
+    ).toBe("at-risk");
+    expect(crit(withAgents(boundary({ manifests: [] })), "boundary-register").rating).toBe(
+      "critical",
+    );
+  });
+
+  test("an owner left as the template placeholder is not a named owner: Adequate", () => {
+    const x = crit(
+      withAgents(
+        boundary({
+          manifests: [
+            manifest({ owner: "<fill in: the named person accountable for this agent>" }),
+            HELPDESK,
+          ],
+        }),
+      ),
+      "boundary-register",
+    );
+    expect(x.rating).toBe("adequate");
+    expect(text(x)).toContain("placeholder");
+  });
+
+  test("parseBoundaryRegister reads the agent ids from the register table", () => {
+    const md = [
+      "| Agent | Level | Tools |",
+      "|---|---|---|",
+      "| `triage` | L1 | lookup_account |",
+      "| `<fill in>` | | |",
+      "| `helpdesk` | L0 | none |",
+    ].join("\n");
+    expect(parseBoundaryRegister(md)).toEqual(["triage", "helpdesk"]);
+  });
+});
+
+describe("Attributable after 4E: the cap is lifted", () => {
+  test("verified callers reach Strong; the unverified advice names agent manifests and tokens", () => {
+    expect(crit(withLog(dlog(3, () => ({ callerVerified: true }))), "attributable").rating).toBe(
+      "strong",
+    );
+    const x = crit(withLog(dlog(3)), "attributable");
+    expect(x.state === "computed" ? x.citation.wouldChange : "").toContain("bearer token");
+  });
+
+  test("a caller logged as anonymous (no manifests, no header) counts as no caller", () => {
+    const x = crit(withLog(dlog(4, () => ({ callerId: "anonymous" }))), "attributable");
+    expect(x.rating).toBe("critical");
   });
 });

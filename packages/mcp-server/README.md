@@ -81,11 +81,45 @@ await client.connect(new StreamableHTTPClientTransport(new URL("http://localhost
 
 Choose **stdio** when the server is a local, per-agent subprocess (lowest setup,
 no network surface); choose **HTTP** when one server is shared across clients or
-deployed remotely (then put the gateway / auth in front of it — Phase 2C).
+deployed remotely. The reference agent uses HTTP when `RELIABILITY_MCP_URL` is
+set (`reliability agent run --mcp`), else spawns the server over stdio.
+
+## Tool scope per agent (Phase 4E)
+
+The gateway sees model calls, not tool calls, so the tool boundary is enforced
+here, where tools run: the second chokepoint of
+[ADR 0020](../../docs/decisions/0020-agent-manifest-bearer-tokens-two-chokepoints.md).
+With `RELIABILITY_AGENTS_DIR` set, the server loads the same `agents/<id>.json`
+manifests and tokens (`RELIABILITY_AGENT_TOKENS` or `RELIABILITY_AGENT_TOKENS_FILE`)
+as the gateway, and:
+
+- **over HTTP** every request needs `authorization: Bearer <token>`; a missing or
+  unknown token is 401 with an `auth` line in the decision log;
+- **over stdio** the agent passes its own token as `RELIABILITY_AGENT_TOKEN` to the
+  process it spawns; a bad token refuses every tool call;
+- every tool call is checked against the caller's manifest **before it runs**:
+  an undeclared tool, or any tool from an L0 agent, returns an MCP tool error
+  `tool-not-allowed: <reason>` and the tool's data is never read;
+- every check, allowed or refused, writes one `tool` line to
+  `RELIABILITY_DECISION_LOG` with the verified caller id, the tool and a hash of
+  the arguments (never the arguments).
+
+```bash
+RELIABILITY_AGENTS_DIR=agents RELIABILITY_AGENT_TOKENS_FILE=.reliability-agent-tokens \
+  reliability mcp serve --http --port 3333     # "tool scope: 1 agent manifest(s) ..."
+reliability gateway log                        # "Tool call ... from agent helpdesk (verified, L0) ...: lookup_account refused at the MCP server by policy tool-not-allowed ..."
+```
+
+Over stdio the server is the agent's own child process and shares its trust
+domain: a compromised agent could start an unguarded copy. Run it over HTTP,
+with its own process and its own tokens file, for a real boundary. Without
+`RELIABILITY_AGENTS_DIR` the server behaves as in v2 and logs nothing.
 
 ## Public API
 
-- `createSupportMcpServer()` — build the `McpServer` (no transport attached).
-- `serveStdio()` / `serveHttp({ port, path })` — attach a transport.
+- `createSupportMcpServer({ guard })` — build the `McpServer` (no transport
+  attached); a `ToolScopeGuard` checks each tool call (Phase 4E).
+- `serveStdio()` / `serveHttp({ port, path, agents, decisionLog })` — attach a transport.
+- `ToolScopeGuard`, `resolveStdioToolGuard()` — the per-caller tool boundary.
 - `SERVER_BIN` — absolute path to the stdio launcher (`bun <SERVER_BIN>`).
 - `TRIAGE_POLICY_URI`, plus the fixtures (`ACCOUNTS`, `HELP_ARTICLES`, …).

@@ -97,9 +97,11 @@ hashes of the input and output instead of the text. If the write fails, the
 request fails. See [ADR 0017](../../docs/decisions/0017-decision-log-jsonl-append-only-hashes-by-default.md)
 and the deployer's [logging and retention record](../../docs/logging-and-retention.md).
 
-Send `x-request-id` and `x-caller-id` with each request (the gateway generates a
-request id when absent and echoes it back). In 4B the caller id is a trusted
-header, logged as unverified; 4E authenticates it. The gateway's root span and
+Send `x-request-id` (and, without agent manifests, `x-caller-id`) with each
+request; the gateway generates a request id when absent and echoes it back.
+Without manifests the caller id is a self-asserted header logged as unverified,
+or `anonymous` when none is sent. With manifests (Phase 4E, below) the bearer
+token decides the caller id and the record says `callerVerified: true`. The gateway's root span and
 every `chat` span carry `grade_stack.request_id`, `grade_stack.caller_id` and
 `enduser.id`, so a log line and its trace join on request id.
 
@@ -171,6 +173,56 @@ Approve and reject refuse a missing or empty name, an automated identity
 second decision. There is no HTTP endpoint that approves. See
 [ADR 0019](../../docs/decisions/0019-review-queue-event-log-and-three-route-order.md)
 and the deployer's [oversight map](../../docs/human-oversight-map.md).
+
+## Agent manifests and caller authentication (Phase 4E)
+
+Two agents behind one gateway can be told apart and held to different limits.
+Each has a manifest, `agents/<id>.json` (strict schema; a malformed one stops
+the gateway at start):
+
+```json
+{ "id": "triage", "owner": "<named person>", "autonomyLevel": "L1",
+  "allowedTools": ["lookup_account", "search_help_articles"],
+  "allowedModels": ["stub-deterministic", "gemma4", "claude-haiku-4-5"],
+  "maxTurns": 5, "tokenCap": 800, "reviewRequired": true }
+```
+
+Levels: `L0` suggest only (no tools), `L1` act with approval (`reviewRequired`
+must be true), `L2` act and notify, `L3` autonomous. Set
+`RELIABILITY_AGENTS_DIR` and every request needs `authorization: Bearer
+<token>` for a known agent; anything else is 401 with a `caller-auth` line in
+the decision log (the token is never written). The token decides the caller id;
+an `x-caller-id` that disagrees is refused. Each request then runs under that
+agent's manifest on top of the gateway policy:
+
+| Limit | Refused as | Where it comes from |
+|---|---|---|
+| model not in `allowedModels` | `agent-model-not-allowed` | substring match, as the gateway allowlist |
+| `maxTokens` over `tokenCap` (or the gateway cap, whichever is lower) | `agent-token-cap` | a request with no `maxTokens` is given the cap |
+| more than `maxTurns` model calls in one session (`x-session-id`) | `agent-turn-cap` | a manifest-bound call with no session is refused |
+| `reviewRequired` (every L1) | held, trigger `requested` | regardless of `RELIABILITY_REVIEW_ON_REQUEST` |
+
+```bash
+export RELIABILITY_AGENTS_DIR=agents RELIABILITY_AGENT_TOKENS_FILE=.reliability-agent-tokens
+reliability gateway serve -p ollama            # "agents: triage (L1) from agents; bearer token required"
+RELIABILITY_GATEWAY_URL=http://localhost:8787 RELIABILITY_AGENT_TOKEN=<triage token> reliability agent run
+reliability agents list                        # each agent's level, tools, models, limits
+reliability gateway log --caller triage        # "... from agent triage (verified) ..."
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RELIABILITY_AGENTS_DIR` | *(unset: no manifests, v2 behaviour)* | manifests directory; switches on authentication |
+| `RELIABILITY_AGENT_TOKENS` | | `id:token,id:token` (tokens at least 16 characters) |
+| `RELIABILITY_AGENT_TOKENS_FILE` | `./.reliability-agent-tokens` if present | one `id:token` per line, `#` comments |
+| `RELIABILITY_AGENT_TOKEN` | | the agent process's own token, sent by `GatewayProvider` |
+
+The gateway cannot see tool calls, so tools are enforced at the MCP server,
+which loads the same manifests (see the [MCP server README](../mcp-server/README.md)).
+Without `RELIABILITY_AGENTS_DIR` nothing changes: no token is needed and a
+caller with no `x-caller-id` is logged as `anonymous`. See
+[ADR 0020](../../docs/decisions/0020-agent-manifest-bearer-tokens-two-chokepoints.md)
+and the [boundary register](../../docs/autonomy-boundary-register.md).
 
 ## Prove both halves of the contract
 

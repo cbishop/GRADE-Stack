@@ -37,6 +37,15 @@
  * approval drops G and a decision with no approver fails loudly. The review
  * drill decides its ten items through the built binary, and its queue grades
  * G's human oversight Strong with all four triggers configured.
+ *
+ * Phase 4E: `agents list` and `agents show` read the manifests back; a built
+ * gateway started with two manifests and a tokens file refuses a wrong or
+ * missing token with 401, enforces each agent's own token cap, holds the L1
+ * agent's `agent run` for review and refuses that agent as its own approver;
+ * the built `mcp serve --http` refuses the L0 agent's undeclared tool with
+ * `tool-not-allowed` and logs it with the caller id; `agent run --mcp` reaches
+ * the HTTP MCP server with its token; and `scorecard --agents` computes A,
+ * which drops to Critical on a log with an undeclared tool call.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -45,6 +54,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildReleaseManifest, parseReleaseManifest } from "@grade-stack/core";
 import { computeCost } from "@grade-stack/evals";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 const repoRoot = join(import.meta.dir, "..", "..", "..");
 let workDir: string;
@@ -774,4 +785,246 @@ describe("built CLI binary: human review queue (4D)", () => {
       "Configured triggers: low-confidence, max-turns, output-redaction, requested; each has held at least one item.",
     );
   }, 90_000);
+});
+
+// ── Phase 4E: agent manifests, caller authentication and the A letter ──────
+
+const TRIAGE_TOKEN = "smoke-triage-0123456789abcdef";
+const HELPDESK_TOKEN = "smoke-helpdesk-0123456789abcdef";
+
+/** Start `reliability mcp serve --http` from the built binary; resolve once it listens. */
+async function startMcpHttp(env: Record<string, string>) {
+  const proc = Bun.spawn(["bun", binPath, "mcp", "serve", "--http", "--port", "0"], {
+    cwd: workDir,
+    env: { ...process.env, ...env },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const reader = proc.stderr.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) throw new Error(`MCP server exited before listening: ${buf}`);
+    buf += decoder.decode(value);
+    const url = /listening at (http:\/\/\S+)/.exec(buf)?.[1];
+    if (url && buf.includes("tool scope:")) {
+      reader.releaseLock();
+      return { url, proc };
+    }
+  }
+}
+
+describe("built CLI binary: agent manifests and caller authentication (4E)", () => {
+  test("agents list and agents show read the manifests back, plain and --json", async () => {
+    const list = await run(["agents", "list"]);
+    expect(list.code, list.err).toBe(0);
+    expect(list.out).toContain("triage: L1 (act with approval), owned by ");
+    const json = await run(["agents", "list", "--json"]);
+    const agents = JSON.parse(json.out) as { manifest: { id: string }; file: string }[];
+    expect(agents.map((a) => a.manifest.id)).toContain("triage");
+    const show = await run(["agents", "show", "triage"]);
+    expect(show.code, show.err).toBe(0);
+    expect(show.out).toContain("Autonomy: L1, act with approval");
+    const missing = await run(["agents", "show", "nobody"]);
+    expect(missing.code).toBe(1);
+  }, 30_000);
+
+  test("two manifests behind one built gateway and MCP server: wrong token, undeclared tool, A degrades", async () => {
+    const agentsDir = join(workDir, "agents-4e");
+    mkdirSync(agentsDir, { recursive: true });
+    const triage = JSON.parse(readFileSync(join(repoRoot, "agents", "triage.json"), "utf8"));
+    writeFileSync(join(agentsDir, "triage.json"), JSON.stringify(triage, null, 2));
+    writeFileSync(
+      join(agentsDir, "helpdesk.json"),
+      JSON.stringify({
+        id: "helpdesk",
+        owner: "kb-team@example.com",
+        autonomyLevel: "L0",
+        allowedTools: [],
+        allowedModels: ["stub-deterministic"],
+        maxTurns: 1,
+        tokenCap: 200,
+        reviewRequired: false,
+      }),
+    );
+    const tokensFile = join(workDir, "agent-tokens");
+    writeFileSync(tokensFile, `triage:${TRIAGE_TOKEN}\nhelpdesk:${HELPDESK_TOKEN}\n`);
+    const logPath = join(workDir, "agents-decisions.jsonl");
+    const queuePath = join(workDir, "agents-review-queue.jsonl");
+    const env = {
+      RELIABILITY_AGENTS_DIR: agentsDir,
+      RELIABILITY_AGENT_TOKENS_FILE: tokensFile,
+      RELIABILITY_DECISION_LOG: logPath,
+      RELIABILITY_REVIEW_QUEUE: queuePath,
+      RELIABILITY_HALT_FILE: join(workDir, "no-halt-for-agents"),
+    };
+    const { url, proc } = await startGateway(env);
+    const mcp = await startMcpHttp(env);
+    let heldId = "";
+    try {
+      // A wrong or missing token is refused with 401.
+      const wrong = await fetch(`${url}/v1/generate`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer smoke-wrong-0123456789abcdef",
+          "x-request-id": "smoke-wrong-token",
+        },
+        body: JSON.stringify({
+          target: "stub",
+          request: { messages: [{ role: "user", content: SMOKE_EMAIL }] },
+        }),
+      });
+      expect(wrong.status).toBe(401);
+      const anon = await run(["agent", "run"], { ...env, RELIABILITY_GATEWAY_URL: url });
+      expect(anon.code).toBe(1);
+      expect(anon.err).toContain("refused by the gateway: policy caller-auth");
+
+      // Each agent's own token cap: 300 tokens is fine for triage, over helpdesk's 200.
+      const capped = async (token: string) =>
+        (
+          await fetch(`${url}/v1/generate`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${token}`,
+              "x-session-id": `smoke-${token.slice(6, 12)}`,
+            },
+            body: JSON.stringify({
+              target: "stub",
+              request: { messages: [{ role: "user", content: SMOKE_EMAIL }], maxTokens: 300 },
+            }),
+          })
+        ).status;
+      expect(await capped(TRIAGE_TOKEN)).toBe(200);
+      expect(await capped(HELPDESK_TOKEN)).toBe(422);
+
+      // The L1 agent's run is authenticated and held for review without asking.
+      const held = await run(["agent", "run"], {
+        ...env,
+        RELIABILITY_GATEWAY_URL: url,
+        RELIABILITY_AGENT_TOKEN: TRIAGE_TOKEN,
+      });
+      expect(held.code, held.err).toBe(0);
+      expect(held.out).toContain("review:   held for review (rv-");
+      heldId = /held for review \((rv-[0-9a-f]{12})\)/.exec(held.out)?.[1] ?? "";
+
+      // The agent presents its token to the MCP server too (RELIABILITY_MCP_URL).
+      const grounded = await run(["agent", "run", "--mcp"], {
+        ...env,
+        RELIABILITY_GATEWAY_URL: url,
+        RELIABILITY_MCP_URL: mcp.url,
+        RELIABILITY_AGENT_TOKEN: TRIAGE_TOKEN,
+      });
+      expect(grounded.code, grounded.err).toBe(0);
+      expect(grounded.out).toContain("mcp:      policy resource loaded");
+
+      // The L0 agent calls a tool anyway: refused at the MCP server before it runs.
+      const client = new Client({ name: "smoke-helpdesk", version: "0.0.0" });
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(mcp.url), {
+          requestInit: { headers: { authorization: `Bearer ${HELPDESK_TOKEN}` } },
+        }),
+      );
+      const res = await client.callTool({
+        name: "lookup_account",
+        arguments: { email: "dana@acme-retail.example" },
+      });
+      await client.close();
+      expect(res.isError).toBe(true);
+      expect(JSON.stringify(res.content)).toContain("tool-not-allowed");
+    } finally {
+      proc.kill();
+      mcp.proc.kill();
+      await Promise.all([proc.exited, mcp.proc.exited]);
+    }
+
+    // 4D residual closed: the authenticated agent cannot approve its own held run.
+    const self = await run(["review", "approve", heldId, "--as", "triage"], env);
+    expect(self.code).toBe(1);
+    expect(self.err).toContain("requesting caller");
+
+    const raw = readFileSync(logPath, "utf8");
+    expect(raw).not.toContain(TRIAGE_TOKEN);
+    expect(raw).not.toContain("smoke-wrong-0123456789abcdef");
+    const log = await run(["gateway", "log", "--file", logPath]);
+    expect(log.code, log.err).toBe(0);
+    expect(log.out).toContain("Request smoke-wrong-token at ");
+    expect(log.out).toContain("refused at the gateway with 401 by policy caller-auth");
+    expect(log.out).toContain("from agent triage (verified)");
+    expect(log.out).toContain("agent-token-cap");
+    expect(log.out).toContain("from agent helpdesk (verified, L0)");
+    expect(log.out).toContain(
+      "lookup_account refused at the MCP server by policy tool-not-allowed",
+    );
+    const byHelpdesk = await run([
+      "gateway",
+      "log",
+      "--file",
+      logPath,
+      "--caller",
+      "helpdesk",
+      "--json",
+    ]);
+    const lines = JSON.parse(byHelpdesk.out) as { kind?: string; policy: string }[];
+    expect(lines.some((l) => l.kind === "tool" && l.policy === "tool-not-allowed")).toBe(true);
+
+    // Scorecard A computed from the manifests and the log: the refused attempt degrades it.
+    const cardArgs = [
+      "scorecard",
+      "--from",
+      fixturePath,
+      "--agents",
+      agentsDir,
+      "--decision-log",
+      logPath,
+    ];
+    const card = await run(cardArgs);
+    expect(card.code, card.err).toBe(0);
+    expect(card.out).toContain("#### Every observed tool is declared: 🟡 Adequate");
+    expect(card.out).toContain("#### No call exceeded the declared level: 🟡 Adequate");
+    expect(card.out).toContain("#### Every record carries an authenticated caller: 🟢 Strong");
+    expect(card.out).toContain("#### Attributable: 🟢 Strong");
+    expect(card.out).toContain(`**Source:** ${agentsDir}`);
+    expect(card.out).not.toContain("fills in Phase 4E");
+
+    // Degraded canary: a log where the L0 agent's undeclared tool call ran drops A.
+    const degraded = join(workDir, "agents-undeclared.jsonl");
+    writeFileSync(
+      degraded,
+      `${raw}${JSON.stringify({
+        v: 1,
+        kind: "tool",
+        at: "2026-10-29T12:00:00.000Z",
+        requestId: "smoke-undeclared",
+        callerId: "helpdesk",
+        callerVerified: true,
+        autonomyLevel: "L0",
+        tool: "lookup_account",
+        action: "allow",
+        policy: "tool-scope",
+        reason: "ran without a scope check",
+        argsSha256: "0".repeat(64),
+      })}\n`,
+    );
+    const bad = await run([
+      "scorecard",
+      "--from",
+      fixturePath,
+      "--agents",
+      agentsDir,
+      "--decision-log",
+      degraded,
+    ]);
+    expect(bad.code, bad.err).toBe(0);
+    expect(bad.out).toContain("#### Every observed tool is declared: 🔴 Critical");
+    expect(bad.out).toContain("### A · Agentic: 🔴 Critical");
+    expect(bad.out).toContain("smoke-undeclared");
+
+    // A needs the decision log too.
+    const noLog = await run(["scorecard", "--from", fixturePath, "--agents", agentsDir]);
+    expect(noLog.code).toBe(1);
+    expect(noLog.err).toContain("--decision-log");
+  }, 180_000);
 });

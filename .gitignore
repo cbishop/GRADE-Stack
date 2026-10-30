@@ -35,3 +35,8 @@ gateway-captures/
 # The committed sample lives in governance/drills/review-queue-<date>.jsonl.
 review-queue.jsonl
 review-queue.jsonl.lock
+
+# Agent bearer tokens (Phase 4E): secrets, never committed. The default tokens
+# file the gateway and MCP server read when RELIABILITY_AGENT_TOKENS_FILE is unset.
+.reliability-agent-tokens
+*.tokens

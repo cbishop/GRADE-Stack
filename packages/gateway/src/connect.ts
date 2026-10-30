@@ -24,6 +24,14 @@
  * triggers come from `RELIABILITY_REVIEW_*` unless a policy is injected. There
  * is deliberately no endpoint that approves or rejects: that is a local, named
  * operator action (`reliability review approve|reject --as <name>`).
+ *
+ * Phase 4E (ADR 0020): with agent manifests (`RELIABILITY_AGENTS_DIR`, or an
+ * injected registry) every request on both endpoints must carry a bearer token
+ * for a known agent. The token decides the caller id; an `x-caller-id` (header
+ * or body) that disagrees is refused rather than trusted. A refusal is 401 with
+ * a structured `caller-auth` violation and one `auth` decision-log line, which
+ * never holds the token. With no manifests nothing changes from v2: no token is
+ * needed and the caller is the self-asserted header (unverified) or `anonymous`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -38,7 +46,14 @@ import {
   IDENTITY_ID_PATTERN,
   REQUEST_ID_HEADER,
   type RequestContext,
+  SESSION_ID_HEADER,
 } from "@grade-stack/core";
+import {
+  type AgentRegistry,
+  type LoadedManifest,
+  resolveAgentRegistryFromEnv,
+} from "./agent-manifest.ts";
+import type { DecisionLog } from "./decision-log.ts";
 import { GatewayService, type GatewayServiceOptions } from "./gateway.ts";
 import { DEFAULT_POLICY, type ReviewPolicy } from "./policy.ts";
 import { resolveReviewPolicyFromEnv } from "./review-queue.ts";
@@ -47,6 +62,12 @@ import { resolveRouterFromEnv } from "./router.ts";
 export interface GatewayServeOptions extends GatewayServiceOptions {
   /** Port to bind; 0 (default) picks a free port — handy for tests. */
   port?: number;
+  /**
+   * The agents this gateway enforces (Phase 4E). Defaults to the registry
+   * `RELIABILITY_AGENTS_DIR` configures; `null` forces v2 behaviour (no
+   * manifests). A malformed manifest or token entry throws at start.
+   */
+  agents?: AgentRegistry | null;
 }
 
 /** A running gateway HTTP server; call `stop()` to shut it down. */
@@ -61,6 +82,8 @@ export interface GatewayHandle {
   reviewQueuePath: string;
   /** The review triggers this gateway applies (Phase 4D). */
   review: ReviewPolicy;
+  /** The agents it enforces, or null when it runs without manifests (Phase 4E). */
+  agents: AgentRegistry | null;
   stop(): Promise<void>;
 }
 
@@ -89,11 +112,11 @@ function requestContext(
 ): RequestContext | string {
   const requestId = req.headers.get(REQUEST_ID_HEADER) ?? body.context?.requestId;
   const callerId = req.headers.get(CALLER_ID_HEADER) ?? body.context?.callerId;
-  const sessionId = body.context?.sessionId;
+  const sessionId = req.headers.get(SESSION_ID_HEADER) ?? body.context?.sessionId;
   for (const [name, value] of [
     [REQUEST_ID_HEADER, requestId],
     [CALLER_ID_HEADER, callerId],
-    ["sessionId", sessionId],
+    [SESSION_ID_HEADER, sessionId],
   ] as const) {
     if (value !== undefined && !IDENTITY_ID_PATTERN.test(value)) {
       return `Bad request: ${name} must be 1-128 characters of [A-Za-z0-9._:@-]`;
@@ -104,6 +127,49 @@ function requestContext(
     ...(callerId ? { callerId } : {}),
     ...(sessionId ? { sessionId } : {}),
   };
+}
+
+/** The authenticated agent for a request, or the 401 to send. */
+type Authenticated = { agent?: LoadedManifest } | { refused: Response };
+
+/**
+ * Authenticate one request against the registry (4E). With no registry every
+ * request passes as in v2. Otherwise the bearer token must name a known agent,
+ * and a claimed caller id must agree with it; a refusal writes one `auth` line.
+ */
+async function authenticate(
+  req: Request,
+  ctx: RequestContext,
+  agents: AgentRegistry | null,
+  log: DecisionLog,
+  endpoint: string,
+): Promise<Authenticated> {
+  if (!agents) return {};
+  const auth = agents.authenticate(req.headers.get("authorization"));
+  let reason: string | null = null;
+  if (!auth.ok) {
+    reason = auth.reason;
+  } else if (ctx.callerId !== undefined && ctx.callerId !== auth.agent.manifest.id) {
+    reason = `x-caller-id "${ctx.callerId}" disagrees with the agent the bearer token belongs to; the token decides who is calling`;
+  }
+  if (auth.ok && reason === null) return { agent: auth.agent };
+  const violation = { policy: "caller-auth", stage: "input" as const, reason: reason ?? "refused" };
+  await log.append({
+    v: 1,
+    kind: "auth",
+    at: new Date().toISOString(),
+    requestId: ctx.requestId,
+    chokepoint: "gateway",
+    endpoint,
+    action: "refuse",
+    status: 401,
+    policy: "caller-auth",
+    reason: violation.reason,
+    claimedCallerId: ctx.callerId ?? null,
+  });
+  const res = json({ ok: false, violation }, 401, ctx.requestId);
+  res.headers.set("www-authenticate", 'Bearer realm="grade-stack-gateway"');
+  return { refused: res };
 }
 
 /**
@@ -117,6 +183,8 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
   const router = opts.router ?? resolveRouterFromEnv();
   // Likewise the review triggers (4D): an injected policy wins, else the env.
   const policy = opts.policy ?? { ...DEFAULT_POLICY, review: resolveReviewPolicyFromEnv() };
+  // And the agents (4E): injected wins (null forces none), else RELIABILITY_AGENTS_DIR.
+  const agents = opts.agents === undefined ? resolveAgentRegistryFromEnv() : opts.agents;
   const service = new GatewayService({ ...opts, router, policy });
 
   const server = Bun.serve({
@@ -124,7 +192,7 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
     async fetch(req) {
       const url = new URL(req.url);
       if (req.method === "POST" && url.pathname === GATEWAY_REVIEW_PATH) {
-        return reviewReport(req, service);
+        return reviewReport(req, service, agents);
       }
       if (req.method !== "POST" || url.pathname !== GATEWAY_GENERATE_PATH) {
         return new Response("Not found", { status: 404 });
@@ -146,7 +214,15 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
       }
 
       try {
-        const response = await service.generate(body.target, body.request, ctx);
+        const auth = await authenticate(
+          req,
+          ctx,
+          agents,
+          service.decisionLog,
+          GATEWAY_GENERATE_PATH,
+        );
+        if ("refused" in auth) return auth.refused;
+        const response = await service.generate(body.target, body.request, ctx, auth.agent);
         // 200 for a forwarded result; 503 while the kill switch is pulled (4C);
         // 422 (Unprocessable) for any other guardrail block.
         const status = response.ok ? 200 : response.violation.policy === "kill-switch" ? 503 : 422;
@@ -171,6 +247,7 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
     haltFile: service.haltFile,
     reviewQueuePath: service.reviewQueue.path,
     review: service.review,
+    agents,
     async stop() {
       await server.stop(true);
     },
@@ -182,7 +259,11 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
  * bound. The only trigger accepted here is `max-turns`; the others are decided
  * by the gateway itself on `/v1/generate`.
  */
-async function reviewReport(req: Request, service: GatewayService): Promise<Response> {
+async function reviewReport(
+  req: Request,
+  service: GatewayService,
+  agents: AgentRegistry | null,
+): Promise<Response> {
   let body: GatewayReviewBody;
   try {
     body = (await req.json()) as GatewayReviewBody;
@@ -197,8 +278,14 @@ async function reviewReport(req: Request, service: GatewayService): Promise<Resp
   const ctx = requestContext(req, body);
   if (typeof ctx === "string") return new Response(ctx, { status: 400 });
   try {
+    const auth = await authenticate(req, ctx, agents, service.decisionLog, GATEWAY_REVIEW_PATH);
+    if ("refused" in auth) return auth.refused;
     const lastIssues = Array.isArray(body.lastIssues) ? body.lastIssues.map(String) : [];
-    const res = await service.holdMaxTurns({ maxTurns: body.maxTurns, lastIssues }, ctx);
+    const res = await service.holdMaxTurns(
+      { maxTurns: body.maxTurns, lastIssues },
+      ctx,
+      auth.agent,
+    );
     return json(res, 200, ctx.requestId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

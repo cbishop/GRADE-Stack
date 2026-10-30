@@ -18,6 +18,9 @@
  * This is the mechanism, not a doc: with `RELIABILITY_AGENT_SANDBOX=1` set, the
  * agent process *cannot* obtain a credentialed provider through either factory,
  * so the gateway is structurally un-routable-around (PRD Phase 2C).
+ *
+ * Phase 4E: the gateway client carries the agent's bearer token from
+ * `RELIABILITY_AGENT_TOKEN`, so `agent run` is an authenticated caller.
  */
 
 import { BedrockProvider } from "./providers/bedrock.ts";
@@ -34,6 +37,17 @@ export const GATEWAY_URL_ENV = "RELIABILITY_GATEWAY_URL";
 export const SANDBOX_ENV = "RELIABILITY_AGENT_SANDBOX";
 /** Dev escape hatch: `off` disables gateway routing (ignored when sandboxed). */
 export const GATEWAY_TOGGLE_ENV = "RELIABILITY_GATEWAY";
+/**
+ * The agent's bearer token (Phase 4E, ADR 0020). Sent to the gateway (and the
+ * MCP server) so the caller id is authenticated, not asserted. Never logged.
+ */
+export const AGENT_TOKEN_ENV = "RELIABILITY_AGENT_TOKEN";
+
+/** The agent's bearer token from the environment, or undefined. */
+export function agentToken(): string | undefined {
+  const v = process.env[AGENT_TOKEN_ENV];
+  return v && v.length > 0 ? v : undefined;
+}
 
 /**
  * Resolve the provider to use, in precedence order:
@@ -98,11 +112,11 @@ export function createProvider(name?: string, opts: CreateProviderOptions = {}):
           `"${resolved}" provider.`,
       );
     }
-    return new GatewayProvider({ url, target: resolved });
+    return new GatewayProvider({ url, target: resolved, token: agentToken() });
   }
 
   if (url && !gatewayRoutingDisabled()) {
-    return new GatewayProvider({ url, target: resolved });
+    return new GatewayProvider({ url, target: resolved, token: agentToken() });
   }
   return resolved === "bedrock" ? new BedrockProvider() : new OllamaProvider();
 }

@@ -21,6 +21,7 @@ import {
   type RemoteTool,
   type SupportToolsClient,
   selectTool,
+  ToolRefusedError,
 } from "./mcp.ts";
 
 const ACCOUNT_DESC = "Fetch the customer's billing and account state for a decision.";
@@ -130,5 +131,29 @@ describe("groundTriage", () => {
     expect(grounding.selection?.tool).toBe("lookup_account");
     expect(grounding.context).toContain("Triage policy (reference data)");
     expect(grounding.context).toContain("INV-1");
+  });
+
+  test("a tool the MCP server refuses (4E) is recorded, and grounding continues without its facts", async () => {
+    const client: SupportToolsClient = {
+      listTools: async () => tools(ACCOUNT_DESC, HELP_DESC),
+      readTriagePolicy: async () => "# Support Triage Policy",
+      callTool: async (name) => {
+        throw new ToolRefusedError(name, "tool-not-allowed", "agent helpdesk is L0 (suggest only)");
+      },
+      close: async () => {},
+    };
+    const grounding = await groundTriage(
+      pickByDescription("billing and account state"),
+      client,
+      "billing problem",
+    );
+    expect(grounding.selection?.tool).toBe("lookup_account");
+    expect(grounding.refused).toEqual({
+      tool: "lookup_account",
+      policy: "tool-not-allowed",
+      reason: "agent helpdesk is L0 (suggest only)",
+    });
+    expect(grounding.toolResult).toBeUndefined();
+    expect(grounding.context).not.toContain("Account/help lookup");
   });
 });

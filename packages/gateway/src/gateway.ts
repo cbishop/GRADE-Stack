@@ -27,6 +27,14 @@
  * response carries `review: { held, id, trigger, reason }`, the request line
  * names the item, and the queue writes its own `review` line. `holdMaxTurns`
  * queues an agent's max-turn failure. The gateway never approves anything.
+ *
+ * Phase 4E (ADR 0020): a request from an authenticated agent runs under that
+ * agent's manifest. Its model allowlist and token cap replace the gateway-wide
+ * ones (never widening them), its turn cap counts model calls per session, and
+ * an agent whose manifest requires review (every L1 agent) has every response
+ * held, whatever the request says. The record names the agent as a verified
+ * caller. Without an agent the caller is the self-asserted header (unverified)
+ * or `anonymous`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -35,6 +43,7 @@ import {
   type GatewayGenerateResponse,
   type GatewayReviewResponse,
   type GatewayRouting,
+  type GatewayViolation,
   type GenerateRequest,
   type GenerateResult,
   IDENTITY_ID_PATTERN,
@@ -48,6 +57,12 @@ import {
   traceProvider,
   withRequestSpan,
 } from "@grade-stack/core";
+import {
+  ANONYMOUS_CALLER,
+  AUTONOMY_LEVEL_LABEL,
+  type LoadedManifest,
+  manifestPolicy,
+} from "./agent-manifest.ts";
 import { resolveCaptureDir, writeCapture } from "./capture.ts";
 import { DecisionLog, type RequestRecord, sha256Hex } from "./decision-log.ts";
 import { readHaltState, resolveHaltFilePath } from "./kill-switch.ts";
@@ -137,6 +152,9 @@ export interface GatewayServiceOptions {
   reviewQueue?: ReviewQueue;
 }
 
+/** Most sessions whose turn counts are kept; the oldest are forgotten first. */
+const MAX_TRACKED_SESSIONS = 10_000;
+
 function envDegraded(): boolean {
   const v = process.env.RELIABILITY_DEGRADED?.toLowerCase();
   return v === "1" || v === "true";
@@ -161,6 +179,8 @@ export class GatewayService {
   readonly haltFile: string;
   readonly reviewQueue: ReviewQueue;
   readonly review: ReviewPolicy;
+  /** Model calls per agent session (4E turn cap); insertion-ordered for eviction. */
+  private readonly turns = new Map<string, number>();
 
   constructor(opts: GatewayServiceOptions = {}) {
     this.policy = opts.policy ?? DEFAULT_POLICY;
@@ -185,8 +205,10 @@ export class GatewayService {
     target: ProviderName,
     request: GenerateRequest,
     context: Partial<RequestContext> = {},
+    agent?: LoadedManifest,
   ): Promise<GatewayGenerateResponse> {
-    const ctx = this.resolveContext(context);
+    // 4E: an authenticated agent's id is the caller id; nothing else is.
+    const ctx = this.resolveContext(agent ? { ...context, callerId: agent.manifest.id } : context);
     const at = new Date().toISOString();
     const started = performance.now();
     return withRequestSpan("gateway.generate", ctx, async (span) => {
@@ -194,26 +216,32 @@ export class GatewayService {
       try {
         // 0. Kill switch (4C): checked per request, before any provider is resolved.
         const halt = await readHaltState(this.haltFile);
-        outcome = halt.halted
-          ? {
-              response: {
-                ok: false,
-                violation: { policy: "kill-switch", stage: "input", reason: halt.reason },
-              },
-            }
-          : await this.decide(target, request, ctx);
+        if (halt.halted) {
+          outcome = {
+            response: {
+              ok: false,
+              violation: { policy: "kill-switch", stage: "input", reason: halt.reason },
+            },
+          };
+        } else {
+          // 0b. The agent's turn cap (4E), before anything reaches a model.
+          const turnViolation = agent ? this.countTurn(agent, ctx) : null;
+          outcome = turnViolation
+            ? { response: { ok: false, violation: turnViolation } }
+            : await this.decide(target, request, ctx, agent);
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        await this.record(span, ctx, target, request, at, started, { error: message });
+        await this.record(span, ctx, target, request, at, started, { error: message }, agent);
         throw err;
       }
-      await this.record(span, ctx, target, request, at, started, outcome);
+      await this.record(span, ctx, target, request, at, started, outcome, agent);
       // 4D: the request line (naming the item) first, then the hold itself.
       if (outcome.hold && outcome.response.ok) {
         await this.reviewQueue.enqueue({
           id: outcome.hold.id,
           requestId: ctx.requestId,
-          callerId: ctx.callerId ?? null,
+          callerId: this.loggedCaller(ctx),
           trigger: outcome.hold.trigger,
           reason: outcome.hold.reason,
           outputSha256: sha256Hex(outcome.response.result.text),
@@ -232,8 +260,9 @@ export class GatewayService {
   async holdMaxTurns(
     err: { maxTurns: number; lastIssues?: string[] },
     context: Partial<RequestContext> = {},
+    agent?: LoadedManifest,
   ): Promise<GatewayReviewResponse> {
-    const ctx = this.resolveContext(context);
+    const ctx = this.resolveContext(agent ? { ...context, callerId: agent.manifest.id } : context);
     if (!this.review.onMaxTurns) {
       return {
         held: false,
@@ -245,13 +274,55 @@ export class GatewayService {
     const reason = holdReasons.maxTurns(err.maxTurns, lastIssues);
     const item = await this.reviewQueue.enqueue({
       requestId: ctx.requestId,
-      callerId: ctx.callerId ?? null,
+      callerId: this.loggedCaller(ctx),
       trigger: "max-turns",
       reason,
       outputSha256: null,
       detail: { maxTurns: err.maxTurns, lastIssues },
     });
     return { held: true, id: item.id, trigger: "max-turns", reason: item.reason };
+  }
+
+  /**
+   * The caller id a record carries: the context's (an authenticated agent or a
+   * self-asserted header), else `anonymous` (4E). Degraded mode drops it to
+   * null, the identity-propagation regression the scorecard must catch.
+   */
+  private loggedCaller(ctx: RequestContext): string | null {
+    if (this.degraded) return null;
+    return ctx.callerId ?? ANONYMOUS_CALLER;
+  }
+
+  /**
+   * Count one model call against the agent's session (4E). A manifest-bound
+   * call without a session cannot be counted, so it is refused; a call past the
+   * manifest's `maxTurns` is refused. Returns the violation, or null.
+   */
+  private countTurn(agent: LoadedManifest, ctx: RequestContext): GatewayViolation | null {
+    const m = agent.manifest;
+    if (!ctx.sessionId) {
+      return {
+        policy: "agent-turn-cap",
+        stage: "input",
+        reason: `agent ${m.id} sent no session id (x-session-id); its turn cap of ${m.maxTurns} counts model calls per session`,
+      };
+    }
+    const key = `${m.id}\u0000${ctx.sessionId}`;
+    const used = (this.turns.get(key) ?? 0) + 1;
+    this.turns.delete(key);
+    this.turns.set(key, used);
+    if (this.turns.size > MAX_TRACKED_SESSIONS) {
+      const oldest = this.turns.keys().next().value;
+      if (oldest !== undefined) this.turns.delete(oldest);
+    }
+    if (used > m.maxTurns) {
+      return {
+        policy: "agent-turn-cap",
+        stage: "input",
+        reason: `agent ${m.id} exceeded its turn cap of ${m.maxTurns} model calls in session ${ctx.sessionId} (${agent.file})`,
+      };
+    }
+    return null;
   }
 
   private resolveContext(context: Partial<RequestContext>): RequestContext {
@@ -273,32 +344,43 @@ export class GatewayService {
     target: ProviderName,
     request: GenerateRequest,
     ctx: RequestContext,
+    agent?: LoadedManifest,
   ): Promise<Outcome> {
+    // 4E: an agent runs under its manifest on top of the gateway-wide policy,
+    // and a request with no maxTokens is capped at the agent's token cap.
+    const policy = agent ? manifestPolicy(this.policy, agent.manifest) : this.policy;
+    const req =
+      agent && request.maxTokens === undefined
+        ? { ...request, maxTokens: policy.maxTokens }
+        : request;
+
     // 1. Input guardrails — refuse before spending a token on a bad request.
-    const input = applyInputPolicy(request, this.policy);
+    const input = applyInputPolicy(req, policy);
     if (input.action === "block") {
-      return { response: { ok: false, violation: input.violation } };
+      return { response: { ok: false, violation: this.asAgentViolation(input.violation, agent) } };
     }
 
     // 2. Reach the model — either the confidence router (local-first, escalate
     //    the low-confidence tail) or a plain single-provider forward. Model
     //    allowlist is checked against every provider that could serve the call.
     const settled = this.router
-      ? await this.route(request, ctx)
-      : await this.forward(target, request, ctx);
+      ? await this.route(req, ctx, policy)
+      : await this.forward(target, req, ctx, policy);
     if ("violation" in settled) {
-      return { response: { ok: false, violation: settled.violation } };
+      return {
+        response: { ok: false, violation: this.asAgentViolation(settled.violation, agent) },
+      };
     }
     const { result, routing } = settled;
 
     // 3. Output guardrails — never return secrets; redact PII in place.
-    const output = applyOutputPolicy(result.text, this.policy);
+    const output = applyOutputPolicy(result.text, policy);
     if (output.action === "block") {
       return { response: { ok: false, violation: output.violation }, served: result, routing };
     }
 
     // 4. The third route (4D): hold the released result for a named person?
-    const hold = this.holdFor(request, routing, output.redactions);
+    const hold = this.holdFor(req, routing, output.redactions, agent);
     return {
       response: {
         ok: true,
@@ -325,8 +407,20 @@ export class GatewayService {
     request: GenerateRequest,
     routing: GatewayRouting | undefined,
     redactions: string[],
+    agent?: LoadedManifest,
   ): Hold | undefined {
     const p = this.review;
+    // 4E: the manifest asks for review on the agent's behalf. This does not
+    // depend on `onRequest`: switching off honouring the request flag must not
+    // release an L1 agent's actions.
+    if (agent?.manifest.reviewRequired) {
+      const m = agent.manifest;
+      return {
+        id: newReviewId(),
+        trigger: "requested",
+        reason: `agent ${m.id} is ${m.autonomyLevel} (${AUTONOMY_LEVEL_LABEL[m.autonomyLevel]}): its manifest requires a named person to review every response`,
+      };
+    }
     if (request.requiresReview === true && p.onRequest) {
       return { id: newReviewId(), trigger: "requested", reason: holdReasons.requested() };
     }
@@ -358,20 +452,52 @@ export class GatewayService {
     return traceProvider(provider, { identity: ctx, captureContent: this.captureContent });
   }
 
+  /**
+   * Name a manifest limit as the agent's (4E): a token cap or model allowlist
+   * that came from the manifest is `agent-token-cap` / `agent-model-not-allowed`,
+   * so the log tells a manifest violation from a gateway-wide refusal.
+   */
+  private asAgentViolation(v: GatewayViolation, agent?: LoadedManifest): GatewayViolation {
+    if (!agent) return v;
+    const m = agent.manifest;
+    if (v.policy === "token-cap" && m.tokenCap <= this.policy.maxTokens) {
+      const asked = /maxTokens (\d+)/.exec(v.reason)?.[1] ?? "?";
+      return {
+        ...v,
+        policy: "agent-token-cap",
+        reason: `requested maxTokens ${asked} exceeds agent ${m.id}'s token cap of ${m.tokenCap} (${agent.file})`,
+      };
+    }
+    if (v.policy === "model-allowlist") {
+      const model = /model "([^"]*)"/.exec(v.reason)?.[1] ?? "?";
+      return {
+        ...v,
+        policy: "agent-model-not-allowed",
+        reason: `model "${model}" is not in agent ${m.id}'s allowed models (${m.allowedModels.join(", ")}; ${agent.file})`,
+      };
+    }
+    return v;
+  }
+
   /** Plain path: resolve one credentialed provider, check its model, forward. */
   private async forward(
     target: ProviderName,
     request: GenerateRequest,
     ctx: RequestContext,
+    policy: GatewayPolicy,
   ): Promise<Reached> {
     const provider = this.resolveProvider(target);
-    const modelViolation = checkModel(provider.model, this.policy);
+    const modelViolation = checkModel(provider.model, policy);
     if (modelViolation) return { violation: modelViolation };
     return { result: await this.traced(provider, ctx).generate(request) };
   }
 
   /** Router path: resolve both tiers, check both models, run the router. */
-  private async route(request: GenerateRequest, ctx: RequestContext): Promise<Reached> {
+  private async route(
+    request: GenerateRequest,
+    ctx: RequestContext,
+    policy: GatewayPolicy,
+  ): Promise<Reached> {
     // biome-ignore lint/style/noNonNullAssertion: router presence is checked by the caller.
     const router = this.router!;
     const local = this.resolveProvider(router.config.local);
@@ -379,8 +505,7 @@ export class GatewayService {
     // Both tiers are sanctioned model paths of a routing gateway, so both must
     // clear the allowlist up front — an escalation to a non-allowlisted frontier
     // model should fail predictably, not mid-request.
-    const modelViolation =
-      checkModel(local.model, this.policy) ?? checkModel(escalation.model, this.policy);
+    const modelViolation = checkModel(local.model, policy) ?? checkModel(escalation.model, policy);
     if (modelViolation) return { violation: modelViolation };
     return router.route(request, {
       local: this.traced(local, ctx),
@@ -430,6 +555,7 @@ export class GatewayService {
     at: string,
     started: number,
     outcome: Outcome | { error: string },
+    agent?: LoadedManifest,
   ): Promise<void> {
     const served = "error" in outcome ? undefined : outcome.served;
     const routing = "error" in outcome ? undefined : outcome.routing;
@@ -440,7 +566,7 @@ export class GatewayService {
       await writeCapture(this.captureDir, {
         v: 1,
         requestId: ctx.requestId,
-        callerId: ctx.callerId ?? null,
+        callerId: this.loggedCaller(ctx),
         at,
         target,
         request,
@@ -451,9 +577,9 @@ export class GatewayService {
       v: 1,
       at,
       requestId: ctx.requestId,
-      callerId: ctx.callerId ?? null,
-      // 4B trusts the x-caller-id header; 4E authenticates it.
-      callerVerified: false,
+      callerId: this.loggedCaller(ctx),
+      // 4E: verified only when the caller id came from a bearer token.
+      callerVerified: agent !== undefined && !this.degraded,
       ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
       target,
       ...this.explain(outcome),

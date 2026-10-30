@@ -36,13 +36,17 @@ export {
 export { renderCli, renderHtml, renderMarkdown } from "./render.ts";
 export {
   buildScorecard,
+  parseBoundaryRegister,
   parseRetentionPeriod,
   ROLLBACK_MAX_AGE_DAYS,
   ROLLBACK_MAX_TIME_TO_HALT_MS,
   type ScorecardOptions,
 } from "./scorecard.ts";
 export {
+  type AgentBoundaryEvidence,
+  type AgentManifestEvidence,
   type AssessedRating,
+  type BoundaryObservation,
   type ComputedCriterion,
   type Criterion,
   type DecisionLogEntry,

@@ -10,9 +10,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { RequestRecord } from "./decision-log.ts";
+import type { AuthRecord, RequestRecord, ToolRecord } from "./decision-log.ts";
 import { sha256Hex } from "./decision-log.ts";
-import { describeDecision } from "./explain.ts";
+import { describeAgent, describeDecision, explainAgent } from "./explain.ts";
 
 function rec(over: Partial<RequestRecord> = {}): RequestRecord {
   return {
@@ -89,6 +89,95 @@ describe("describeDecision", () => {
       describeDecision(rec({ action: "error", reason: "provider call failed: down" })),
     ).toContain("the model call failed");
     expect(describeDecision(rec({ callerId: null }))).toContain("from an unidentified caller");
-    expect(describeDecision(rec({ callerVerified: true }))).toContain("from caller triage at");
+    expect(describeDecision(rec({ callerVerified: true }))).toContain(
+      "from agent triage (verified) at",
+    );
+  });
+});
+
+describe("Phase 4E sentences: authentication, tool scope and agents", () => {
+  const tool = (over: Partial<ToolRecord> = {}): ToolRecord => ({
+    v: 1,
+    kind: "tool",
+    at: "2026-10-29T09:00:00.000Z",
+    requestId: "tc-1",
+    callerId: "helpdesk",
+    callerVerified: true,
+    autonomyLevel: "L0",
+    tool: "lookup_account",
+    action: "block",
+    policy: "tool-not-allowed",
+    reason: "agent helpdesk is L0 (suggest only): it may not call tools",
+    argsSha256: sha256Hex("{}"),
+    ...over,
+  });
+
+  test("a refused tool call names the agent, the tool, the policy and that the tool did not run", () => {
+    const line = describeDecision(tool());
+    expect(line).toContain(
+      "Tool call tc-1 from agent helpdesk (verified, L0) at 2026-10-29 09:00:00 UTC",
+    );
+    expect(line).toContain("lookup_account refused at the MCP server by policy tool-not-allowed");
+    expect(line).toContain("the tool did not run");
+  });
+
+  test("an allowed tool call says it ran within the declared scope", () => {
+    expect(
+      describeDecision(
+        tool({
+          action: "allow",
+          policy: "tool-scope",
+          reason: "declared in agents/helpdesk.json",
+          autonomyLevel: "L1",
+        }),
+      ),
+    ).toContain("lookup_account ran");
+  });
+
+  test("a 401 names the chokepoint, the reason and any claimed caller, never a token", () => {
+    const auth: AuthRecord = {
+      v: 1,
+      kind: "auth",
+      at: "2026-10-29T09:00:00.000Z",
+      requestId: "r-401",
+      chokepoint: "gateway",
+      endpoint: "/v1/generate",
+      action: "refuse",
+      status: 401,
+      policy: "caller-auth",
+      reason: "unknown bearer token",
+      claimedCallerId: "triage",
+    };
+    const line = describeDecision(auth);
+    expect(line).toBe(
+      "Request r-401 at 2026-10-29 09:00:00 UTC refused at the gateway with 401 by policy caller-auth: unknown bearer token (claimed caller triage, not trusted); nothing ran.",
+    );
+  });
+
+  test("a verified caller reads as an agent; an unverified one is marked", () => {
+    expect(describeDecision(rec({ callerVerified: true }))).toContain(
+      "from agent triage (verified)",
+    );
+    expect(describeDecision(rec())).toContain("from caller triage (unverified)");
+  });
+
+  test("agents list and show read in plain language", () => {
+    const m = {
+      id: "triage",
+      owner: "support-lead@example.com",
+      autonomyLevel: "L1" as const,
+      allowedTools: ["lookup_account"],
+      allowedModels: ["stub-deterministic"],
+      maxTurns: 4,
+      tokenCap: 800,
+      reviewRequired: true,
+    };
+    expect(describeAgent({ manifest: m, file: "agents/triage.json" })).toBe(
+      "triage: L1 (act with approval), owned by support-lead@example.com; tools: lookup_account; models: stub-deterministic; 4 turns per session, 800 tokens per request; every response held for review.",
+    );
+    const lines = explainAgent({ manifest: m, file: "agents/triage.json" }).join("\n");
+    expect(lines).toContain("Agent triage (agents/triage.json)");
+    expect(lines).toContain("Autonomy: L1, act with approval");
+    expect(lines).toContain("refused with tool-not-allowed");
   });
 });

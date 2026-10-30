@@ -104,7 +104,8 @@ baseline, plus the scorecard), on *record-keeping* (the gateway decision log) an
 everywhere else. Record-keeping moved back to supported with Phase 4B: every
 gateway decision is logged automatically, append-only, with request and caller
 ids; how long you keep it is your policy (Art 26(6) asks for at least six months),
-and caller ids are self-asserted until Phase 4E. Human oversight moved back to
+and caller ids are verified by bearer tokens once you configure agent manifests
+(Phase 4E; without them they stay self-asserted). Human oversight moved back to
 supported with Phase 4D: the router's third route holds an output for a named
 person and records who approved or rejected it and when. You must staff the queue
 with competent people who can say no, and make your send step release only

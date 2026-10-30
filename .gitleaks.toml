@@ -1,0 +1,18 @@
+# gitleaks configuration. CI (.github/workflows/ci.yml) is the mechanism of
+# record for the no-secrets rule; this file only narrows its false positives.
+#
+# The Phase 4E bearer-token test fixtures ("tok-triage-0123456789abcdef" and
+# the like) trip the generic-api-key rule. They are fake by construction: a
+# "tok-" or "smoke-" prefix, a role word, and a fixed hex run. The allowlist
+# is scoped to that shape AND to test files, so a real credential pasted into
+# a test still fails the scan.
+
+title = "GRADE-Stack gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fake bearer-token fixtures in test files (Phase 4E)"
+paths = ['''.*\.test\.ts$''']
+regexes = ['''\b(tok|smoke)-[a-z]+-0123456789(abcdef)?\b''']

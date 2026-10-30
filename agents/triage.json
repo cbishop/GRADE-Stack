@@ -1,0 +1,11 @@
+{
+  "id": "triage",
+  "owner": "<fill in: the named person accountable for this agent>",
+  "autonomyLevel": "L1",
+  "description": "The reference agent: triages one inbound support email and drafts a reply. It never sends; every draft is held for a named person.",
+  "allowedTools": ["lookup_account", "search_help_articles"],
+  "allowedModels": ["stub-deterministic", "gemma4", "claude-haiku-4-5"],
+  "maxTurns": 5,
+  "tokenCap": 800,
+  "reviewRequired": true
+}

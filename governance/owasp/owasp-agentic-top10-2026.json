@@ -59,9 +59,14 @@
           "name": "Enforced turn bound",
           "ref": "@grade-stack/core (pev.ts, MaxTurnsError); --max-turns",
           "note": "Caps runaway tool-invocation loops; the bound throws rather than loops."
+        },
+        {
+          "name": "Per-agent tool scope at the MCP server",
+          "ref": "packages/mcp-server/src/tool-scope.ts; packages/gateway/src/agent-manifest.ts; agents/<id>.json; ADR 0020",
+          "note": "Each agent's manifest declares its allowed tools; the MCP server authenticates the agent's bearer token and refuses any undeclared tool (and every tool for an L0 agent) with tool-not-allowed before it runs, logging the call with the verified caller id. Scorecard A grades every observed tool call against the manifest."
         }
       ],
-      "residualGap": "The reference tools are read-only lookups; the stack has no per-tool authorization or side-effect sandbox. A deployment adding mutating tools must add least-privilege scoping and rate limits."
+      "residualGap": "Tool scope is per tool, not per argument or per record: an agent allowed lookup_account can look up any account, and there is no rate limit or side-effect sandbox. The reference tools are read-only lookups; an L1 agent's responses are held for review but its tool calls are not, so a deployment adding mutating tools must hold the call itself (or keep the tool off L1 manifests) and add rate limits."
     },
     {
       "id": "ASI03:2026",
@@ -74,9 +79,14 @@
           "name": "Structural credential isolation",
           "ref": "packages/gateway/src/sandbox.ts; ADR 0007",
           "note": "The agent process holds zero provider credentials (sandbox factory + stripped env + dead-ended IMDS/credential files); the gateway alone is credentialed. Verified in Phase 2C — a direct-to-provider call from the agent process fails for lack of credentials."
+        },
+        {
+          "name": "Per-agent identity: bearer tokens and manifests at both chokepoints",
+          "ref": "packages/gateway/src/agent-manifest.ts, connect.ts; packages/mcp-server/src/tool-scope.ts; ADR 0020",
+          "note": "With RELIABILITY_AGENTS_DIR set, every gateway and MCP request needs a bearer token for a known agent (compared in constant time, never logged); the token, not a header, decides the caller id, and a disagreeing x-caller-id is refused with 401. Each agent runs under its own model allowlist, token and turn caps, tool scope and review rule, and every record is marked callerVerified. An agent cannot approve its own held output."
         }
       ],
-      "residualGap": "Complete for the single-agent reference architecture (the agent has no privileges to escalate). Multi-agent deployments with delegated identity must add per-agent identity and authority scoping — see ASI07."
+      "residualGap": "Identity is a static shared secret per agent: no expiry, rotation or revocation list (restart with a new tokens file), and no mTLS or signed requests. Over stdio the MCP server is spawned by the agent and shares its trust domain; run it over HTTP for a real boundary. Delegated identity between agents (one agent acting for another) is out of scope; see ASI07."
     },
     {
       "id": "ASI04:2026",

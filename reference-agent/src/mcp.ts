@@ -13,6 +13,14 @@
  * name or a hard-coded `if billing → lookup_account` rule. The model call goes
  * through the {@link ModelProvider} text seam, so no provider-native tool-use is
  * introduced (keeps the 2C gateway / 3D air-gap seam narrow — see ADR 0006).
+ *
+ * Phase 4E (ADR 0020): the agent presents its bearer token
+ * (`RELIABILITY_AGENT_TOKEN`) to the MCP server too. Over HTTP
+ * (`RELIABILITY_MCP_URL`) it is an `authorization` header on every request;
+ * over stdio it is passed to the spawned server's environment with the manifest
+ * settings. A tool the server refuses (`tool-not-allowed`, `caller-auth`)
+ * surfaces as a {@link ToolRefusedError}; grounding records it and continues
+ * without the tool's facts.
  */
 
 import {
@@ -24,7 +32,42 @@ import {
 } from "@grade-stack/core";
 import { SERVER_BIN, TRIAGE_POLICY_URI } from "@grade-stack/mcp-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  getDefaultEnvironment,
+  StdioClientTransport,
+} from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+
+/** Env naming a remote (HTTP) MCP server; unset means spawn it over stdio. */
+export const MCP_URL_ENV = "RELIABILITY_MCP_URL";
+
+/**
+ * Settings the spawned stdio server needs to enforce tool scope (4E). The MCP
+ * SDK passes only a minimal default environment to a child, so these are
+ * forwarded explicitly; provider credentials never are.
+ */
+const STDIO_FORWARDED_ENV = [
+  "RELIABILITY_AGENT_TOKEN",
+  "RELIABILITY_AGENTS_DIR",
+  "RELIABILITY_AGENT_TOKENS",
+  "RELIABILITY_AGENT_TOKENS_FILE",
+  "RELIABILITY_DECISION_LOG",
+] as const;
+
+/** Policies the MCP server refuses a tool call with (Phase 4E). */
+const REFUSAL_POLICIES = ["tool-not-allowed", "caller-auth"] as const;
+
+/** The MCP server refused a tool call before it ran (Phase 4E). */
+export class ToolRefusedError extends Error {
+  override name = "ToolRefusedError";
+  constructor(
+    readonly tool: string,
+    readonly policy: string,
+    readonly reason: string,
+  ) {
+    super(`MCP server refused ${tool}: ${policy}: ${reason}`);
+  }
+}
 
 /** A tool as the client sees it: a name to call by and a description to choose by. */
 export interface RemoteTool {
@@ -48,7 +91,26 @@ export interface SupportToolsClient {
  * over HTTP for a remote deployment (see the package README).
  */
 export async function connectSupportTools(): Promise<SupportToolsClient> {
-  const transport = new StdioClientTransport({ command: "bun", args: [SERVER_BIN] });
+  const token = process.env.RELIABILITY_AGENT_TOKEN;
+  const url = process.env[MCP_URL_ENV];
+  const transport =
+    url && url.length > 0
+      ? new StreamableHTTPClientTransport(new URL(url), {
+          requestInit: token ? { headers: { authorization: `Bearer ${token}` } } : undefined,
+        })
+      : new StdioClientTransport({
+          command: "bun",
+          args: [SERVER_BIN],
+          env: {
+            ...getDefaultEnvironment(),
+            ...Object.fromEntries(
+              STDIO_FORWARDED_ENV.flatMap((k) => {
+                const v = process.env[k];
+                return v ? [[k, v]] : [];
+              }),
+            ),
+          },
+        });
   const client = new Client({ name: "reference-agent", version: "0.1.0" });
   await client.connect(transport);
 
@@ -73,6 +135,11 @@ export async function connectSupportTools(): Promise<SupportToolsClient> {
       const text = Array.isArray(res.content)
         ? res.content.map((c) => (c.type === "text" ? c.text : "")).join("")
         : "";
+      // 4E: a scope refusal is an error result whose text starts with the policy.
+      if (res.isError) {
+        const policy = REFUSAL_POLICIES.find((p) => text.startsWith(`${p}: `));
+        if (policy) throw new ToolRefusedError(name, policy, text.slice(policy.length + 2));
+      }
       return text;
     },
     async close(): Promise<void> {
@@ -169,8 +236,10 @@ export interface Grounding {
   policy: string;
   /** The tool the model chose (by description), if any, and its arguments. */
   selection: ToolSelection | null;
-  /** The selected tool's result, if a tool was called. */
+  /** The selected tool's result, if a tool was called and allowed. */
   toolResult: unknown;
+  /** The selected tool the MCP server refused (Phase 4E), if any. */
+  refused?: { tool: string; policy: string; reason: string };
   /** The context block to fold into the planner's system prompt. */
   context: string;
 }
@@ -196,26 +265,39 @@ export async function groundTriage(
     const selection = await selectTool(provider, tools, task);
 
     let toolResult: unknown;
+    let refused: Grounding["refused"];
     const parts = ["## Triage policy (reference data)", policy];
     if (selection) {
-      toolResult = await withSpan(
-        `execute_tool ${selection.tool}`,
-        {
-          kind: SpanKind.INTERNAL,
-          attributes: {
-            [GENAI.operationName]: "execute_tool",
-            [GENAI.toolName]: selection.tool,
+      try {
+        toolResult = await withSpan(
+          `execute_tool ${selection.tool}`,
+          {
+            kind: SpanKind.INTERNAL,
+            attributes: {
+              [GENAI.operationName]: "execute_tool",
+              [GENAI.toolName]: selection.tool,
+            },
           },
-        },
-        () => client.callTool(selection.tool, selection.arguments),
-      );
-      parts.push(
-        "",
-        `## Account/help lookup (tool: ${selection.tool})`,
-        "Use these facts; do not invent account details:",
-        JSON.stringify(toolResult),
-      );
+          () => client.callTool(selection.tool, selection.arguments),
+        );
+        parts.push(
+          "",
+          `## Account/help lookup (tool: ${selection.tool})`,
+          "Use these facts; do not invent account details:",
+          JSON.stringify(toolResult),
+        );
+      } catch (err) {
+        // The boundary held (4E): ground without the tool rather than fail the run.
+        if (!(err instanceof ToolRefusedError)) throw err;
+        refused = { tool: err.tool, policy: err.policy, reason: err.reason };
+      }
     }
-    return { policy, selection, toolResult, context: parts.join("\n") };
+    return {
+      policy,
+      selection,
+      toolResult,
+      ...(refused ? { refused } : {}),
+      context: parts.join("\n"),
+    };
   });
 }

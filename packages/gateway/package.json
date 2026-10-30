@@ -6,7 +6,9 @@
   "main": "src/index.ts",
   "module": "src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./agent-manifest": "./src/agent-manifest.ts",
+    "./decision-log": "./src/decision-log.ts"
   },
   "bin": {
     "grade-stack-gateway": "src/bin.ts"

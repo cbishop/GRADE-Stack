@@ -12,12 +12,42 @@
  * bundle never depends on this credentialed package. Phase 4B adds the decision
  * log (`./decision-log`) and opt-in content capture (`./capture`); Phase 4C the
  * kill switch (`./kill-switch`) and the rollback drill (`./drill`); Phase 4D the
- * human review queue (`./review-queue`). The paths to the two
+ * human review queue (`./review-queue`); Phase 4E the agent manifests and
+ * caller authentication (`./agent-manifest`), also exported on their own as
+ * `@grade-stack/gateway/agent-manifest` (with `./decision-log`) so the MCP
+ * server can enforce tool scope without importing the gateway. The paths to the two
  * executables — the server and the credential-isolation probe — are exported so
  * the CLI can spawn them without hard-coding paths.
  */
 
 import { fileURLToPath } from "node:url";
+
+export {
+  AGENT_TOKENS_ENV,
+  AGENT_TOKENS_FILE_ENV,
+  AGENTS_DIR_ENV,
+  type AgentManifest,
+  AgentManifestError,
+  AgentManifestSchema,
+  AgentRegistry,
+  ANONYMOUS_CALLER,
+  AUTONOMY_LEVEL_LABEL,
+  AUTONOMY_LEVELS,
+  type AuthResult,
+  type AutonomyLevel,
+  DEFAULT_AGENT_TOKENS_FILE,
+  type LoadedManifest,
+  loadAgentManifests,
+  loadAgentRegistry,
+  MIN_TOKEN_LENGTH,
+  manifestPolicy,
+  parseAgentManifest,
+  parseAgentTokens,
+  resolveAgentRegistryFromEnv,
+  resolveAgentTokens,
+  type ToolScopeDecision,
+  toolScope,
+} from "./agent-manifest.ts";
 
 export {
   CAPTURE_DIR_ENV,
@@ -34,6 +64,9 @@ export {
   serveGateway,
 } from "./connect.ts";
 export {
+  type AuthRecord,
+  AuthRecordSchema,
+  CHOKEPOINTS,
   type ControlRecord,
   ControlRecordSchema,
   DECISION_LOG_ENV,
@@ -42,9 +75,11 @@ export {
   DecisionLogError,
   type DecisionRecord,
   DecisionRecordSchema,
+  isAuthRecord,
   isControlRecord,
   isRequestRecord,
   isReviewRecord,
+  isToolRecord,
   parseDecisionLog,
   type RequestRecord,
   RequestRecordSchema,
@@ -53,6 +88,8 @@ export {
   readDecisionLog,
   resolveDecisionLogPath,
   sha256Hex,
+  type ToolRecord,
+  ToolRecordSchema,
 } from "./decision-log.ts";
 export {
   DEFAULT_DRILL_PROBES,
@@ -67,7 +104,13 @@ export {
   runKillSwitchDrill,
   writeDrillRecord,
 } from "./drill.ts";
-export { describeDecision, describeReviewItem, explainReviewItem } from "./explain.ts";
+export {
+  describeAgent,
+  describeDecision,
+  describeReviewItem,
+  explainAgent,
+  explainReviewItem,
+} from "./explain.ts";
 export { GatewayService, type GatewayServiceOptions } from "./gateway.ts";
 export {
   DEFAULT_HALT_FILE,

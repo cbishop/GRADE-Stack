@@ -16,15 +16,25 @@
  * Phase 4D: a review line reads as who held or decided which item, when, and
  * why; a held request says which item holds it. `describeReviewItem` and
  * `explainReviewItem` are the `reliability review list` and `show` readbacks.
+ *
+ * Phase 4E: an authenticated caller reads as `agent <id> (verified)`; a 401
+ * reads as which chokepoint refused what and why; a tool line reads as which
+ * agent called which tool and whether it ran. `describeAgent` and
+ * `explainAgent` are the `reliability agents list` and `show` readbacks.
  */
 
+import { ANONYMOUS_CALLER, AUTONOMY_LEVEL_LABEL, type LoadedManifest } from "./agent-manifest.ts";
 import {
+  type AuthRecord,
   type ControlRecord,
   type DecisionRecord,
+  isAuthRecord,
   isControlRecord,
   isReviewRecord,
+  isToolRecord,
   type RequestRecord,
   type ReviewRecord,
+  type ToolRecord,
 } from "./decision-log.ts";
 import type { ReviewItem } from "./review-queue.ts";
 
@@ -35,7 +45,27 @@ function when(iso: string): string {
 
 function who(r: RequestRecord): string {
   if (r.callerId === null) return "an unidentified caller";
-  return `caller ${r.callerId}${r.callerVerified ? "" : " (unverified)"}`;
+  if (r.callerId === ANONYMOUS_CALLER && !r.callerVerified) return "an anonymous caller";
+  return r.callerVerified ? `agent ${r.callerId} (verified)` : `caller ${r.callerId} (unverified)`;
+}
+
+/** A 401 at either chokepoint: where, why, and what the request claimed. */
+function auth(r: AuthRecord): string {
+  const where = r.chokepoint === "gateway" ? "the gateway" : "the MCP server";
+  const claimed =
+    r.claimedCallerId === null ? "" : ` (claimed caller ${r.claimedCallerId}, not trusted)`;
+  return `Request ${r.requestId} at ${when(r.at)} refused at ${where} with 401 by policy ${r.policy}: ${r.reason}${claimed}; nothing ran.`;
+}
+
+/** A tool call checked against the caller's manifest at the MCP server. */
+function tool(r: ToolRecord): string {
+  const level = r.autonomyLevel ? `, ${r.autonomyLevel}` : "";
+  const caller = `${r.callerVerified ? "agent" : "caller"} ${r.callerId} (${r.callerVerified ? "verified" : "unverified"}${level})`;
+  const did =
+    r.action === "block"
+      ? `${r.tool} refused at the MCP server by policy ${r.policy} (${r.reason}); the tool did not run`
+      : `${r.tool} ran within the declared scope (${r.reason})`;
+  return `Tool call ${r.requestId} from ${caller} at ${when(r.at)}: ${did}.`;
 }
 
 function servedBy(r: RequestRecord): string {
@@ -92,6 +122,8 @@ function review(r: ReviewRecord): string {
 export function describeDecision(r: DecisionRecord): string {
   if (isControlRecord(r)) return control(r);
   if (isReviewRecord(r)) return review(r);
+  if (isAuthRecord(r)) return auth(r);
+  if (isToolRecord(r)) return tool(r);
   const held = r.reviewId ? `; held for human review as ${r.reviewId}` : "";
   return `Request ${r.requestId} from ${who(r)} at ${when(r.at)}: ${what(r)}${held}.`;
 }
@@ -147,5 +179,38 @@ export function explainReviewItem(i: ReviewItem): string[] {
   } else {
     lines.push(`Decision: rejected by ${r.by} at ${when(r.at)}: ${r.reason}.`);
   }
+  return lines;
+}
+
+const list = (xs: string[]) => (xs.length > 0 ? xs.join(", ") : "none");
+
+/** One line per agent for `reliability agents list`. */
+export function describeAgent({ manifest: m }: LoadedManifest): string {
+  const review = m.reviewRequired
+    ? "every response held for review"
+    : "responses released without review";
+  return `${m.id}: ${m.autonomyLevel} (${AUTONOMY_LEVEL_LABEL[m.autonomyLevel]}), owned by ${m.owner}; tools: ${list(m.allowedTools)}; models: ${list(m.allowedModels)}; ${m.maxTurns} turns per session, ${m.tokenCap} tokens per request; ${review}.`;
+}
+
+/** The `reliability agents show` readback: what the agent may do and how each limit is enforced. */
+export function explainAgent({ manifest: m, file }: LoadedManifest): string[] {
+  const lines = [
+    `Agent ${m.id} (${file}).`,
+    `Owner: ${m.owner}.`,
+    `Autonomy: ${m.autonomyLevel}, ${AUTONOMY_LEVEL_LABEL[m.autonomyLevel]}.`,
+  ];
+  if (m.description) lines.push(`Purpose: ${m.description}`);
+  lines.push(
+    m.autonomyLevel === "L0"
+      ? "Tools: none. It may only suggest; any tool call is refused with tool-not-allowed at the MCP server."
+      : `Tools: ${list(m.allowedTools)}. Any other tool is refused with tool-not-allowed at the MCP server before it runs.`,
+    `Models: ${list(m.allowedModels)}. Any other model is refused with agent-model-not-allowed at the gateway.`,
+    `Turns: at most ${m.maxTurns} model calls per session; the next is refused with agent-turn-cap at the gateway.`,
+    `Tokens: at most ${m.tokenCap} per request (never above the gateway-wide cap); more is refused with agent-token-cap.`,
+    m.reviewRequired
+      ? "Review: every response is held for a named person (reliability review list), whatever the request asks."
+      : "Review: responses are released unless another review trigger holds them.",
+    "Identity: the agent authenticates with its bearer token; requests without it get 401 at both chokepoints.",
+  );
   return lines;
 }
