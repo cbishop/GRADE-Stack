@@ -14,7 +14,8 @@ import type { EvalRunResult } from "./types.ts";
  *
  * The CI gate runs against the deterministic `stub` provider (ADR 0003): the
  * baseline is exact, `--degraded` drops passing cases below the band, and the
- * build fails. A real-Bedrock job on `main` is added in Phase 2A.
+ * build fails. Real-model runs happen in the nightly job, which measures but
+ * does not gate (Phase 4F, ADR 0021).
  *
  * Phase 4C: on a regression the verdict names what changed between the
  * baseline's release manifest and the run's ("prompt hash changed; model

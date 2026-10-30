@@ -131,6 +131,35 @@ band**, and **exits non-zero on a regression** so CI blocks the PR.
   status check so a fork PR can't merge ungated. See
   [ADR 0004](../../docs/decisions/0004-fork-pr-eval-strategy.md).
 
+## Trusting the suite (Phase 4F)
+
+Three commands answer the questions a reviewer asks about the suite itself
+([ADR 0021](../../docs/decisions/0021-nightly-real-model-job-judge-calibration-trace-rescoring.md)):
+
+```bash
+# Re-score captured production answers (gateway with RELIABILITY_TRACE_CONTENT=1)
+# through the suite's default assertions and judge; every case keeps its request id.
+bun run reliability eval run --from-traces gateway-captures -J bedrock --out rescore.json
+
+# Judge vs human on the hand-labeled set (calibration/labels.json, see its README).
+# Exit 0 at the bar (80% agreement and kappa 0.6 over 10+ pairs), 1 below, 2 unlabeled.
+bun run reliability eval calibrate
+bun run reliability eval calibrate --seed nightly.json   # fill judge verdicts first
+
+# Write docs/eval-record.md: suite hash, baselines, last real-model run,
+# calibration, last re-score. The scorecard's E letter reads it.
+bun run reliability eval record --results nightly.json rescore.json
+bun run reliability scorecard --eval-record docs/eval-record.md
+```
+
+- **Nightly real-model job:** `.github/workflows/nightly-real-model.yml` runs the
+  full suite on Bedrock every night and on demand, on `main`, under
+  `eval run --max-cost 0.50` (exit 2 on overspend), and uploads the results and
+  an eval record as an artifact. It measures; PRs still gate on the stub. A
+  `baseline.bedrock.json` is committed after two nightly runs agree.
+- **Local Stop hook:** `.claude/hooks/eval-gate.sh` runs the 6-case stub gate
+  before a Claude Code session stops and blocks on a regression.
+
 ## Cost-per-success (Phase 1B)
 
 Cost is counted per **passing** outcome, not per call — a cheap agent that fails
@@ -170,6 +199,10 @@ src/gate.ts                 tolerance-banded regression gate (pure)
 src/pricing.ts              per-provider pricing + cost-per-success
 src/format.ts               human-readable CLI summary + gate verdict
 src/types.ts                EvalRunResult / CaseResult / TraceStep schema
+src/traces.ts               --from-traces: capture dir -> replay cases (4F)
+src/calibrate.ts            judge-vs-human agreement + Cohen's kappa (4F)
+src/record.ts               the eval record: build, render, parse (4F)
+calibration/labels.json     the hand-labeled judge calibration set (4F)
 src/run.test.ts             unit tests for the pure normalization logic
 src/gate.test.ts            gate regression + cost-cap + smoke-subset tests
 src/pricing.test.ts         pricing + cost-per-success tests
