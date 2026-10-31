@@ -10,6 +10,8 @@
  * whole-card shape, and the rating rank/label tables.
  */
 
+import type { EvalRecord } from "@grade-stack/evals";
+
 /**
  * Plain-language ratings. Deliberately a short, board-legible scale: a CFO can
  * read "At risk" without a glossary. `not-assessed` is honest about criteria
@@ -221,6 +223,20 @@ export interface AgentBoundaryEvidence {
   observations: BoundaryObservation[];
   /** The boundary register and the agent ids it has rows for (null when the file is missing). */
   register: { source: string; agentIds: string[] | null };
+}
+
+/**
+ * The eval record E's freshness, calibration and post-deployment criteria are
+ * computed from (Phase 4F, ADR 0021): the computed half of
+ * `docs/eval-record.md`, read and schema-validated by the CLI. The scorecard
+ * stays pure, so the date ages are measured against is an input too.
+ */
+export interface EvalRecordEvidence {
+  /** The eval record file cited. */
+  source: string;
+  record: EvalRecord;
+  /** ISO date-time ages are measured against (the CLI passes now, or `--as-of`). */
+  asOf: string;
 }
 
 /** A criterion graded from evidence. */

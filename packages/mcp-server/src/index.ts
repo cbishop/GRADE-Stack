@@ -7,12 +7,11 @@
  * Public surface of @grade-stack/mcp-server — the support-desk MCP server
  * (one app-controlled resource + two model-controlled tools), its transports
  * (stdio + streamable HTTP), the fixtures behind them, and (Phase 4E) the
- * per-agent tool guard that refuses undeclared tools before they run. The path to the
- * executable that launches it over stdio is exported as {@link SERVER_BIN} so
- * consumers (the reference agent) can spawn it without hard-coding a path.
+ * per-agent tool guard that refuses undeclared tools before they run. The
+ * reference agent launches it over stdio by re-running its own entry script
+ * with `mcp serve` (Phase 4F), which works from source and from the bundled
+ * CLI alike; `src/bin.ts` remains a standalone launcher for development.
  */
-
-import { fileURLToPath } from "node:url";
 
 export {
   type HttpServeOptions,
@@ -43,6 +42,3 @@ export {
   ToolScopeGuard,
   type ToolScopeGuardOptions,
 } from "./tool-scope.ts";
-
-/** Absolute path to the stdio launcher — `bun <SERVER_BIN>` runs the server. */
-export const SERVER_BIN = fileURLToPath(new URL("./bin.ts", import.meta.url));

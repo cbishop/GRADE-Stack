@@ -19,8 +19,12 @@ Current enforcement mechanisms:
   feedback only — both are per-clone/opt-in and must never be the sole defense.
 - **Public/private split** — the `pre-commit` hook blocks committing anything
   under `docs/internal/`; `.gitignore` keeps it from being staged by accident.
-- **Eval gate** — a placeholder no-op `Stop` hook today; wired to block on eval
-  regressions in Phase 1B.
+- **Eval gate** — CI's `eval-gate` job (stub provider, ADR 0003) is the
+  mechanism of record. The Claude Code `Stop` hook (`.claude/hooks/eval-gate.sh`)
+  runs the same 6-case stub gate locally and blocks the stop (exit 2) on a
+  regression; `packages/cli/src/stop-hook.test.ts` proves it bites with
+  `RELIABILITY_DEGRADED=1` (v3 4F). The nightly real-model job measures on
+  Bedrock but does not gate (ADR 0021).
 - **Scorecard honesty (v3 4A)**: every scorecard criterion is either computed
   with a cited record or stubbed with the v3 sub-phase that fills it in; the
   closed `Criterion` union and `packages/scorecard/src/scorecard.test.ts` fail on

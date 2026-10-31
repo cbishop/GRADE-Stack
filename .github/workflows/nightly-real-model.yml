@@ -1,0 +1,68 @@
+name: Nightly real-model eval
+
+# Phase 4F (ADR 0021): the full suite on the real model, nightly and on demand,
+# on main only. PR gating stays on the stub (ADR 0003); this job measures, it
+# does not gate merges. It fails only when the run cannot be measured (no
+# results file) or overspends the cost cap; failing cases are recorded, not
+# fatal, because without a committed Bedrock baseline there is nothing yet to
+# regress against. A reviewed baseline.bedrock.json is committed once two
+# consecutive nightly runs agree within the tolerance band.
+#
+# Needs repository secrets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION.
+
+on:
+  schedule:
+    - cron: "17 7 * * *" # 07:17 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-real-model
+  cancel-in-progress: false
+
+jobs:
+  real-model-eval:
+    name: full suite on Bedrock
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.12"
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Run the full suite on Bedrock under the cost cap
+        id: run
+        run: |
+          mkdir -p eval-results
+          out="eval-results/bedrock-$(date -u +%Y-%m-%dT%H%M%SZ).json"
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+          set +e
+          bun run reliability eval run --provider bedrock --max-cost 0.50 --out "$out"
+          code=$?
+          set -e
+          # Exit 1 = some cases failed (recorded); 2 = cost cap exceeded (fatal).
+          if [ ! -f "$out" ]; then echo "no results file written" >&2; exit 1; fi
+          if [ "$code" -ge 2 ]; then echo "cost cap exceeded" >&2; exit 1; fi
+      - name: Build the eval record from this run
+        if: always() && steps.run.outputs.out != ''
+        run: |
+          if [ -f "${{ steps.run.outputs.out }}" ]; then
+            bun run reliability eval record --results "${{ steps.run.outputs.out }}" --out eval-results/eval-record.md
+          fi
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-model-eval-${{ github.run_id }}
+          path: eval-results/
+          if-no-files-found: warn
+          retention-days: 90

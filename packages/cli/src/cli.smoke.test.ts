@@ -46,6 +46,9 @@
  * `tool-not-allowed` and logs it with the caller id; `agent run --mcp` reaches
  * the HTTP MCP server with its token; and `scorecard --agents` computes A,
  * which drops to Critical on a log with an undeclared tool call.
+ *
+ * Phase 4F: `eval label` on an unseeded labels file exits 2 and prints the
+ * seed command, from the built binary.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -1026,5 +1029,267 @@ describe("built CLI binary: agent manifests and caller authentication (4E)", () 
     const noLog = await run(["scorecard", "--from", fixturePath, "--agents", agentsDir]);
     expect(noLog.code).toBe(1);
     expect(noLog.err).toContain("--decision-log");
+  }, 180_000);
+});
+
+// ── Phase 4F: stdio MCP, trace re-scoring, calibration and the eval record ──
+
+describe("built CLI binary: stdio MCP server from dist (4F carried-over fix)", () => {
+  test("agent run --mcp spawns the MCP server over stdio from the built binary", async () => {
+    // No RELIABILITY_MCP_URL: the agent must spawn the server itself. Before
+    // 4F it spawned `bun <SERVER_BIN>`, which resolves to a missing dist/bin.ts.
+    const r = await run(["agent", "run", "--mcp", "-p", "stub"], { RELIABILITY_MCP_URL: "" });
+    expect(r.code, r.err).toBe(0);
+    expect(r.out).toContain("mcp:      policy resource loaded");
+    expect(r.out).toContain('"category"');
+  }, 60_000);
+});
+
+/** A real-model (bedrock) results fixture whose judge scored every case. */
+function bedrockFixture(timestamp: string, failing: string[] = ["case-0"]): unknown {
+  const base = fixtureResult() as {
+    cases: { id: string; pass: boolean; trace: { checks: { pass: boolean; score: number }[] }[] }[];
+    summary: Record<string, unknown>;
+  };
+  const cases = base.cases.map((c) => {
+    const pass = !failing.includes(c.id);
+    return {
+      ...c,
+      pass,
+      trace: c.trace.map((s) => ({
+        ...s,
+        checks: s.checks.map((k) => ({ ...k, pass, score: pass ? 1 : 0.65 })),
+      })),
+    };
+  });
+  const passed = cases.filter((c) => c.pass).length;
+  return {
+    ...base,
+    provider: "bedrock",
+    model: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    judgeProvider: "bedrock",
+    timestamp,
+    source: "suite",
+    summary: { ...base.summary, passed, failed: 12 - passed, passRate: passed / 12 },
+    cases,
+  };
+}
+
+/** A labels file with `agree` of 20 pairs agreeing (judge pass vs human label). */
+function labelsFixture(agree: number): unknown {
+  return {
+    v: 1,
+    suite: "packages/evals/promptfooconfig.yaml",
+    instructions: "smoke fixture",
+    labels: Array.from({ length: 20 }, (_, i) => {
+      const judgePass = i % 3 !== 0;
+      const human = i < agree ? (judgePass ? "pass" : "fail") : judgePass ? "fail" : "pass";
+      return {
+        id: `case-${i}/validate:judge/1`,
+        caseId: `case-${i}`,
+        metric: "validate:judge",
+        seededFrom: "fixture.json@2026-10-30T07:00:00.000Z",
+        output: "{}",
+        judge: { pass: judgePass, score: judgePass ? 1 : 0 },
+        human,
+        labeledBy: "smoke",
+      };
+    }),
+  };
+}
+
+describe("built CLI binary: post-deployment re-scoring, calibration and the eval record (4F)", () => {
+  test("captured runs are re-scored with request ids, calibrated, recorded and graded under E", async () => {
+    const captureDir = join(workDir, "captures-4f");
+    const logPath = join(workDir, "decisions-4f.jsonl");
+    const env = {
+      RELIABILITY_DECISION_LOG: logPath,
+      RELIABILITY_TRACE_CONTENT: "1",
+      RELIABILITY_CAPTURE_DIR: captureDir,
+    };
+    const { url, proc } = await startGateway(env);
+    try {
+      for (let i = 0; i < 2; i++) {
+        const r = await run(["agent", "run"], { ...env, RELIABILITY_GATEWAY_URL: url });
+        expect(r.code, r.err).toBe(0);
+      }
+    } finally {
+      proc.kill();
+      await proc.exited;
+    }
+    const logged = readFileSync(logPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => (JSON.parse(l) as { requestId: string }).requestId);
+    expect(logged.length).toBe(2);
+
+    // Re-score the capture directory through the suite's assertions.
+    const rescorePath = join(workDir, "rescore.json");
+    const rescore = await run([
+      "eval",
+      "run",
+      "--from-traces",
+      captureDir,
+      "-p",
+      "stub",
+      "--out",
+      rescorePath,
+    ]);
+    expect(rescore.code, rescore.err).toBe(0);
+    expect(rescore.out).toContain("re-scored 2 captured production run(s)");
+    const rescored = JSON.parse(readFileSync(rescorePath, "utf8")) as {
+      source: string;
+      summary: { passed: number; total: number };
+      cases: { requestId: string }[];
+    };
+    expect(rescored.source).toBe("traces");
+    expect(rescored.summary).toMatchObject({ passed: 2, total: 2 });
+    // Every re-scored case names the request id its decision-log line carries.
+    expect(rescored.cases.map((c) => c.requestId).sort()).toEqual([...logged].sort());
+
+    // Degraded canary: the same captures re-scored with RELIABILITY_DEGRADED=1 fail.
+    const degradedPath = join(workDir, "rescore-degraded.json");
+    const degraded = await run(
+      ["eval", "run", "--from-traces", captureDir, "-p", "stub", "--out", degradedPath],
+      { RELIABILITY_DEGRADED: "1" },
+    );
+    expect(degraded.code).toBe(1);
+    expect(
+      (JSON.parse(readFileSync(degradedPath, "utf8")) as { summary: { passed: number } }).summary
+        .passed,
+    ).toBe(0);
+
+    // Calibration: the committed set is honestly unlabeled (exit 2, no agreement claimed).
+    const unlabeled = await run(["eval", "calibrate"]);
+    expect(unlabeled.code).toBe(2);
+    expect(unlabeled.out).toContain("unlabeled");
+    // A labeled set below the threshold fails (exit 1); one above passes.
+    const lowPath = join(workDir, "labels-low.json");
+    const goodPath = join(workDir, "labels-good.json");
+    writeFileSync(lowPath, JSON.stringify(labelsFixture(14)));
+    writeFileSync(goodPath, JSON.stringify(labelsFixture(19)));
+    const low = await run(["eval", "calibrate", "--labels", lowPath]);
+    expect(low.code).toBe(1);
+    expect(low.out).toContain("70%");
+    const good = await run(["eval", "calibrate", "--labels", goodPath, "--json"]);
+    expect(good.code, good.err).toBe(0);
+    expect((JSON.parse(good.out) as { status: string; agreement: number }).status).toBe("pass");
+
+    // Seeding the committed set from a real-model run fills judge verdicts, never human labels.
+    const nightlyPath = join(workDir, "bedrock-nightly.json");
+    writeFileSync(nightlyPath, JSON.stringify(bedrockFixture(new Date().toISOString())));
+    const seedPath = join(workDir, "labels-seed.json");
+    writeFileSync(
+      seedPath,
+      readFileSync(join(repoRoot, "packages/evals/calibration/labels.json"), "utf8"),
+    );
+    // The labeling walk refuses an unseeded set with the one command that seeds it.
+    // Built from the committed file with every seed stripped, so the test holds
+    // whether or not the committed set has been seeded from a real run.
+    const unseededPath = join(workDir, "labels-unseeded.json");
+    const committed = JSON.parse(
+      readFileSync(join(repoRoot, "packages/evals/calibration/labels.json"), "utf8"),
+    );
+    writeFileSync(
+      unseededPath,
+      JSON.stringify({
+        ...committed,
+        labels: committed.labels.map((l: Record<string, unknown>) => ({
+          ...l,
+          seededFrom: null,
+          output: null,
+          judge: null,
+          human: null,
+          labeledBy: null,
+        })),
+      }),
+    );
+    const unseeded = await run(["eval", "label", "--labels", unseededPath, "--by", "smoke"]);
+    expect(unseeded.code, unseeded.err).toBe(2);
+    expect(unseeded.out).toContain("bun run reliability eval calibrate --seed <results.json>");
+
+    const seed = await run(["eval", "calibrate", "--labels", seedPath, "--seed", nightlyPath]);
+    expect(seed.code, seed.err).toBe(0);
+    expect(seed.out).toContain("seeded");
+    expect(readFileSync(seedPath, "utf8")).not.toContain('"human": "pass"');
+
+    // The eval record: computed from the results, readable plain and as JSON.
+    const recordPath = join(workDir, "eval-record.md");
+    const rec = await run([
+      "eval",
+      "record",
+      "--results",
+      nightlyPath,
+      rescorePath,
+      "--labels",
+      goodPath,
+      "--out",
+      recordPath,
+    ]);
+    expect(rec.code, rec.err).toBe(0);
+    expect(rec.out).toContain("Last real-model run:");
+    expect(rec.out).toContain(`eval record written to ${recordPath}`);
+    const md = readFileSync(recordPath, "utf8");
+    expect(md).toContain("<!-- eval-record:computed:begin -->");
+    expect(md).toContain("packages/evals/baseline.stub.json");
+    const recJson = await run([
+      "eval",
+      "record",
+      "--results",
+      nightlyPath,
+      rescorePath,
+      "--labels",
+      goodPath,
+      "--out",
+      recordPath,
+      "--json",
+    ]);
+    expect(
+      (JSON.parse(recJson.out) as { suite: { definitionHash: string } }).suite.definitionHash,
+    ).toMatch(/^[0-9a-f]{64}$/);
+
+    // Scorecard E is fully computed from the record and cites it.
+    const card = await run(["scorecard", "--from", fixturePath, "--eval-record", recordPath]);
+    expect(card.code, card.err).toBe(0);
+    expect(card.out).toContain("#### Last real-model run freshness: 🟢 Strong");
+    expect(card.out).toContain("#### Judge calibration: 🟢 Strong");
+    expect(card.out).toContain("#### Post-deployment re-score: 🟢 Strong");
+    expect(card.out).toContain(`**Source:** ${recordPath}`);
+    expect(card.out).not.toContain("fills in Phase 4F");
+
+    // Degraded canaries: a stale record and a degraded re-score each drop E.
+    const stale = await run([
+      "scorecard",
+      "--from",
+      fixturePath,
+      "--eval-record",
+      recordPath,
+      "--as-of",
+      new Date(Date.now() + 45 * 86_400_000).toISOString(),
+    ]);
+    expect(stale.code, stale.err).toBe(0);
+    expect(stale.out).toContain("#### Last real-model run freshness: 🟠 At risk");
+    const degradedRecord = join(workDir, "eval-record-degraded.md");
+    const recD = await run([
+      "eval",
+      "record",
+      "--results",
+      nightlyPath,
+      degradedPath,
+      "--labels",
+      goodPath,
+      "--out",
+      degradedRecord,
+    ]);
+    expect(recD.code, recD.err).toBe(0);
+    const cardD = await run(["scorecard", "--from", fixturePath, "--eval-record", degradedRecord]);
+    expect(cardD.out).toContain("#### Post-deployment re-score: 🔴 Critical");
+
+    // A record with no computed block fails the scorecard loudly.
+    const broken = join(workDir, "eval-record-broken.md");
+    writeFileSync(broken, "# Eval record\n\nnothing computed\n");
+    const bad = await run(["scorecard", "--from", fixturePath, "--eval-record", broken]);
+    expect(bad.code).toBe(1);
+    expect(bad.err).toContain("computed block");
   }, 180_000);
 });

@@ -15,11 +15,23 @@
  * Phase 4D computes G's *human oversight* from the review queue. Phase 4E
  * computes A's three boundary criteria and G's *boundary register* from the
  * agent manifests and the decision log, and lifts the cap on D's
- * *attributable* now that callers can be verified.
+ * *attributable* now that callers can be verified. Phase 4F computes E's
+ * real-model freshness, judge calibration and post-deployment re-score from the
+ * eval record (`docs/eval-record.md`), so E is fully computed.
  */
 
 import type { TraceCoverage } from "@grade-stack/core";
-import { type CaseResult, type EvalRunResult, priceFor } from "@grade-stack/evals";
+import {
+  CALIBRATION_MIN_AGREEMENT,
+  CALIBRATION_MIN_KAPPA,
+  CALIBRATION_MIN_LABELED,
+  type CaseResult,
+  calibrationStatus,
+  type EvalRunResult,
+  priceFor,
+  REAL_MODEL_MAX_AGE_DAYS,
+  RESCORE_MAX_AGE_DAYS,
+} from "@grade-stack/evals";
 import type { GovernanceReadiness } from "./eu-ai-act.ts";
 import type { GuardrailCoverage } from "./owasp.ts";
 import type {
@@ -33,6 +45,7 @@ import type {
   Dimension,
   DimensionId,
   DrillEvidence,
+  EvalRecordEvidence,
   FillsInPhase,
   GradeLetter,
   ReviewQueueEvidence,
@@ -93,6 +106,12 @@ export interface ScorecardOptions {
    * --decision-log <file>` supplies it.
    */
   agents?: AgentBoundaryEvidence;
+  /**
+   * The eval record (Phase 4F). When given, E's real-model freshness, judge
+   * calibration and post-deployment re-score are computed from it; when absent
+   * they stay stubbed. `reliability scorecard --eval-record <file>` supplies it.
+   */
+  evalRecord?: EvalRecordEvidence;
 }
 
 const DEFAULT_AGENT_TASK = "Support-email triage";
@@ -1301,6 +1320,223 @@ function suiteBreadthCriterion(result: EvalRunResult, source: string): ComputedC
   };
 }
 
+/** Whole days from `from` to `asOf`. */
+function ageDays(from: string, asOf: string): number {
+  return Math.floor((Date.parse(asOf) - Date.parse(from)) / DAY_MS);
+}
+
+/** The date `days` after `from`, as YYYY-MM-DD. */
+function plusDays(from: string, days: number): string {
+  return new Date(Date.parse(from) + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** A freshness window: Strong inside it, At risk up to three times it, then Critical. */
+const STALE_FACTOR = 3;
+
+const FRESHNESS_HEADLINES: Record<AssessedRating, string> = {
+  strong: "The full suite ran on a real model within the last month.",
+  adequate: "A real model ran recently, but not the full suite.",
+  "at-risk":
+    "The last real-model run is over a month old: the pass rate is a memory, not a measurement.",
+  critical:
+    "The suite has not run on a real model in the record's window: its pass rate is a belief, not a measurement.",
+};
+
+/**
+ * Last real-model run freshness (E): the newest suite run on a non-stub model
+ * named by the eval record, aged against `asOf`. Strong within 30 days and on
+ * the full suite; a partial run (a `--first-n` smoke) caps at Adequate; At
+ * risk up to 90 days; Critical beyond that or when no real-model run exists.
+ */
+function freshnessCriterion(e: EvalRecordEvidence): ComputedCriterion {
+  const run = e.record.lastRealModelRun;
+  const threshold = `Strong: a real-model run of the full suite (${e.record.suite.caseCount} cases) within ${REAL_MODEL_MAX_AGE_DAYS} days; Adequate: within ${REAL_MODEL_MAX_AGE_DAYS} days but only part of the suite; At risk: ${REAL_MODEL_MAX_AGE_DAYS + 1} to ${REAL_MODEL_MAX_AGE_DAYS * STALE_FACTOR} days old; Critical: older, or none recorded.`;
+  if (run === null) {
+    return {
+      state: "computed",
+      key: "real-model-freshness",
+      title: "Last real-model run freshness",
+      rating: "critical",
+      headline: FRESHNESS_HEADLINES.critical,
+      evidence: [
+        `No real-model run recorded in ${e.source} (generated ${e.record.generatedAt.slice(0, 10)}): the suite has only run on the stub.`,
+      ],
+      citation: {
+        source: `${e.source} (lastRealModelRun: none)`,
+        threshold,
+        wouldChange:
+          "Rises when the nightly real-model job's results file is passed to `reliability eval record --results`.",
+      },
+    };
+  }
+  const age = ageDays(run.timestamp, e.asOf);
+  const partial = run.total < e.record.suite.caseCount;
+  const rating: AssessedRating =
+    age > REAL_MODEL_MAX_AGE_DAYS * STALE_FACTOR
+      ? "critical"
+      : age > REAL_MODEL_MAX_AGE_DAYS
+        ? "at-risk"
+        : partial
+          ? "adequate"
+          : "strong";
+  const evidence = [
+    `Last real-model run ${run.timestamp.slice(0, 10)} on ${run.provider} (${run.model}), judged by ${run.judgeProvider}: ${age} day(s) old as of ${e.asOf.slice(0, 10)}${age > REAL_MODEL_MAX_AGE_DAYS ? `, older than ${REAL_MODEL_MAX_AGE_DAYS} days` : ""}.`,
+    `${run.passed} of ${run.total} cases passed (${pct(run.passRate)})${partial ? `, a partial run of the ${e.record.suite.caseCount}-case suite` : ""}${run.failedCases.length > 0 ? `; failed: ${run.failedCases.join(", ")}` : ""}.`,
+    `Suite definition hash ${e.record.suite.definitionHash.slice(0, 12)}; results file ${run.file}.`,
+  ];
+  return {
+    state: "computed",
+    key: "real-model-freshness",
+    title: "Last real-model run freshness",
+    rating,
+    headline: FRESHNESS_HEADLINES[rating],
+    evidence,
+    citation: {
+      source: `${e.source} (lastRealModelRun: ${run.file}, ${run.timestamp})`,
+      threshold,
+      wouldChange:
+        rating === "strong"
+          ? `Drops to At risk after ${plusDays(run.timestamp, REAL_MODEL_MAX_AGE_DAYS)} unless a newer real-model run is recorded.`
+          : rating === "adequate"
+            ? "Rises to Strong when a full-suite real-model run is recorded."
+            : "Rises when a fresh real-model run (the nightly job's results) is recorded with `reliability eval record`.",
+    },
+  };
+}
+
+const CALIBRATION_HEADLINES: Record<AssessedRating, string> = {
+  strong: "The judge agrees with a human on a labeled set, beyond what chance would give.",
+  adequate: "The judge mostly agrees with a human, with a gap to close.",
+  "at-risk": "Nobody has checked the judge against a human yet, so its verdicts are unverified.",
+  critical: "The judge disagrees with a human too often for its pass rate to be trusted.",
+};
+
+/**
+ * Judge calibration (E): agreement and Cohen's kappa from the eval record,
+ * re-judged here against the fixed thresholds rather than trusting the
+ * record's own status. Strong at or above both; Critical below; At risk when
+ * the set is unlabeled or has too few labels.
+ */
+function calibrationCriterion(e: EvalRecordEvidence): ComputedCriterion {
+  const c = e.record.calibration;
+  const status = calibrationStatus(c.labeled, c.agreement, c.kappa);
+  const rating: AssessedRating =
+    status === "pass" ? "strong" : status === "fail" ? "critical" : "at-risk";
+  const evidence =
+    status === "unlabeled"
+      ? [
+          `The calibration set ${c.labelsFile} is unlabeled: ${c.total} judged assertion(s), ${c.seeded} seeded with a judge verdict, 0 labeled by a person. No agreement is claimed.`,
+        ]
+      : [
+          `The judge agrees with the human on ${c.agree} of ${c.labeled} labeled pair(s) (${pct(c.agreement ?? 0)}), Cohen's kappa ${(c.kappa ?? 0).toFixed(2)}, from ${c.labelsFile}.`,
+          `${c.confusion.judgePassHumanFail} judge pass(es) the human failed; ${c.confusion.judgeFailHumanPass} judge fail(s) the human passed.`,
+        ];
+  if (status === "insufficient") {
+    evidence.push(
+      `${c.labeled} labeled pair(s), fewer than the ${CALIBRATION_MIN_LABELED} needed.`,
+    );
+  }
+  if (c.disagreements.length > 0) {
+    evidence.push(`Disagreements: ${c.disagreements.map((d) => d.id).join(", ")}.`);
+  }
+  return {
+    state: "computed",
+    key: "judge-calibration",
+    title: "Judge calibration",
+    rating,
+    headline: CALIBRATION_HEADLINES[rating],
+    evidence,
+    citation: {
+      source: `${e.source} (calibration: ${c.labelsFile})`,
+      threshold: `Strong: agreement at least ${pct(CALIBRATION_MIN_AGREEMENT)} and Cohen's kappa at least ${CALIBRATION_MIN_KAPPA} over at least ${CALIBRATION_MIN_LABELED} labeled pairs; Critical: below either; At risk: unlabeled or fewer than ${CALIBRATION_MIN_LABELED} pairs. Re-judged from the numbers, not the record's status.`,
+      wouldChange:
+        rating === "strong"
+          ? "Drops if a re-labeled set (after a rubric or model change) falls below the threshold."
+          : rating === "critical"
+            ? "Rises when the rubric is tightened or the judge changed and a re-labeled set meets the threshold."
+            : `Rises when a person labels at least ${CALIBRATION_MIN_LABELED} seeded entries in ${c.labelsFile} and \`reliability eval record\` is re-run.`,
+    },
+  };
+}
+
+const RESCORE_HEADLINES: Record<AssessedRating, string> = {
+  strong: "Production answers were re-scored this month and held up.",
+  adequate: "Production answers were re-scored this month; a few failed.",
+  "at-risk":
+    "Production answers are not being re-scored on cadence, or too many of them fail the suite.",
+  critical: "Nothing shows the agent still meets the suite's bar in production.",
+};
+
+/**
+ * Post-deployment re-score (E): the newest `eval run --from-traces` result in
+ * the eval record. The worse of two bands: age (Strong within 30 days, At
+ * risk up to 90, then Critical) and the re-scored pass rate on the
+ * reliability bands (90% Strong, 75% Adequate, 50% At risk). None is Critical.
+ */
+function rescoreCriterion(e: EvalRecordEvidence): ComputedCriterion {
+  const re = e.record.lastRescore;
+  const threshold = `The worse of age (Strong within ${RESCORE_MAX_AGE_DAYS} days, At risk to ${RESCORE_MAX_AGE_DAYS * STALE_FACTOR}, then Critical) and the re-scored pass rate (Strong at least 90%, Adequate 75%, At risk 50%, else Critical); none recorded is Critical.`;
+  if (re === null) {
+    return {
+      state: "computed",
+      key: "post-deployment-rescore",
+      title: "Post-deployment re-score",
+      rating: "critical",
+      headline: RESCORE_HEADLINES.critical,
+      evidence: [
+        `No production re-score recorded in ${e.source}: no captured run has been re-scored with \`reliability eval run --from-traces\`.`,
+      ],
+      citation: {
+        source: `${e.source} (lastRescore: none)`,
+        threshold,
+        wouldChange:
+          "Rises when a gateway capture directory (RELIABILITY_TRACE_CONTENT=1) is re-scored with `eval run --from-traces` and the result passed to `eval record`.",
+      },
+    };
+  }
+  const age = ageDays(re.timestamp, e.asOf);
+  const ageBand: AssessedRating =
+    age > RESCORE_MAX_AGE_DAYS * STALE_FACTOR
+      ? "critical"
+      : age > RESCORE_MAX_AGE_DAYS
+        ? "at-risk"
+        : "strong";
+  const passBand = reliabilityBand(re.passRate);
+  const rating = RATING_RANK[ageBand] < RATING_RANK[passBand] ? ageBand : passBand;
+  const evidence = [
+    `Last re-score ${re.timestamp.slice(0, 10)}: ${age} day(s) old as of ${e.asOf.slice(0, 10)}${age > RESCORE_MAX_AGE_DAYS ? `, older than ${RESCORE_MAX_AGE_DAYS} days` : ""}.`,
+    `${re.passed} of ${re.total} captured production run(s) from ${re.captureDir} passed the suite's assertions (${pct(re.passRate)}), judged by ${re.judgeProvider}${re.skipped > 0 ? `; ${re.skipped} capture(s) skipped` : ""}.`,
+  ];
+  if (re.firstCapturedAt) {
+    evidence.push(
+      `Captured ${re.firstCapturedAt.slice(0, 10)} to ${(re.lastCapturedAt ?? re.firstCapturedAt).slice(0, 10)}.`,
+    );
+  }
+  if (re.failedRequestIds.length > 0) {
+    evidence.push(
+      `Failing request ids (join the decision log and review queue): ${re.failedRequestIds.slice(0, 5).join(", ")}${re.failedRequestIds.length > 5 ? ` and ${re.failedRequestIds.length - 5} more` : ""}.`,
+    );
+  }
+  return {
+    state: "computed",
+    key: "post-deployment-rescore",
+    title: "Post-deployment re-score",
+    rating,
+    headline: RESCORE_HEADLINES[rating],
+    evidence,
+    citation: {
+      source: `${e.source} (lastRescore: ${re.file}, ${re.timestamp})`,
+      threshold,
+      wouldChange:
+        rating === "strong"
+          ? `Drops to At risk after ${plusDays(re.timestamp, RESCORE_MAX_AGE_DAYS)} unless a newer sample is re-scored, or sooner if re-scored production answers start failing.`
+          : passBand !== "strong"
+            ? "Rises when the failing production answers are fixed and a fresh sample re-scores at 90% or better."
+            : "Rises when a fresh capture sample is re-scored and recorded.",
+    },
+  };
+}
+
 // ── Stubs and rollups ──────────────────────────────────────────────────────
 
 /** A criterion with no evidence yet, naming the v3 sub-phase that fills it in. */
@@ -1497,24 +1733,32 @@ export function buildScorecard(result: EvalRunResult, opts: ScorecardOptions): S
     ]),
     dimension("evaluated", [
       suiteBreadthCriterion(result, source),
-      stub(
-        "real-model-freshness",
-        "Last real-model run freshness",
-        "4F",
-        "the nightly real-model eval job record (date, model, pass rate)",
-      ),
-      stub(
-        "judge-calibration",
-        "Judge calibration",
-        "4F",
-        "judge-vs-human agreement on hand-labeled cases from `reliability eval calibrate`",
-      ),
-      stub(
-        "post-deployment-rescore",
-        "Post-deployment re-score",
-        "4F",
-        "captured production traces re-scored by `reliability eval run --from-traces`",
-      ),
+      ...(opts.evalRecord
+        ? [
+            freshnessCriterion(opts.evalRecord),
+            calibrationCriterion(opts.evalRecord),
+            rescoreCriterion(opts.evalRecord),
+          ]
+        : [
+            stub(
+              "real-model-freshness",
+              "Last real-model run freshness",
+              "4F",
+              "the eval record (`--eval-record docs/eval-record.md`): the nightly real-model run's date, model and pass rate",
+            ),
+            stub(
+              "judge-calibration",
+              "Judge calibration",
+              "4F",
+              "the eval record (`--eval-record`): judge-vs-human agreement on hand-labeled cases from `reliability eval calibrate`",
+            ),
+            stub(
+              "post-deployment-rescore",
+              "Post-deployment re-score",
+              "4F",
+              "the eval record (`--eval-record`): captured production traces re-scored by `reliability eval run --from-traces`",
+            ),
+          ]),
     ]),
   ];
 

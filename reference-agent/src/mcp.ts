@@ -30,7 +30,7 @@ import {
   SpanKind,
   withSpan,
 } from "@grade-stack/core";
-import { SERVER_BIN, TRIAGE_POLICY_URI } from "@grade-stack/mcp-server";
+import { TRIAGE_POLICY_URI } from "@grade-stack/mcp-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   getDefaultEnvironment,
@@ -86,9 +86,24 @@ export interface SupportToolsClient {
 }
 
 /**
+ * The command that launches the stdio MCP server: the running entry script
+ * itself, with `mcp serve` (Phase 4F). The `reliability` CLI answers `mcp
+ * serve` from source and from the bundled `dist/index.js` alike, and so does
+ * the eval bridge, the entry under the eval harness. A path resolved from
+ * `import.meta.url` (the old `SERVER_BIN`) pointed at a `bin.ts` that does not
+ * exist once the CLI is bundled.
+ */
+export function stdioServerCommand(): { command: string; args: string[] } {
+  const entry = process.argv[1];
+  if (!entry) throw new Error("cannot spawn the stdio MCP server: no entry script to re-run");
+  return { command: process.execPath, args: [entry, "mcp", "serve"] };
+}
+
+/**
  * Connect to the support MCP server over **stdio**, spawning it as a subprocess
- * (`bun <SERVER_BIN>`). This is the local transport; the same server also serves
- * over HTTP for a remote deployment (see the package README).
+ * ({@link stdioServerCommand}), or over HTTP when `RELIABILITY_MCP_URL` is set.
+ * stdio is the local transport; the same server also serves over HTTP for a
+ * remote deployment (see the package README).
  */
 export async function connectSupportTools(): Promise<SupportToolsClient> {
   const token = process.env.RELIABILITY_AGENT_TOKEN;
@@ -99,8 +114,7 @@ export async function connectSupportTools(): Promise<SupportToolsClient> {
           requestInit: token ? { headers: { authorization: `Bearer ${token}` } } : undefined,
         })
       : new StdioClientTransport({
-          command: "bun",
-          args: [SERVER_BIN],
+          ...stdioServerCommand(),
           env: {
             ...getDefaultEnvironment(),
             ...Object.fromEntries(
