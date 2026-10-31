@@ -1159,10 +1159,11 @@ describe("built CLI binary: post-deployment re-scoring, calibration and the eval
         .passed,
     ).toBe(0);
 
-    // Calibration: the committed set is honestly unlabeled (exit 2, no agreement claimed).
-    const unlabeled = await run(["eval", "calibrate"]);
-    expect(unlabeled.code).toBe(2);
-    expect(unlabeled.out).toContain("unlabeled");
+    // Calibration on the committed set: reports its real state, whatever that is
+    // (exit 2 and "unlabeled" before anyone labels; 0 or 1 with a stated agreement after).
+    const committedCal = await run(["eval", "calibrate"]);
+    expect([0, 1, 2]).toContain(committedCal.code);
+    expect(committedCal.out).toMatch(/unlabeled|agrees with the human on \d+ of \d+/);
     // A labeled set below the threshold fails (exit 1); one above passes.
     const lowPath = join(workDir, "labels-low.json");
     const goodPath = join(workDir, "labels-good.json");
@@ -1178,11 +1179,6 @@ describe("built CLI binary: post-deployment re-scoring, calibration and the eval
     // Seeding the committed set from a real-model run fills judge verdicts, never human labels.
     const nightlyPath = join(workDir, "bedrock-nightly.json");
     writeFileSync(nightlyPath, JSON.stringify(bedrockFixture(new Date().toISOString())));
-    const seedPath = join(workDir, "labels-seed.json");
-    writeFileSync(
-      seedPath,
-      readFileSync(join(repoRoot, "packages/evals/calibration/labels.json"), "utf8"),
-    );
     // The labeling walk refuses an unseeded set with the one command that seeds it.
     // Built from the committed file with every seed stripped, so the test holds
     // whether or not the committed set has been seeded from a real run.
@@ -1190,20 +1186,22 @@ describe("built CLI binary: post-deployment re-scoring, calibration and the eval
     const committed = JSON.parse(
       readFileSync(join(repoRoot, "packages/evals/calibration/labels.json"), "utf8"),
     );
-    writeFileSync(
-      unseededPath,
-      JSON.stringify({
-        ...committed,
-        labels: committed.labels.map((l: Record<string, unknown>) => ({
-          ...l,
-          seededFrom: null,
-          output: null,
-          judge: null,
-          human: null,
-          labeledBy: null,
-        })),
-      }),
-    );
+    const stripped = JSON.stringify({
+      ...committed,
+      labels: committed.labels.map((l: Record<string, unknown>) => ({
+        ...l,
+        seededFrom: null,
+        output: null,
+        judge: null,
+        human: null,
+        labeledBy: null,
+      })),
+    });
+    writeFileSync(unseededPath, stripped);
+    // Seeding starts from the same stripped set, so the "never writes a human
+    // label" check below is about the seeder, not about what Clarke has labeled.
+    const seedPath = join(workDir, "labels-seed.json");
+    writeFileSync(seedPath, stripped);
     const unseeded = await run(["eval", "label", "--labels", unseededPath, "--by", "smoke"]);
     expect(unseeded.code, unseeded.err).toBe(2);
     expect(unseeded.out).toContain("bun run reliability eval calibrate --seed <results.json>");

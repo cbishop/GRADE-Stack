@@ -253,7 +253,7 @@ describe("seedLabels", () => {
 });
 
 describe("labels file schema", () => {
-  test("the committed labels file parses, holds about 20 entries, and is honestly unlabeled", () => {
+  test("the committed labels file parses, holds about 20 entries, and fabricates nothing", () => {
     const raw = JSON.parse(
       readFileSync(join(import.meta.dir, "..", "calibration", "labels.json"), "utf8"),
     ) as unknown;
@@ -262,10 +262,20 @@ describe("labels file schema", () => {
     expect(labels.labels.length).toBeLessThanOrEqual(24);
     for (const l of labels.labels) {
       expect(l.metric).toMatch(/judge/);
-      // Nothing is fabricated: no human label until Clarke writes one.
-      expect(l.human).toBeNull();
+      // A human label is only honest if a named person wrote it against a
+      // seeded output; an unlabeled slot is null all the way down.
+      if (l.human !== null) {
+        expect(l.labeledBy).toBeTruthy();
+        expect(l.judge).not.toBeNull();
+        expect(l.output).not.toBeNull();
+      } else {
+        expect(l.labeledBy).toBeNull();
+      }
     }
-    expect(calibrate(labels, "labels.json").status).toBe("unlabeled");
+    // Either nobody has labeled yet, or the computation runs on real pairs.
+    expect(["unlabeled", "pass", "fail", "insufficient"]).toContain(
+      calibrate(labels, "labels.json").status,
+    );
   });
 
   test("a malformed entry fails loudly", () => {

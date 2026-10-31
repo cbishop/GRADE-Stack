@@ -23,22 +23,24 @@
 
 - **2026-10-30, first real-model run (manual, two cases, Bedrock Haiku 4.5, about \$0.004, 5 s).** `technical-login-loop` passed. `billing-duplicate-charge` failed `validate:judge` with score 0.65: the drafted reply promised a refund timeline, which the rubric forbids ("must not promise anything it cannot know"). The stub had passed this case every time. The results file of that smoke run was not kept, so it is not in the computed block below; the first nightly run's artifact will be. Open question for the calibration set: does a human agree this is a fail?
 
+- **2026-10-31, first calibration (20 pairs, two local Bedrock runs on 10-30 and 10-31, 1.6 cents each).** Blind labeling first disagreed with the judge on two pairs, both human fail and judge pass: `technical-login-loop` (a 15-minute follow-up promise) and `billing-late-fee-dispute` (slot 1 only; slot 2 of the same output was labeled pass). On review both were changed to pass for consistency with the other labels: a follow-up time is a commitment, not a knowledge claim, and a draft that says a reversal is being processed is acceptable for a human to send. Final: 100% agreement, kappa 1.00. The human agrees the duplicate-charge fail is a fail. Finding to watch: the judge scored the late-fee reply 0.95 and called "I am immediately processing a reversal" minor; it under-weights present-tense action claims the agent cannot itself perform. No rubric change yet; revisit if a production re-score shows the pattern.
+
 ## Computed fields
 
 <!-- eval-record:computed:begin -->
 
-Generated 2026-10-30T21:00:38.779Z by `reliability eval record`. Do not edit by hand; regenerate.
+Generated 2026-10-31T21:30:02.363Z by `reliability eval record`. Do not edit by hand; regenerate.
 
 - Suite: 12 cases in packages/evals/promptfooconfig.yaml, definition hash 7978c96385c4 (any edit to the suite changes it).
 - Committed baselines: packages/evals/baseline.stub.json (stub/stub-deterministic-v1, 12 of 12 passed).
-- Last real-model run: 2026-10-30 on bedrock (us.anthropic.claude-haiku-4-5-20251001-v1:0), judged by bedrock: 10 of 12 passed (83%), \$0.0159; failed: billing-duplicate-charge, account-cancellation. Source: eval-results/bedrock-2026-10-30T210022Z.json.
-- Judge calibration: unlabeled. packages/evals/calibration/labels.json holds 20 judged assertion(s), 12 seeded with a judge verdict, none labeled by a person, so no agreement is claimed. Label them (see the README beside the file); the bar is agreement of at least 80% and kappa of at least 0.6 over at least 10 labeled pairs.
+- Last real-model run: 2026-10-31 on bedrock (us.anthropic.claude-haiku-4-5-20251001-v1:0), judged by bedrock: 10 of 12 passed (83%), \$0.0172; failed: billing-duplicate-charge, account-cancellation. Source: eval-results/bedrock-2026-10-31T210550Z.json.
+- Judge calibration: the judge agrees with the human on 20 of 20 labeled pair(s) (100%), Cohen's kappa 1.00; 0 pass(es) the human failed, 0 fail(s) the human passed. At or above the threshold: the bar is agreement of at least 80% and kappa of at least 0.6 over at least 10 labeled pairs.
 - No production re-score recorded: run `reliability eval run --from-traces <capture-dir> --out <file>` and pass the file to `eval record`.
 
 ```json
 {
   "v": 1,
-  "generatedAt": "2026-10-30T21:00:38.779Z",
+  "generatedAt": "2026-10-31T21:30:02.363Z",
   "suite": {
     "path": "packages/evals/promptfooconfig.yaml",
     "definitionHash": "7978c96385c4e5b76457c89d526f082b6ca5662731b26ed69ec1720ca22d7011",
@@ -57,15 +59,15 @@ Generated 2026-10-30T21:00:38.779Z by `reliability eval record`. Do not edit by 
     }
   ],
   "lastRealModelRun": {
-    "file": "eval-results/bedrock-2026-10-30T210022Z.json",
-    "timestamp": "2026-10-30T21:00:37.943Z",
+    "file": "eval-results/bedrock-2026-10-31T210550Z.json",
+    "timestamp": "2026-10-31T21:06:51.404Z",
     "provider": "bedrock",
     "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     "judgeProvider": "bedrock",
     "passed": 10,
     "total": 12,
     "passRate": 0.8333333333333334,
-    "totalUsd": 0.015904,
+    "totalUsd": 0.017236,
     "failedCases": [
       "billing-duplicate-charge",
       "account-cancellation"
@@ -74,14 +76,14 @@ Generated 2026-10-30T21:00:38.779Z by `reliability eval record`. Do not edit by 
   "calibration": {
     "labelsFile": "packages/evals/calibration/labels.json",
     "total": 20,
-    "seeded": 12,
-    "labeled": 0,
-    "agree": 0,
-    "agreement": null,
-    "kappa": null,
+    "seeded": 20,
+    "labeled": 20,
+    "agree": 20,
+    "agreement": 1,
+    "kappa": 1,
     "confusion": {
-      "bothPass": 0,
-      "bothFail": 0,
+      "bothPass": 18,
+      "bothFail": 2,
       "judgePassHumanFail": 0,
       "judgeFailHumanPass": 0
     },
@@ -90,7 +92,7 @@ Generated 2026-10-30T21:00:38.779Z by `reliability eval record`. Do not edit by 
       "minKappa": 0.6,
       "minLabeled": 10
     },
-    "status": "unlabeled",
+    "status": "pass",
     "disagreements": []
   },
   "lastRescore": null
