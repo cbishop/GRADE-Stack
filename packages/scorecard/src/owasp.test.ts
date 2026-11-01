@@ -90,6 +90,26 @@ describe("parseOwaspMapping — no silent omissions", () => {
     expect(() => parseOwaspMapping(raw)).toThrow();
   });
 
+  test("rejects a covered item that leans on a heuristic mechanism (regex denial is partial at best)", () => {
+    const raw = makeMapping({});
+    raw.items = raw.items.map((it, i) =>
+      i === 0
+        ? { ...it, mechanisms: [{ name: "regex denial", ref: "r", note: "n", heuristic: true }] }
+        : it,
+    );
+    expect(() => parseOwaspMapping(raw)).toThrow(/heuristic/);
+  });
+
+  test("accepts a partial item that leans on a heuristic mechanism", () => {
+    const raw = makeMapping({ "ASI01:2026": "partial" });
+    raw.items = raw.items.map((it, i) =>
+      i === 0
+        ? { ...it, mechanisms: [{ name: "regex denial", ref: "r", note: "n", heuristic: true }] }
+        : it,
+    );
+    expect(() => parseOwaspMapping(raw)).not.toThrow();
+  });
+
   test("rejects an unscored (out-of-scope) item that states no reason", () => {
     const raw = makeMapping({});
     // A covered item marked unscored but with no residualGap explaining why.
@@ -188,5 +208,14 @@ describe("committed governance mapping", () => {
     expect(cov.outOfScope).toBe(2);
     expect(cov.gaps).toBe(0);
     expect(cov.outOfScopeIds).toEqual(["ASI06:2026", "ASI07:2026"]);
+  });
+
+  test("regex injection denial is marked heuristic and scores as partial mitigation", async () => {
+    const mapping = parseOwaspMapping(await Bun.file(COMMITTED_PATH).json());
+    const asi01 = mapping.items.find((it) => it.id === "ASI01:2026");
+    const regex = asi01?.mechanisms.find((m) => m.ref.includes("INJECTION_PATTERNS"));
+    expect(regex?.heuristic).toBe(true);
+    expect(asi01?.status).toBe("partial");
+    expect(computeGuardrailCoverage(mapping).partialIds).toContain("ASI01:2026");
   });
 });

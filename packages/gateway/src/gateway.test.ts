@@ -44,6 +44,7 @@ import {
   type ModelProvider,
   type ProviderName,
   REQUEST_ID_HEADER,
+  STUB_DEFAULT_MODEL,
   withInMemoryTracing,
 } from "@grade-stack/core";
 import { type AgentRegistry, loadAgentRegistry } from "./agent-manifest.ts";
@@ -100,6 +101,36 @@ const BENIGN: GenerateRequest = {
   system: TRIAGE_SYSTEM,
   messages: [{ role: "user", content: "My invoice looks wrong — can you check it?" }],
 };
+
+describe("input normalisation", () => {
+  test("the request forwarded to the provider is byte-for-byte what the caller sent", async () => {
+    const seen: GenerateRequest[] = [];
+    const recording: ModelProvider = {
+      name: "stub",
+      model: STUB_DEFAULT_MODEL,
+      generate(req: GenerateRequest): Promise<GenerateResult> {
+        seen.push(req);
+        return Promise.resolve({
+          text: "ok",
+          usage: { inputTokens: 1, outputTokens: 1 },
+          provider: "stub",
+          model: STUB_DEFAULT_MODEL,
+        });
+      },
+    };
+    const content = "My invoice\u200B  looks \uFF57rong —\tcan you check it?";
+    const request: GenerateRequest = {
+      system: TRIAGE_SYSTEM,
+      messages: [{ role: "user", content }],
+    };
+    const svc = new GatewayService({ decisionLog: tmpLog(), resolveProvider: () => recording });
+    const res = await svc.generate("bedrock", request);
+    expect(res.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.messages[0]?.content).toBe(content);
+    expect(seen[0]?.system).toBe(TRIAGE_SYSTEM);
+  });
+});
 
 describe("GatewayService — enforcement pipeline", () => {
   test("blocks a bypass-attempt prompt on input, before any provider call", async () => {
