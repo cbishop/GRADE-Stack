@@ -1043,7 +1043,7 @@ describe("upstream error body", () => {
   function iamDeniedProvider(): ModelProvider {
     return {
       name: "bedrock",
-      model: "denied",
+      model: BEDROCK_DEFAULT_MODEL,
       generate: () => Promise.reject(new Error(IAM_ERROR)),
     };
   }
