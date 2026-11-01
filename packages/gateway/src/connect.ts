@@ -262,6 +262,8 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
   const server = Bun.serve({
     port: opts.port ?? 0,
     hostname,
+    // Finding 8: small JSON only; over 1 MB is a fast 413 (Bun's default is 128 MB).
+    maxRequestBodySize: 1_048_576,
     async fetch(req) {
       const url = new URL(req.url);
       if (req.method === "POST" && url.pathname === GATEWAY_REVIEW_PATH) {
