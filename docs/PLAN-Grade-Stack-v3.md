@@ -254,6 +254,11 @@ The gap analysis found two pillars with no code at all (rollback, human review),
 | The suite is measured on the real model, not only the stub | Nightly Bedrock job under `--max-cost` (exit 2 on overspend); E's freshness criterion is Critical with no real-model run on record | 4F |
 | Production output is re-scored against the suite | `eval run --from-traces` replays captured answers through the suite's assertions with request ids; E's post-deployment criterion degrades when stale or failing | 4F |
 | A session cannot end on an eval regression | Claude Code `Stop` hook runs the stub gate and exits 2; `stop-hook.test.ts` proves it bites | 4F |
+| The wire body cannot bypass the guardrails by shape | Strict zod schema at the HTTP boundary and again in `GatewayService.generate`; a mismatch is 400 or a `request-schema` block with its log line | Security review, [plan](security-fixes-plan-2026-11-01.md) |
+| The gateway and MCP server are never public and anonymous | Loopback bind by default; a non-loopback bind throws before the socket exists unless agent manifests are configured | Security review |
+| No runtime dependency carries a high or critical advisory | `bun run audit:runtime` in CI walks the lockfile from runtime edges only (ADR 0022) | Security review |
+| CI actions cannot move under us | `check-actions-pinned` fails `bun run check` on any `uses:` that is not a commit SHA | Security review |
+| `main` cannot be force-pushed, deleted, or merged without CI | GitHub ruleset `protect-main` requires the three CI checks and a pull request | Security review |
 
 ## ADR candidates
 
