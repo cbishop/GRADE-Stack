@@ -413,7 +413,7 @@ loopback.
 ### The problems, one each
 
 - **Unpinned GitHub Actions** (`ci.yml:17,18,48,49,69`). `actions/checkout@v4` is a moving tag; whoever controls the tag controls what runs in CI with the repo's token. Pinning to a commit SHA, with the tag in a trailing comment, makes the action immutable until someone updates it deliberately. This is the standard supply-chain hardening for Actions.
-- **Local path in a public doc** (`docs/post-mortem.md:212`). The post-mortem quotes an error that includes `/Volumes/Userdata/Users/clarke/...`. That leaks a username and disk layout into a public repo. Replace it with the repo-relative path `governance/owasp/owasp-agentic-top10-2026.json`.
+- **Local path in a public doc** (`docs/post-mortem.md:212`). The post-mortem quotes an error that includes the author's absolute home-directory path. That leaks a username and disk layout into a public repo. Replace it with the repo-relative path `governance/owasp/owasp-agentic-top10-2026.json`.
 - **Comment contradicts package.json** (`packages/evals/src/run.ts:256`). The comment says promptfoo is pinned, so the update nag is noise. `package.json` says `^0.121.15`, a range. One of them is wrong; a reader trusting the comment will think the eval harness is reproducible when it is not. Fix the comment to match whatever finding 5 decides. **Done on `sec-5-dependency-audit`:** the comment now says the version is a range fixed by `bun.lock` (ADR 0022).
 - **No request body limit** on the gateway's `Bun.serve`. Bun's default `maxRequestBodySize` is 128 MB. The gateway accepts small JSON; a 1 MB cap costs nothing and turns a memory-exhaustion attempt into a fast 413. Add the same to the MCP server.
 
