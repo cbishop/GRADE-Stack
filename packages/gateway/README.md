@@ -33,11 +33,17 @@ is **redacted** (the reply still flows); secrets are **blocked** outright.
 
 ```bash
 # Start the gateway (this process holds the credentials)
-reliability gateway serve --provider bedrock          # default port 8787
+reliability gateway serve --provider bedrock          # 127.0.0.1, default port 8787
 
 # Point the agent at it (the agent process needs no credentials)
-RELIABILITY_GATEWAY_URL=http://localhost:8787 reliability agent run -p bedrock
+RELIABILITY_GATEWAY_URL=http://127.0.0.1:8787 reliability agent run -p bedrock
 ```
+
+The gateway binds `127.0.0.1` and prints the address it actually bound.
+`--host <name>` (or `RELIABILITY_GATEWAY_HOST`) binds elsewhere, but a
+non-loopback address refuses to start unless agent manifests are configured
+(below), because an anonymous gateway on the network would let anyone spend its
+credentials ([ADR 0020](../../docs/decisions/0020-agent-manifest-bearer-tokens-two-chokepoints.md), "Bind address").
 
 When `RELIABILITY_GATEWAY_URL` is set, real-provider calls route through the
 gateway automatically (the default from 2C). `RELIABILITY_GATEWAY=off` is a
@@ -205,7 +211,7 @@ agent's manifest on top of the gateway policy:
 ```bash
 export RELIABILITY_AGENTS_DIR=agents RELIABILITY_AGENT_TOKENS_FILE=.reliability-agent-tokens
 reliability gateway serve -p ollama            # "agents: triage (L1) from agents; bearer token required"
-RELIABILITY_GATEWAY_URL=http://localhost:8787 RELIABILITY_AGENT_TOKEN=<triage token> reliability agent run
+RELIABILITY_GATEWAY_URL=http://127.0.0.1:8787 RELIABILITY_AGENT_TOKEN=<triage token> reliability agent run
 reliability agents list                        # each agent's level, tools, models, limits
 reliability gateway log --caller triage        # "... from agent triage (verified) ..."
 ```
@@ -216,10 +222,11 @@ reliability gateway log --caller triage        # "... from agent triage (verifie
 | `RELIABILITY_AGENT_TOKENS` | | `id:token,id:token` (tokens at least 16 characters) |
 | `RELIABILITY_AGENT_TOKENS_FILE` | `./.reliability-agent-tokens` if present | one `id:token` per line, `#` comments |
 | `RELIABILITY_AGENT_TOKEN` | | the agent process's own token, sent by `GatewayProvider` |
+| `RELIABILITY_GATEWAY_HOST` | `127.0.0.1` | bind address; a non-loopback one needs `RELIABILITY_AGENTS_DIR` |
 
 The gateway cannot see tool calls, so tools are enforced at the MCP server,
 which loads the same manifests (see the [MCP server README](../mcp-server/README.md)).
-Without `RELIABILITY_AGENTS_DIR` nothing changes: no token is needed and a
+Without `RELIABILITY_AGENTS_DIR` nothing changes on loopback: no token is needed and a
 caller with no `x-caller-id` is logged as `anonymous`. See
 [ADR 0020](../../docs/decisions/0020-agent-manifest-bearer-tokens-two-chokepoints.md)
 and the [boundary register](../../docs/autonomy-boundary-register.md).
