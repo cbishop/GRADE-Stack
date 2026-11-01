@@ -1003,3 +1003,75 @@ describe("bind address", () => {
     }
   });
 });
+
+describe("upstream error body", () => {
+  const IAM_ERROR =
+    "User: arn:aws:iam::000000000000:user/test is not authorized to perform: bedrock:InvokeModel";
+
+  function iamDeniedProvider(): ModelProvider {
+    return {
+      name: "bedrock",
+      model: "denied",
+      generate: () => Promise.reject(new Error(IAM_ERROR)),
+    };
+  }
+
+  test("a provider failure returns 502 with the request id only; the text stays in the log", async () => {
+    const log = tmpLog();
+    const handle = serveGateway({ decisionLog: log, resolveProvider: iamDeniedProvider });
+    try {
+      const res = await fetch(`${handle.url}/v1/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target: "bedrock", request: BENIGN }),
+      });
+      const body = await res.text();
+      const requestId = res.headers.get(REQUEST_ID_HEADER);
+      expect(res.status).toBe(502);
+      expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(body).not.toContain("arn:");
+      expect(body).not.toContain("000000000000");
+      expect(body).toBe(`Gateway upstream error (request ${requestId})`);
+
+      const records = await readRequests(log.path);
+      const line = records.find((r) => r.requestId === requestId);
+      expect(line?.action).toBe("error");
+      expect(line?.reason).toContain("arn:aws:iam::000000000000");
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  test("GatewayService.generate still throws the original message to in-process callers", async () => {
+    const svc = new GatewayService({ decisionLog: tmpLog(), resolveProvider: iamDeniedProvider });
+    await expect(svc.generate("bedrock", BENIGN, { requestId: "req-iam" })).rejects.toThrow(
+      IAM_ERROR,
+    );
+  });
+
+  test("a review queue failure returns 502 with the request id only, no host path", async () => {
+    const dir = tmp();
+    const notADir = join(dir, "not-a-dir");
+    writeFileSync(notADir, "");
+    const log = tmpLog();
+    const handle = serveGateway({
+      decisionLog: log,
+      resolveProvider: () => scriptedProvider("ok"),
+      reviewQueue: new ReviewQueue(join(notADir, "review-queue.jsonl"), log),
+    });
+    try {
+      const res = await fetch(`${handle.url}/v1/review`, {
+        method: "POST",
+        headers: { "content-type": "application/json", [REQUEST_ID_HEADER]: "req-review" },
+        body: JSON.stringify({ trigger: "max-turns", maxTurns: 4 }),
+      });
+      const body = await res.text();
+      expect(res.status).toBe(502);
+      expect(res.headers.get(REQUEST_ID_HEADER)).toBe("req-review");
+      expect(body).not.toContain(dir);
+      expect(body).toBe("Gateway review queue error (request req-review)");
+    } finally {
+      await handle.stop();
+    }
+  });
+});
