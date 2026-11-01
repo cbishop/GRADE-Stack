@@ -252,8 +252,10 @@ export function spawnPromptfoo(
         ...process.env,
         EVAL_AGENT_PROVIDER: provider,
         EVAL_JUDGE_PROVIDER: judgeProvider,
-        // Silence promptfoo's "a newer version is available" startup banner: the
-        // version is pinned in package.json, so the nag is noise in our output.
+        // Silence promptfoo's "a newer version is available" startup banner. The
+        // version is a caret range in packages/evals/package.json (a dev
+        // dependency, ADR 0022) and bun.lock fixes the exact build, so upgrades
+        // happen through `bun update`, never at eval time; the nag is noise here.
         // (promptfoo already self-disables this under CI; this covers local runs.)
         PROMPTFOO_DISABLE_UPDATE: "true",
         // Under air-gap mode, also silence promptfoo's own outbound calls

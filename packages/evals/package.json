@@ -13,9 +13,9 @@
     "@grade-stack/gateway": "workspace:*",
     "@grade-stack/mcp-server": "workspace:*",
     "reference-agent": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "promptfoo": "^0.121.15"
+    "promptfoo": "^0.121.20"
   }
 }
