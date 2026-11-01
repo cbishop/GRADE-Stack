@@ -14,8 +14,11 @@
  */
 
 export {
+  DEFAULT_MCP_HOST,
   type HttpServeOptions,
   type HttpServerHandle,
+  MCP_HOST_ENV,
+  MCP_MAX_REQUEST_BODY_BYTES,
   serveHttp,
   serveStdio,
 } from "./connect.ts";
