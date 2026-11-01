@@ -1,7 +1,7 @@
 # Security fixes: plan of work
 
 **Written:** 2026-11-01 at `7b6e92b`. **Source:** `docs/security-review-2026-10-29.md`
-(review at `d98d0b2`, 2026-10-29). **Status:** findings 1 to 5 merged (PRs #28 to #32, 2026-11-01); finding 6 in PR.
+(review at `d98d0b2`, 2026-10-29). **Status:** findings 1 to 7 merged (PRs #28 to #34, 2026-11-01); finding 8 in PR (#35).
 
 Each finding was re-checked against the current tree before this plan was
 written. Phase 4E (ADR 0020) shipped between the review and now, which
@@ -30,7 +30,7 @@ from the review's suggested fix and why).
 | 4 | `sec-4-capture-after-log` | Medium | merged, PR #31 | half day |
 | 5 | `sec-5-dependency-audit` | Medium | merged, PR #32 | half day plus CI iteration |
 | 6 | `sec-6-guardrail-normalise` | Low | in PR | half day |
-| 7 | `sec-7-mcp-loopback-rebinding` | Low | open; auth half shipped by 4E; needs 5 first | quarter day |
+| 7 | `sec-7-mcp-loopback-rebinding` | Low | merged, PR #34 | quarter day |
 | 8 | `sec-8-hygiene` | Info | in PR | hour |
 
 Order: 1, 2, 3, 4, 5, 7, 6, 8. Finding 7 moves ahead of 6 because it
@@ -405,6 +405,14 @@ Pass `enableDnsRebindingProtection: true`,
 `allowedOrigins` list to the transport, checking option names against SDK
 1.32. Tests: a request with `Host: evil.example` is refused; the URL is
 loopback.
+
+As built (branch `sec-7-mcp-loopback-rebinding`):
+
+- The bind rule mirrors finding 2: the `hostname` option, else `RELIABILITY_MCP_HOST` (empty counts as unset), else `127.0.0.1`; `isLoopbackHost` from core decides loopback; a non-loopback bind with a null or empty registry throws before the socket exists (a test proves the port stays free). The URL names the bound address, IPv6 bracketed. `--host` is on `reliability mcp serve` and `packages/mcp-server/src/bin.ts`; a refusal prints one line (`MCP server not started: ...`) and exits 1. `@grade-stack/mcp-server` now depends on `@grade-stack/core` for `isLoopbackHost`.
+- SDK 1.32.2 option names are as planned: `enableDnsRebindingProtection`, `allowedHosts`, `allowedOrigins`. `allowedHosts` is compared against the whole `Host` header, port included; a refused `Host` or `Origin` is 403 with a JSON-RPC error (`-32000`, `Invalid Host header: ...`) and no MCP message is read. A request with no `Origin` passes, so non-browser clients are unaffected. The SDK marks all three options `@deprecated` in favour of external middleware; they still work in 1.32. If a later SDK drops them, move the same check into `serveHttp`'s `fetch`, ahead of auth.
+- `allowedHosts` is `127.0.0.1:<port>`, `localhost:<port>`, `[::1]:<port>`, plus the bound name when it is a specific address; `allowedOrigins` is `http://` plus each of those. Deviation: a wildcard bind (`0.0.0.0`, `::`) is reached under names the server cannot list, so it skips the `Host` check, keeps the `Origin` check, and relies on the bearer token the public bind already requires.
+- With manifests, auth runs before the transport, so a foreign-`Host` request without a token gets 401 rather than 403; either way it never reaches a tool.
+- `maxRequestBodySize: 1_048_576` is set on this `Bun.serve` (finding 8's cap, done here since the file was open).
 
 ---
 

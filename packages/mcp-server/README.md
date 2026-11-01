@@ -69,15 +69,38 @@ Web-standard streamable-HTTP transport, **stateless** (a fresh server + transpor
 per request, so concurrent clients never share in-memory state).
 
 ```bash
-reliability mcp serve --http --port 3333   # → http://localhost:3333/mcp
+reliability mcp serve --http --port 3333   # → http://127.0.0.1:3333/mcp
 ```
 
 ```ts
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 const client = new Client({ name: "agent", version: "0.1.0" });
-await client.connect(new StreamableHTTPClientTransport(new URL("http://localhost:3333/mcp")));
+await client.connect(new StreamableHTTPClientTransport(new URL("http://127.0.0.1:3333/mcp")));
 ```
+
+**Bind address (security finding 7).** The HTTP server binds `127.0.0.1` by
+default, and the printed URL names the address it actually bound (IPv6 in
+brackets). Override with `--host <name>` (on `reliability mcp serve --http` and
+`src/bin.ts --http`) or `RELIABILITY_MCP_HOST`; the option wins over the env. A
+non-loopback address with no agent manifests refuses to start: the command
+prints one line naming the two ways out (bind loopback, or set
+`RELIABILITY_AGENTS_DIR` with tokens) and exits 1. With manifests every request
+needs a bearer token, so a public bind is authenticated.
+
+**DNS-rebinding protection.** A web page in the operator's browser can point
+its own hostname at `127.0.0.1` and then call the local server under that name.
+The transport is built with the SDK's `enableDnsRebindingProtection: true`, so:
+
+- a request whose `Host` header is not `127.0.0.1:<port>`, `localhost:<port>`,
+  `[::1]:<port>` or the bound name with its port gets **403** before any MCP
+  message is read;
+- a request carrying an `Origin` other than `http://` plus one of those gets
+  **403**; a request with no `Origin` (any non-browser client) passes.
+
+A wildcard bind (`0.0.0.0`, `::`) is reached under names it cannot list, so it
+keeps the `Origin` check but skips the `Host` check, and relies on the bearer
+token the public bind already requires. Request bodies are capped at 1 MiB.
 
 Choose **stdio** when the server is a local, per-agent subprocess (lowest setup,
 no network surface); choose **HTTP** when one server is shared across clients or
@@ -119,6 +142,6 @@ with its own process and its own tokens file, for a real boundary. Without
 
 - `createSupportMcpServer({ guard })` — build the `McpServer` (no transport
   attached); a `ToolScopeGuard` checks each tool call (Phase 4E).
-- `serveStdio()` / `serveHttp({ port, path, agents, decisionLog })` — attach a transport.
+- `serveStdio()` / `serveHttp({ port, hostname, path, agents, decisionLog })` — attach a transport.
 - `ToolScopeGuard`, `resolveStdioToolGuard()` — the per-caller tool boundary.
 - `TRIAGE_POLICY_URI`, plus the fixtures (`ACCOUNTS`, `HELP_ARTICLES`, …).
