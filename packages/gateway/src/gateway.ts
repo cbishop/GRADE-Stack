@@ -42,6 +42,10 @@
  * blocked with `request-schema` at the input stage, writes its one decision-log
  * line, and reaches no provider. Its content is not captured: it has no shape
  * the capture record can hold, and nothing was served.
+ *
+ * Security finding 4: the decision-log line is appended before content capture,
+ * and a failed capture write never fails the call or skips the line. A request
+ * the input stage blocked is captured as `request: null`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -588,9 +592,14 @@ export class GatewayService {
   }
 
   /**
-   * Mirror content (when opted in) to the capture file and the request span, then
-   * append exactly one decision-log line. Both content sinks take the same
+   * Append exactly one decision-log line, then mirror content (when opted in) to
+   * the request span and the capture file. Both content sinks take the same
    * post-redaction text, so the trace never holds what the caller did not get.
+   *
+   * Security finding 4: the append comes first and the capture cannot undo it.
+   * The log is the record (ADR 0017: a failed append fails the call); the
+   * capture is a convenience, so a failed capture write is reported on stderr
+   * and as a `capture.error` span attribute, and the call is still served.
    */
   private async record(
     span: Span,
@@ -607,18 +616,6 @@ export class GatewayService {
     const returned =
       "error" in outcome || !outcome.response.ok ? null : outcome.response.result.text;
     const malformed = !("error" in outcome) && outcome.malformed === true;
-    if (this.captureContent && !malformed) {
-      if (returned !== null) recordRequestOutput(span, returned);
-      await writeCapture(this.captureDir, {
-        v: 1,
-        requestId: ctx.requestId,
-        callerId: this.loggedCaller(ctx),
-        at,
-        target,
-        request,
-        output: returned,
-      });
-    }
     await this.decisionLog.append({
       v: 1,
       at,
@@ -644,5 +641,27 @@ export class GatewayService {
       contentCaptured: this.captureContent,
       ...("error" in outcome || !outcome.hold ? {} : { reviewId: outcome.hold.id }),
     });
+    if (!this.captureContent || malformed) return;
+    if (returned !== null) recordRequestOutput(span, returned);
+    // Blocked input is never stored: the gateway refused to send it to a model.
+    const inputBlocked =
+      !("error" in outcome) && !outcome.response.ok && outcome.response.violation.stage === "input";
+    try {
+      await writeCapture(this.captureDir, {
+        v: 1,
+        requestId: ctx.requestId,
+        callerId: this.loggedCaller(ctx),
+        at,
+        target,
+        request: inputBlocked ? null : request,
+        output: returned,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `gateway: capture write failed (request ${ctx.requestId}): ${message}\n`,
+      );
+      span.setAttribute("capture.error", message.slice(0, 300));
+    }
   }
 }

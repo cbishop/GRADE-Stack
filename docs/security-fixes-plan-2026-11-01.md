@@ -1,7 +1,7 @@
 # Security fixes: plan of work
 
 **Written:** 2026-11-01 at `7b6e92b`. **Source:** `docs/security-review-2026-10-29.md`
-(review at `d98d0b2`, 2026-10-29). **Status:** finding 1 merged (PR #28, 2026-11-01); finding 2 in PR.
+(review at `d98d0b2`, 2026-10-29). **Status:** findings 1 to 5 merged (PRs #28 to #32, 2026-11-01); finding 6 in PR.
 
 Each finding was re-checked against the current tree before this plan was
 written. Phase 4E (ADR 0020) shipped between the review and now, which
@@ -25,10 +25,10 @@ from the review's suggested fix and why).
 | # | Branch | Severity | Status vs review | Size |
 |---|--------|----------|------------------|------|
 | 1 | `sec-1-request-schema` | High | merged, PR #28 | half day |
-| 2 | `sec-2-loopback-bind` | High | in PR | quarter day |
-| 3 | `sec-3-upstream-error-body` | Medium | open, unchanged | hour |
-| 4 | `sec-4-capture-after-log` | Medium | open, unchanged | half day |
-| 5 | `sec-5-dependency-audit` | Medium | open, worse (171 advisories now) | half day plus CI iteration |
+| 2 | `sec-2-loopback-bind` | High | merged, PR #29 | quarter day |
+| 3 | `sec-3-upstream-error-body` | Medium | merged, PR #30 | hour |
+| 4 | `sec-4-capture-after-log` | Medium | merged, PR #31 | half day |
+| 5 | `sec-5-dependency-audit` | Medium | merged, PR #32 | half day plus CI iteration |
 | 6 | `sec-6-guardrail-normalise` | Low | in PR | half day |
 | 7 | `sec-7-mcp-loopback-rebinding` | Low | open; auth half shipped by 4E; needs 5 first | quarter day |
 | 8 | `sec-8-cleanups` | Info | all four items open | hour |
@@ -197,6 +197,8 @@ caller quote something the operator can look up. The `x-request-id` header is
 already set. `GatewayService.generate` keeps throwing as it does now, because
 in-process callers are trusted and need the detail.
 
+**As built:** `POST /v1/review` echoed its review-queue error text the same way, so it now returns `Gateway review queue error (request <requestId>)`; that path writes no decision-log line, so the full text goes to the gateway's stderr instead.
+
 ---
 
 ## 4. Content capture can suppress the log line and persists blocked secrets (Medium)
@@ -245,6 +247,14 @@ output does not protect the capture of the input.
 3. When the input stage blocked, write `request: null` in the capture. Widen `CaptureRecordSchema.request` to nullable; the `v: 1` record stays readable by existing tooling.
 4. `mkdir(dir, { recursive: true, mode: 0o700 })` and `writeFile(path, body, { flag: "wx", mode: 0o600 })`. Capture files hold prompts and model output; only the operator should read them.
 
+As built (branch `sec-4-capture-after-log`):
+
+- `CaptureRecordSchema.request` is now `GenerateRequestSchema.nullable()` from `@grade-stack/core` instead of a restated shape. This also fixes a pre-existing bug found during finding 1: the restated shape lacked `requiresReview` (Phase 4D), so with capture on every L1 or review-flagged request failed the capture write and, before the reorder, the whole call. A test covers it.
+- `request: null` applies to every input-stage block (secret, injection, kill switch, turn cap, model allowlist, token cap), not only `secret-exfiltration`. The rule is simpler and none of those requests was sent to a model.
+- A failed capture write logs `gateway: capture write failed (request <id>): <message>` to stderr and sets `capture.error` (truncated to 300 characters) on the `gateway.generate` span. The test asserts both the single log line and the span attribute.
+- The `mkdir` mode applies only when the directory is created; an existing capture directory keeps the mode the operator gave it.
+- Residual: the log line's `contentCaptured` still means "capture was on", because the line is now written before the capture. A line can say `true` when the capture write failed or holds `request: null`, so *reconstructable* can read slightly high. Making it exact would need a second record after the capture, which ADR 0017's one-line-per-call rule does not allow; left as is.
+
 ---
 
 ## 5. Vulnerable dependencies (Medium)
@@ -285,6 +295,27 @@ includes promptfoo's whole tree and fails on advisories no one can fix.
 2. `bun update promptfoo`, then `bun audit` again and triage what is left into three buckets: fixable now, dev-only with no fix, runtime with no fix. The third bucket should be empty; if it is not, each entry needs an ADR line.
 3. CI: add `bun audit --audit-level=high --prod` to the `build` job in `.github/workflows/ci.yml`. For `--prod` to mean anything, `promptfoo` must move to `devDependencies` in `packages/evals/package.json`. **Decision needed:** `reliability eval` shells out to promptfoo at runtime, so it is arguably a runtime dependency of the eval command. Recommendation: move it to `devDependencies`, record in an ADR that the eval harness is a development tool whose tree is audited but not gated, and have the nightly job print the audit summary so the number stays visible. Default if no answer: do that.
 4. Any allowlisted advisory gets a comment in `ci.yml` naming the GHSA id and a line in the same ADR saying why it is accepted.
+
+### As built (branch `sec-5-dependency-audit`)
+
+- **The gate is a script, not `bun audit --prod`.** Bun 1.3.12's `bun audit`
+  reads `bun.lock` and silently ignores unknown flags, so `--prod` changed
+  nothing (85 high and critical with or without it, and after a
+  `--production` install). CI runs `bun run audit:runtime`
+  (`scripts/check-dependency-audit.ts`), which walks the lockfile from runtime
+  dependency edges only and fails on high or critical advisories there. It
+  failed on 15 before the fix and exits 0 after. ADR 0022.
+- **promptfoo was already a dev dependency** (since Phase 0); the problem
+  statement above misread `packages/evals/package.json`. No move was needed.
+  Updated within range to 0.121.20; `reliability eval` and the stub eval gate
+  still pass from a workspace install.
+- **SDK** `^1.32.2` in all three packages, no API change. `zod` `^4.6.7`.
+  Root `overrides` floor the runtime transitives and the dev-only ones with a
+  single in-range fix.
+- **Counts:** full tree 171 before, 40 after (2 critical, 26 high, 11
+  moderate, 1 low), all dev-only through promptfoo. Runtime: 0 at any
+  severity. The remaining list, with GHSA ids, is in ADR 0022. No allowlist.
+- **Nightly:** the full `bun audit` summary is printed, not gated.
 
 ---
 
@@ -383,7 +414,7 @@ loopback.
 
 - **Unpinned GitHub Actions** (`ci.yml:17,18,48,49,69`). `actions/checkout@v4` is a moving tag; whoever controls the tag controls what runs in CI with the repo's token. Pinning to a commit SHA, with the tag in a trailing comment, makes the action immutable until someone updates it deliberately. This is the standard supply-chain hardening for Actions.
 - **Local path in a public doc** (`docs/post-mortem.md:212`). The post-mortem quotes an error that includes `/Volumes/Userdata/Users/clarke/...`. That leaks a username and disk layout into a public repo. Replace it with the repo-relative path `governance/owasp/owasp-agentic-top10-2026.json`.
-- **Comment contradicts package.json** (`packages/evals/src/run.ts:256`). The comment says promptfoo is pinned, so the update nag is noise. `package.json` says `^0.121.15`, a range. One of them is wrong; a reader trusting the comment will think the eval harness is reproducible when it is not. Fix the comment to match whatever finding 5 decides.
+- **Comment contradicts package.json** (`packages/evals/src/run.ts:256`). The comment says promptfoo is pinned, so the update nag is noise. `package.json` says `^0.121.15`, a range. One of them is wrong; a reader trusting the comment will think the eval harness is reproducible when it is not. Fix the comment to match whatever finding 5 decides. **Done on `sec-5-dependency-audit`:** the comment now says the version is a range fixed by `bun.lock` (ADR 0022).
 - **No request body limit** on the gateway's `Bun.serve`. Bun's default `maxRequestBodySize` is 128 MB. The gateway accepts small JSON; a 1 MB cap costs nothing and turns a memory-exhaustion attempt into a fast 413. Add the same to the MCP server.
 
 ---

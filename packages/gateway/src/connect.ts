@@ -302,11 +302,13 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
         // 422 (Unprocessable) for any other guardrail block.
         const status = response.ok ? 200 : response.violation.policy === "kill-switch" ? 503 : 422;
         return json(response, status, ctx.requestId);
-      } catch (err) {
+      } catch {
         // A provider/transport failure (e.g. missing credentials, model error),
         // or a decision-log write failure: the call fails rather than go unrecorded.
-        const message = err instanceof Error ? err.message : String(err);
-        return new Response(`Gateway upstream error: ${message}`, {
+        // Finding 3: the error text names IAM principals, account ids, schema
+        // internals and host paths, so it never goes back to the caller. The full
+        // text lives in the decision log's `reason`; the request id finds it.
+        return new Response(`Gateway upstream error (request ${ctx.requestId})`, {
           status: 502,
           headers: { [REQUEST_ID_HEADER]: ctx.requestId },
         });
@@ -360,8 +362,12 @@ async function reviewReport(
     );
     return json(res, 200, ctx.requestId);
   } catch (err) {
+    // Finding 3: the error text (host paths, internals) stays server-side. A
+    // review-queue failure writes no decision-log line, so the operator gets it
+    // on stderr; the request id in the body lets the caller quote it.
     const message = err instanceof Error ? err.message : String(err);
-    return new Response(`Gateway review queue error: ${message}`, {
+    process.stderr.write(`gateway: review queue error (request ${ctx.requestId}): ${message}\n`);
+    return new Response(`Gateway review queue error (request ${ctx.requestId})`, {
       status: 502,
       headers: { [REQUEST_ID_HEADER]: ctx.requestId },
     });
