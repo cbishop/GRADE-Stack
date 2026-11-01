@@ -95,5 +95,7 @@ sets the output after its output redaction, from the same text it writes to the
 capture file, so no span carries raw model output; a `gateway.test.ts` test
 fails if any span attribute holds the unredacted value. The prompt is what the
 caller sent and is not redacted, so with capture on a trace backend can still
-hold personal data. See [`docs/logging-and-retention.md`](logging-and-retention.md).
+hold personal data. Capture files are created `0600` in a `0700` directory, and
+a request the input guardrails blocked is captured as `request: null`, never
+verbatim. See [`docs/logging-and-retention.md`](logging-and-retention.md).
 
