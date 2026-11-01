@@ -1,7 +1,7 @@
 # Security fixes: plan of work
 
 **Written:** 2026-11-01 at `7b6e92b`. **Source:** `docs/security-review-2026-10-29.md`
-(review at `d98d0b2`, 2026-10-29). **Status:** findings 1 to 5 merged (PRs #28 to #32, 2026-11-01); finding 6 in PR.
+(review at `d98d0b2`, 2026-10-29). **Status:** findings 1 to 7 merged (PRs #28 to #34, 2026-11-01); finding 8 in PR (#35).
 
 Each finding was re-checked against the current tree before this plan was
 written. Phase 4E (ADR 0020) shipped between the review and now, which
@@ -30,8 +30,8 @@ from the review's suggested fix and why).
 | 4 | `sec-4-capture-after-log` | Medium | merged, PR #31 | half day |
 | 5 | `sec-5-dependency-audit` | Medium | merged, PR #32 | half day plus CI iteration |
 | 6 | `sec-6-guardrail-normalise` | Low | in PR | half day |
-| 7 | `sec-7-mcp-loopback-rebinding` | Low | in PR | quarter day |
-| 8 | `sec-8-cleanups` | Info | all four items open | hour |
+| 7 | `sec-7-mcp-loopback-rebinding` | Low | merged, PR #34 | quarter day |
+| 8 | `sec-8-hygiene` | Info | in PR | hour |
 
 Order: 1, 2, 3, 4, 5, 7, 6, 8. Finding 7 moves ahead of 6 because it
 depends on the SDK bump in 5 and shares the bind-address pattern from 2.
@@ -421,9 +421,17 @@ As built (branch `sec-7-mcp-loopback-rebinding`):
 ### The problems, one each
 
 - **Unpinned GitHub Actions** (`ci.yml:17,18,48,49,69`). `actions/checkout@v4` is a moving tag; whoever controls the tag controls what runs in CI with the repo's token. Pinning to a commit SHA, with the tag in a trailing comment, makes the action immutable until someone updates it deliberately. This is the standard supply-chain hardening for Actions.
-- **Local path in a public doc** (`docs/post-mortem.md:212`). The post-mortem quotes an error that includes `/Volumes/Userdata/Users/clarke/...`. That leaks a username and disk layout into a public repo. Replace it with the repo-relative path `governance/owasp/owasp-agentic-top10-2026.json`.
+- **Local path in a public doc** (`docs/post-mortem.md:212`). The post-mortem quotes an error that includes the author's absolute home-directory path. That leaks a username and disk layout into a public repo. Replace it with the repo-relative path `governance/owasp/owasp-agentic-top10-2026.json`.
 - **Comment contradicts package.json** (`packages/evals/src/run.ts:256`). The comment says promptfoo is pinned, so the update nag is noise. `package.json` says `^0.121.15`, a range. One of them is wrong; a reader trusting the comment will think the eval harness is reproducible when it is not. Fix the comment to match whatever finding 5 decides. **Done on `sec-5-dependency-audit`:** the comment now says the version is a range fixed by `bun.lock` (ADR 0022).
 - **No request body limit** on the gateway's `Bun.serve`. Bun's default `maxRequestBodySize` is 128 MB. The gateway accepts small JSON; a 1 MB cap costs nothing and turns a memory-exhaustion attempt into a fast 413. Add the same to the MCP server.
+
+As built (branch `sec-8-hygiene`):
+
+- Actions pinned in `ci.yml` and `nightly-real-model.yml`, each SHA resolved from the tag and checked against the repo's commits API: `actions/checkout` v4 at `11d5960a326750d5838078e36cf38b85af677262`, `oven-sh/setup-bun` v2 at `0c5077e51419868618aeaa5fe8019c62421857d6`, `actions/upload-artifact` v4 at `ea165f8d65b6e75b540449e92b4886f43607fa02`, `gitleaks/gitleaks-action` v2 at `ff98106e4c7b2bc287b24eaf42907196329070c7` (an annotated tag, dereferenced to its commit).
+- `scripts/check-actions-pinned.ts`, wired into `bun run check`, fails on any `uses:` that is not a 40-hex SHA (local `./` actions exempt, `docker://` needs a digest) and fails closed when it finds no workflows.
+- Absolute paths: `docs/post-mortem.md:212` now reads `…/dev/governance/owasp/owasp-agentic-top10-2026.json`, keeping the `…/dev/` that shows the path overshot the repo (the point of that passage), and this file's own bullet above no longer quotes the path. `git grep` finds no other `/Users/` or `Userdata` hit.
+- The gateway's `Bun.serve` sets `maxRequestBodySize: 1_048_576`; a 2 MB body to `/v1/generate` gets Bun's 413 with no provider call (before the cap it reached the schema and got 400). The MCP server's limit belongs to finding 7's branch.
+- The promptfoo comment was already fixed on `sec-5-dependency-audit`.
 
 ---
 

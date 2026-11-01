@@ -1107,3 +1107,31 @@ describe("upstream error body", () => {
     }
   });
 });
+
+describe("request body limit", () => {
+  test("a 2 MB body to /v1/generate is refused (413) and never reaches the model", async () => {
+    let calls = 0;
+    const handle = serveGateway({
+      decisionLog: tmpLog(),
+      resolveProvider: () => {
+        calls++;
+        return scriptedProvider("ok");
+      },
+    });
+    try {
+      const big = "a".repeat(2 * 1024 * 1024);
+      const res = await fetch(`${handle.url}/v1/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          target: "stub",
+          request: { messages: [{ role: "user", content: big }] },
+        }),
+      });
+      expect(res.status).toBe(413);
+      expect(calls).toBe(0);
+    } finally {
+      await handle.stop();
+    }
+  });
+});

@@ -209,7 +209,7 @@ Verified by running the built artifact:
 ```
 $ bun dist/index.js scorecard …
 ENOENT: no such file or directory, open
-  '/Volumes/Userdata/Users/clarke/dev/governance/owasp/owasp-agentic-top10-2026.json'
+  '…/dev/governance/owasp/owasp-agentic-top10-2026.json'
 ```
 
 (Note the path landed in `…/dev/`, two dirs above `…/dev/+2026/grade-stack`.)

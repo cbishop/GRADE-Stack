@@ -35,6 +35,9 @@ Current enforcement mechanisms:
   or critical advisory reachable from runtime dependencies. Not `bun audit
   --prod`: Bun ignores that flag. The nightly job prints the full-tree count
   without gating.
+- **Pinned Actions** (finding 8): `bun run check` runs
+  `scripts/check-actions-pinned.ts`, which fails on any workflow `uses:` that is
+  a tag or branch rather than a 40-hex commit SHA.
 
 ## Stack & conventions
 
