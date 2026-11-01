@@ -37,7 +37,11 @@ is strict, so a record with a text field fails validation and is not written.
 **Opt-in content capture** (`RELIABILITY_TRACE_CONTENT=1`):
 
 - One JSON file per request id in the capture directory, holding the request
-  and the text returned to the caller (PII already redacted).
+  and the text returned to the caller (PII already redacted). Files are created
+  `0600` in a `0700` directory. A request the input guardrails blocked is
+  captured as `request: null`, so refused input (a pasted secret, say) is never
+  written to disk. The decision-log line is written first; a failed capture
+  write is reported on stderr and the call is still served.
 - The prompt on the `chat` span as `gen_ai.input.messages`, and the returned
   output on the `gateway.generate` request span as `gen_ai.output.messages`.
   The gateway writes that output after redaction, from the same text it writes
