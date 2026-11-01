@@ -10,7 +10,8 @@
  * credentials; the agent process must not. Kept thin — all logic lives in
  * `./connect` and `./gateway`.
  *
- * Flags: `--port N` (default 8787). Every decision is appended to the decision
+ * Flags: `--port N` (default 8787), `--host NAME` (default `RELIABILITY_GATEWAY_HOST`,
+ * else `127.0.0.1`; a non-loopback host needs agent manifests). Every decision is appended to the decision
  * log (`RELIABILITY_DECISION_LOG`, default `./gateway-decisions.jsonl`; Phase 4B).
  */
 
@@ -20,8 +21,13 @@ import { resolveRouterFromEnv } from "./router.ts";
 const args = process.argv.slice(2);
 const portFlag = args.indexOf("--port");
 const port = portFlag !== -1 ? Number.parseInt(args[portFlag + 1] ?? "", 10) : 8787;
+const hostFlag = args.indexOf("--host");
+const hostname = hostFlag !== -1 ? args[hostFlag + 1] : undefined;
 
-const handle = serveGateway({ port: Number.isNaN(port) ? 8787 : port });
+const handle = serveGateway({
+  port: Number.isNaN(port) ? 8787 : port,
+  ...(hostname ? { hostname } : {}),
+});
 process.stderr.write(
   `grade-stack gateway listening at ${handle.url} — set RELIABILITY_GATEWAY_URL=${handle.url} in the agent process\n` +
     `decision log: ${handle.decisionLogPath} (append-only)\n`,

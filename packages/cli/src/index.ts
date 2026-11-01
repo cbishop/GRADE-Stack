@@ -517,12 +517,24 @@ gateway
   .description("Run the credential-holding gateway; the agent talks to it instead of a provider")
   .option("-p, --provider <provider>", "backing model provider: bedrock | ollama | stub")
   .option("--port <n>", "HTTP port", "8787")
-  .action((opts: { provider?: string; port: string }) => {
+  .option(
+    "--host <name>",
+    "bind address (default RELIABILITY_GATEWAY_HOST, else 127.0.0.1); a non-loopback address needs agent manifests",
+  )
+  .action((opts: { provider?: string; port: string; host?: string }) => {
     const backing = opts.provider;
-    const handle = serveGateway({
-      port: Number.parseInt(opts.port, 10),
-      ...(backing ? { resolveProvider: () => createDirectProvider(backing) } : {}),
-    });
+    let handle: ReturnType<typeof serveGateway>;
+    try {
+      handle = serveGateway({
+        port: Number.parseInt(opts.port, 10),
+        ...(opts.host ? { hostname: opts.host } : {}),
+        ...(backing ? { resolveProvider: () => createDirectProvider(backing) } : {}),
+      });
+    } catch (err) {
+      // A refused bind (finding 2) or a broken manifest (4E): say why, no stack.
+      console.error(`gateway not started: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
     console.error(`gateway listening at ${handle.url}`);
     console.error(`set RELIABILITY_GATEWAY_URL=${handle.url} in the agent process`);
     console.error(
