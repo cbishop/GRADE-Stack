@@ -468,9 +468,25 @@ mcp
   .description("Run the support MCP server (stdio by default; --http for remote)")
   .option("--http", "serve over streamable HTTP instead of stdio")
   .option("--port <n>", "HTTP port", "3333")
-  .action(async (opts: { http?: boolean; port: string }) => {
+  .option(
+    "--host <name>",
+    "HTTP bind address (default RELIABILITY_MCP_HOST, else 127.0.0.1); a non-loopback address needs agent manifests",
+  )
+  .action(async (opts: { http?: boolean; port: string; host?: string }) => {
     if (opts.http) {
-      const handle = serveHttp({ port: Number.parseInt(opts.port, 10) });
+      let handle: ReturnType<typeof serveHttp>;
+      try {
+        handle = serveHttp({
+          port: Number.parseInt(opts.port, 10),
+          ...(opts.host ? { hostname: opts.host } : {}),
+        });
+      } catch (err) {
+        // A refused bind (finding 7) or a broken manifest (4E): say why, no stack.
+        console.error(
+          `MCP server not started: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        process.exit(1);
+      }
       console.error(`support MCP server listening at ${handle.url}`);
       console.error(
         handle.agents

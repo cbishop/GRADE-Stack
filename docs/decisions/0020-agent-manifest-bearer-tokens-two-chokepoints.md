@@ -178,3 +178,12 @@ its provider credentials reachable from the network.
   `RELIABILITY_GATEWAY_TOKENS`. The manifest tokens above already authenticate
   every request; a parallel gateway-only token would be one more path to keep
   in sync and one more place for a secret to leak.
+
+**2026-11-01, security finding 7: the MCP server.** The HTTP MCP server
+(`serveHttp`) follows the same rule: `127.0.0.1` by default, the `hostname`
+option else `RELIABILITY_MCP_HOST`, `--host` on `reliability mcp serve`, and a
+non-loopback bind with no agent manifests refuses to start. It also turns on
+the MCP SDK transport's DNS-rebinding protection: a `Host` other than the
+loopback names (or the bound name) with the port, or an `Origin` other than
+those pages, is refused with 403. A wildcard bind skips the `Host` check, since
+it cannot list the names it is reached under, and relies on the bearer token.
