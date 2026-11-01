@@ -85,6 +85,12 @@ and this document cannot drift. Read it alongside the table above; each item
 carries its `mechanisms[]` (with `ref` pointing at the file/ADR that implements it)
 and a `residualGap` sentence.
 
+A mechanism marked `"heuristic": true` is pattern matching (the gateway's regex
+injection denial is one): a paraphrase can evade it, so it is partial mitigation
+at most. The parser refuses a *covered* item that leans on a heuristic mechanism
+(added 2026-11-01, security finding 6; ASI01 was already partial, so the score
+did not change).
+
 ## How this feeds the scorecard
 
 The scorecard's **Guardrail coverage** dimension (un-stubbed in Phase 3A; scoring

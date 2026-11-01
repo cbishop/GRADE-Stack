@@ -34,6 +34,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  BEDROCK_DEFAULT_MODEL,
   CALLER_ID_HEADER,
   GatewayProvider,
   GENAI_CONTENT,
@@ -84,13 +85,13 @@ function tmpLog(): DecisionLog {
 function scriptedProvider(text: string, name: ProviderName = "stub"): ModelProvider {
   return {
     name,
-    model: "scripted-test-model",
+    model: STUB_DEFAULT_MODEL,
     generate(_req: GenerateRequest): Promise<GenerateResult> {
       return Promise.resolve({
         text,
         usage: { inputTokens: 1, outputTokens: 1 },
         provider: name,
-        model: "scripted-test-model",
+        model: STUB_DEFAULT_MODEL,
       });
     },
   };
@@ -405,7 +406,7 @@ describe("decision log: exactly one line per generate call (4B bite test)", () =
     const log = tmpLog();
     const broken: ModelProvider = {
       name: "bedrock",
-      model: "broken",
+      model: BEDROCK_DEFAULT_MODEL,
       generate: () => Promise.reject(new Error("model unavailable")),
     };
     const svc = new GatewayService({ decisionLog: log, resolveProvider: () => broken });
@@ -671,14 +672,14 @@ describe("request schema at the HTTP boundary", () => {
   function recordingProvider(calls: unknown[]): ModelProvider {
     return {
       name: "bedrock",
-      model: "test-model",
+      model: BEDROCK_DEFAULT_MODEL,
       async generate(req) {
         calls.push(req);
         return {
           text: "ok",
           usage: { inputTokens: 1, outputTokens: 1 },
           provider: "bedrock",
-          model: "test-model",
+          model: BEDROCK_DEFAULT_MODEL,
         };
       },
     };
@@ -844,7 +845,7 @@ describe("bind address", () => {
         owner: "support-lead@example.com",
         autonomyLevel: "L1",
         allowedTools: [],
-        allowedModels: ["scripted-test-model"],
+        allowedModels: [STUB_DEFAULT_MODEL],
         maxTurns: 4,
         tokenCap: 800,
         reviewRequired: true,

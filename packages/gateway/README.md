@@ -29,6 +29,15 @@ A block is returned as HTTP `422` with `{ ok: false, violation }`;
 `GatewayProvider` raises it as a `GuardrailError` the agent cannot suppress. PII
 is **redacted** (the reply still flows); secrets are **blocked** outright.
 
+The input and secret scans read a normalised copy of the text (NFKC, zero-width
+and format characters stripped, whitespace collapsed), so full-width and
+zero-width spellings of an override are caught; the request forwarded to the
+model is unchanged. The regexes still miss paraphrases (ADR 0007). The model
+allowlist matches exact ids, or `prefix:<id-prefix>` entries; there is no
+substring match, and an empty list allows nothing. By default it holds the
+Bedrock, Ollama and stub default ids, plus any model set in the gateway's own
+`RELIABILITY_BEDROCK_MODEL` / `RELIABILITY_OLLAMA_MODEL`.
+
 ## Run it
 
 ```bash
@@ -189,7 +198,7 @@ the gateway at start):
 ```json
 { "id": "triage", "owner": "<named person>", "autonomyLevel": "L1",
   "allowedTools": ["lookup_account", "search_help_articles"],
-  "allowedModels": ["stub-deterministic", "gemma4", "claude-haiku-4-5"],
+  "allowedModels": ["stub-deterministic-v1", "gemma4:12b-mlx", "us.anthropic.claude-haiku-4-5-20251001-v1:0"],
   "maxTurns": 5, "tokenCap": 800, "reviewRequired": true }
 ```
 
@@ -203,7 +212,7 @@ agent's manifest on top of the gateway policy:
 
 | Limit | Refused as | Where it comes from |
 |---|---|---|
-| model not in `allowedModels` | `agent-model-not-allowed` | substring match, as the gateway allowlist |
+| model not in `allowedModels` | `agent-model-not-allowed` | exact id, or `prefix:<id-prefix>`; no substring match, as the gateway allowlist |
 | `maxTokens` over `tokenCap` (or the gateway cap, whichever is lower) | `agent-token-cap` | a request with no `maxTokens` is given the cap |
 | more than `maxTurns` model calls in one session (`x-session-id`) | `agent-turn-cap` | a manifest-bound call with no session is refused |
 | `reviewRequired` (every L1) | held, trigger `requested` | regardless of `RELIABILITY_REVIEW_ON_REQUEST` |

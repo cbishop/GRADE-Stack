@@ -70,7 +70,7 @@ import {
 } from "./agent-manifest.ts";
 import type { DecisionLog } from "./decision-log.ts";
 import { GatewayService, type GatewayServiceOptions } from "./gateway.ts";
-import { DEFAULT_POLICY, type ReviewPolicy } from "./policy.ts";
+import { DEFAULT_POLICY, type ReviewPolicy, resolveAllowedModelsFromEnv } from "./policy.ts";
 import { resolveReviewPolicyFromEnv } from "./review-queue.ts";
 import { resolveRouterFromEnv } from "./router.ts";
 
@@ -243,8 +243,13 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
   // An explicitly-injected router wins (tests); otherwise opt in from the env
   // (`RELIABILITY_ROUTER=1`), leaving the default forward-only path untouched.
   const router = opts.router ?? resolveRouterFromEnv();
-  // Likewise the review triggers (4D): an injected policy wins, else the env.
-  const policy = opts.policy ?? { ...DEFAULT_POLICY, review: resolveReviewPolicyFromEnv() };
+  // Likewise the review triggers (4D) and the model allowlist (finding 6): an
+  // injected policy wins, else the env.
+  const policy = opts.policy ?? {
+    ...DEFAULT_POLICY,
+    allowedModels: resolveAllowedModelsFromEnv(),
+    review: resolveReviewPolicyFromEnv(),
+  };
   // And the agents (4E): injected wins (null forces none), else RELIABILITY_AGENTS_DIR.
   const agents = opts.agents === undefined ? resolveAgentRegistryFromEnv() : opts.agents;
   const allowStubTarget = opts.allowStubTarget ?? process.env.NODE_ENV !== "production";

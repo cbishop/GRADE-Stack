@@ -122,6 +122,8 @@ const handle = serveGateway({
   haltFile: join(work, ".reliability-halt"),
   policy: {
     ...DEFAULT_POLICY,
+    // The two stand-ins are the drill's only models; allowlist them exactly.
+    allowedModels: [local.model, frontier.model],
     review: { reviewBelow: 0.6, onMaxTurns: true, onRedaction: true, onRequest: true },
   },
   router: new ConfidenceRouter({

@@ -4,7 +4,7 @@
   "autonomyLevel": "L0",
   "description": "Sample second agent for the cycle-17 demo: suggests a help article, calls no tools, sends nothing.",
   "allowedTools": [],
-  "allowedModels": ["gemma4"],
+  "allowedModels": ["gemma4:12b-mlx"],
   "maxTurns": 1,
   "tokenCap": 200,
   "reviewRequired": false

@@ -50,7 +50,11 @@ export {
   type Validator,
   zodValidator,
 } from "./pev.ts";
-export { type BedrockOptions, BedrockProvider } from "./providers/bedrock.ts";
+export {
+  BEDROCK_DEFAULT_MODEL,
+  type BedrockOptions,
+  BedrockProvider,
+} from "./providers/bedrock.ts";
 export {
   CALLER_ID_HEADER,
   GATEWAY_GENERATE_PATH,
@@ -73,8 +77,8 @@ export {
   type ReviewTrigger,
   SESSION_ID_HEADER,
 } from "./providers/gateway.ts";
-export { type OllamaOptions, OllamaProvider } from "./providers/ollama.ts";
-export { type StubOptions, StubProvider } from "./providers/stub.ts";
+export { OLLAMA_DEFAULT_MODEL, type OllamaOptions, OllamaProvider } from "./providers/ollama.ts";
+export { STUB_DEFAULT_MODEL, type StubOptions, StubProvider } from "./providers/stub.ts";
 export {
   buildReleaseManifest,
   canonicalJson,

@@ -140,8 +140,11 @@ export {
   DEFAULT_REVIEW_POLICY,
   type GatewayPolicy,
   type InputDecision,
+  MODEL_PREFIX,
+  normaliseForScan,
   type OutputDecision,
   type ReviewPolicy,
+  resolveAllowedModelsFromEnv,
 } from "./policy.ts";
 export {
   type ApprovedEvent,

@@ -27,6 +27,7 @@ import {
   DEFAULT_POLICY,
   type GatewayPolicy,
   normaliseForScan,
+  resolveAllowedModelsFromEnv,
 } from "./policy.ts";
 
 // Built from parts so the literal pattern never appears in source (see header).
@@ -157,6 +158,17 @@ describe("model allowlist", () => {
     expect(DEFAULT_POLICY.allowedModels).toContain(BEDROCK_DEFAULT_MODEL);
     expect(DEFAULT_POLICY.allowedModels).toContain(OLLAMA_DEFAULT_MODEL);
     expect(DEFAULT_POLICY.allowedModels).toContain(STUB_DEFAULT_MODEL);
+  });
+  test("a served gateway also allows the models its own environment selects", () => {
+    const allowed = resolveAllowedModelsFromEnv({
+      RELIABILITY_BEDROCK_MODEL: "us.anthropic.claude-sonnet-4-5-v1:0",
+      RELIABILITY_OLLAMA_MODEL: " ",
+    });
+    expect(allowed).toEqual([
+      ...DEFAULT_POLICY.allowedModels,
+      "us.anthropic.claude-sonnet-4-5-v1:0",
+    ]);
+    expect(resolveAllowedModelsFromEnv({})).toEqual(DEFAULT_POLICY.allowedModels);
   });
   test("the default policy refuses a model it does not name", () => {
     expect(checkModel("anything-v9", DEFAULT_POLICY)?.policy).toBe("model-allowlist");

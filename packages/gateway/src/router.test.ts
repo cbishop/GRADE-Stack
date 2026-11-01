@@ -21,11 +21,14 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  GenerateRequest,
-  GenerateResult,
-  ModelProvider,
-  ProviderName,
+import {
+  BEDROCK_DEFAULT_MODEL,
+  type GenerateRequest,
+  type GenerateResult,
+  type ModelProvider,
+  OLLAMA_DEFAULT_MODEL,
+  type ProviderName,
+  STUB_DEFAULT_MODEL,
 } from "@grade-stack/core";
 import { DecisionLog } from "./decision-log.ts";
 import { GatewayService } from "./gateway.ts";
@@ -46,12 +49,19 @@ function triage(
   return JSON.stringify({ category, priority, sentiment, summary: "s", draft_reply: draft });
 }
 
+/** Each test provider reports its provider's default model id, as the gateway allowlists it. */
+const MODEL_FOR: Record<ProviderName, string> = {
+  bedrock: BEDROCK_DEFAULT_MODEL,
+  ollama: OLLAMA_DEFAULT_MODEL,
+  stub: STUB_DEFAULT_MODEL,
+};
+
 /** A provider that returns a scripted sequence of texts and counts its calls. */
 function sequenceProvider(texts: string[], name: ProviderName = "ollama") {
   const state = { calls: 0 };
   const provider: ModelProvider = {
     name,
-    model: `${name}-test`,
+    model: MODEL_FOR[name],
     generate(_req: GenerateRequest): Promise<GenerateResult> {
       const text = texts[state.calls] ?? texts[texts.length - 1] ?? "";
       state.calls += 1;
@@ -59,7 +69,7 @@ function sequenceProvider(texts: string[], name: ProviderName = "ollama") {
         text,
         usage: { inputTokens: 1, outputTokens: 1 },
         provider: name,
-        model: `${name}-test`,
+        model: MODEL_FOR[name],
       });
     },
   };
@@ -260,7 +270,7 @@ describe("GatewayService — routing path", () => {
     const router = new ConfidenceRouter({ samples: 5, threshold: 0.5, consensusFields: CONSENSUS });
     // Allow only the local model; the routing gateway must still refuse because
     // the frontier tier it could escalate to is not on the allowlist.
-    const policy: GatewayPolicy = { allowedModels: ["ollama-test"], maxTokens: 4096 };
+    const policy: GatewayPolicy = { allowedModels: [OLLAMA_DEFAULT_MODEL], maxTokens: 4096 };
     const svc = new GatewayService({
       decisionLog: tmpLog(),
       resolveProvider: resolveFrom(local.provider, escalation.provider),

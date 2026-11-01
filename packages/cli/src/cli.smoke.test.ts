@@ -845,7 +845,7 @@ describe("built CLI binary: agent manifests and caller authentication (4E)", () 
         owner: "kb-team@example.com",
         autonomyLevel: "L0",
         allowedTools: [],
-        allowedModels: ["stub-deterministic"],
+        allowedModels: ["stub-deterministic-v1"],
         maxTurns: 1,
         tokenCap: 200,
         reviewRequired: false,

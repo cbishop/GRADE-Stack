@@ -24,7 +24,8 @@ interface OllamaChatResponse {
   eval_count?: number;
 }
 
-const DEFAULT_MODEL = "gemma4:12b-mlx";
+/** The model id a provider uses when none is configured; the gateway allowlists it by default. */
+export const OLLAMA_DEFAULT_MODEL = "gemma4:12b-mlx";
 const DEFAULT_HOST = "http://localhost:11434";
 
 /** One message in Ollama's `/api/chat` list, which carries the system prompt as a turn. */
@@ -50,7 +51,7 @@ export class OllamaProvider implements ModelProvider {
   private readonly fetchFn: typeof fetch;
 
   constructor(opts: OllamaOptions = {}) {
-    this.model = opts.model ?? process.env.RELIABILITY_OLLAMA_MODEL ?? DEFAULT_MODEL;
+    this.model = opts.model ?? process.env.RELIABILITY_OLLAMA_MODEL ?? OLLAMA_DEFAULT_MODEL;
     this.host = opts.host ?? process.env.OLLAMA_HOST ?? DEFAULT_HOST;
     this.fetchFn = opts.fetchFn ?? fetch;
   }
