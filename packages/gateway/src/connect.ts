@@ -32,6 +32,13 @@
  * a structured `caller-auth` violation and one `auth` decision-log line, which
  * never holds the token. With no manifests nothing changes from v2: no token is
  * needed and the caller is the self-asserted header (unverified) or `anonymous`.
+ *
+ * Security finding 1: both bodies are parsed against the strict core schemas
+ * before anything else runs. A mismatch (a content-block array, a `system`
+ * role, an unknown key, an oversized field) is 400 with one fixed message and
+ * no schema detail, and never reaches the guardrails or a model. Outside
+ * development (`NODE_ENV=production`) `target: "stub"` is refused the same way
+ * unless `allowStubTarget` says otherwise.
  */
 
 import { randomUUID } from "node:crypto";
@@ -40,8 +47,9 @@ import {
   GATEWAY_GENERATE_PATH,
   GATEWAY_REVIEW_PATH,
   type GatewayGenerateBody,
+  GatewayGenerateBodySchema,
   type GatewayGenerateResponse,
-  type GatewayReviewBody,
+  GatewayReviewBodySchema,
   type GatewayReviewResponse,
   IDENTITY_ID_PATTERN,
   REQUEST_ID_HEADER,
@@ -68,6 +76,20 @@ export interface GatewayServeOptions extends GatewayServiceOptions {
    * manifests). A malformed manifest or token entry throws at start.
    */
   agents?: AgentRegistry | null;
+  /**
+   * Accept `target: "stub"` from the network. The stub returns canned text, so
+   * a misconfigured client that selects it would silently get fake answers.
+   * Defaults to true outside production (`NODE_ENV !== "production"`), where
+   * tests and demos drive the gateway with it, and false in production.
+   */
+  allowStubTarget?: boolean;
+}
+
+/** The one 400 body for a request that does not match the wire schema. */
+const INVALID_BODY = "Bad request: invalid request body";
+
+function invalidBody(): Response {
+  return new Response(INVALID_BODY, { status: 400 });
 }
 
 /** A running gateway HTTP server; call `stop()` to shut it down. */
@@ -185,6 +207,7 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
   const policy = opts.policy ?? { ...DEFAULT_POLICY, review: resolveReviewPolicyFromEnv() };
   // And the agents (4E): injected wins (null forces none), else RELIABILITY_AGENTS_DIR.
   const agents = opts.agents === undefined ? resolveAgentRegistryFromEnv() : opts.agents;
+  const allowStubTarget = opts.allowStubTarget ?? process.env.NODE_ENV !== "production";
   const service = new GatewayService({ ...opts, router, policy });
 
   const server = Bun.serve({
@@ -198,15 +221,17 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
         return new Response("Not found", { status: 404 });
       }
 
-      let body: GatewayGenerateBody;
+      let raw: unknown;
       try {
-        body = (await req.json()) as GatewayGenerateBody;
+        raw = await req.json();
       } catch {
         return new Response("Bad request: expected JSON body", { status: 400 });
       }
-      if (!body?.target || !body?.request) {
-        return new Response("Bad request: missing target or request", { status: 400 });
-      }
+      // Finding 1: the shape is checked, not cast. No zod detail goes back.
+      const parsed = GatewayGenerateBodySchema.safeParse(raw);
+      if (!parsed.success) return invalidBody();
+      const body: GatewayGenerateBody = parsed.data;
+      if (body.target === "stub" && !allowStubTarget) return invalidBody();
 
       const ctx = requestContext(req, body);
       if (typeof ctx === "string") {
@@ -264,25 +289,22 @@ async function reviewReport(
   service: GatewayService,
   agents: AgentRegistry | null,
 ): Promise<Response> {
-  let body: GatewayReviewBody;
+  let raw: unknown;
   try {
-    body = (await req.json()) as GatewayReviewBody;
+    raw = await req.json();
   } catch {
     return new Response("Bad request: expected JSON body", { status: 400 });
   }
-  if (body?.trigger !== "max-turns" || !Number.isInteger(body.maxTurns) || body.maxTurns < 0) {
-    return new Response('Bad request: expected { trigger: "max-turns", maxTurns }', {
-      status: 400,
-    });
-  }
+  const parsed = GatewayReviewBodySchema.safeParse(raw);
+  if (!parsed.success) return invalidBody();
+  const body = parsed.data;
   const ctx = requestContext(req, body);
   if (typeof ctx === "string") return new Response(ctx, { status: 400 });
   try {
     const auth = await authenticate(req, ctx, agents, service.decisionLog, GATEWAY_REVIEW_PATH);
     if ("refused" in auth) return auth.refused;
-    const lastIssues = Array.isArray(body.lastIssues) ? body.lastIssues.map(String) : [];
     const res = await service.holdMaxTurns(
-      { maxTurns: body.maxTurns, lastIssues },
+      { maxTurns: body.maxTurns, lastIssues: body.lastIssues ?? [] },
       ctx,
       auth.agent,
     );

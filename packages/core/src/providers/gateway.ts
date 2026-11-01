@@ -24,16 +24,25 @@
  * it. Each provider carries a session id (`x-session-id`) the gateway counts
  * turns against; `withSession` opens a fresh one per agent run. A 401 carries a
  * structured `caller-auth` violation and surfaces as a `GuardrailError`.
+ *
+ * Security finding 1: both request bodies are strict zod schemas
+ * (`GatewayGenerateBodySchema`, `GatewayReviewBodySchema`) and their TS types
+ * derive from them. The gateway parses every body against them before anything
+ * else runs and refuses a mismatch with 400.
  */
 
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import type { MaxTurnsError } from "../pev.ts";
-import type {
-  GenerateRequest,
-  GenerateResult,
-  ModelProvider,
-  ProviderName,
-  ReviewHold,
+import {
+  type GenerateRequest,
+  GenerateRequestSchema,
+  type GenerateResult,
+  MAX_REQUEST_TEXT_CHARS,
+  type ModelProvider,
+  type ProviderName,
+  ProviderNameSchema,
+  type ReviewHold,
 } from "../types.ts";
 
 /** The single endpoint the gateway exposes; the client and server share it. */
@@ -56,16 +65,6 @@ export const REVIEW_TRIGGERS = [
 
 /** One review trigger. */
 export type ReviewTrigger = (typeof REVIEW_TRIGGERS)[number];
-
-/** The body of `POST /v1/review`: an agent reporting it could not converge. */
-export interface GatewayReviewBody {
-  trigger: "max-turns";
-  /** The enforced turn bound the agent hit. */
-  maxTurns: number;
-  /** The validator issues from the last attempt, if any. */
-  lastIssues?: string[];
-  context?: Partial<RequestContext>;
-}
 
 /** The gateway's answer to a review report: held with an id, or not held and why. */
 export type GatewayReviewResponse = ReviewHold | { held: false; reason: string };
@@ -100,18 +99,46 @@ export interface RequestContext {
   sessionId?: string;
 }
 
-/** The request envelope: which real provider to use, and the generation request. */
-export interface GatewayGenerateBody {
-  /** The provider the gateway should call on the agent's behalf. */
-  target: ProviderName;
-  request: GenerateRequest;
-  /**
-   * Optional request identity in the body. The `x-request-id` / `x-caller-id`
-   * headers take precedence; the gateway generates a request id when neither
-   * supplies one.
-   */
-  context?: Partial<RequestContext>;
-}
+/**
+ * Optional request identity in a body. The `x-request-id` / `x-caller-id` /
+ * `x-session-id` headers take precedence; the gateway generates a request id
+ * when neither supplies one. Each id is pattern-checked by the gateway.
+ */
+const BodyContextSchema = z
+  .strictObject({
+    requestId: z.string().optional(),
+    callerId: z.string().optional(),
+    sessionId: z.string().optional(),
+  })
+  .optional();
+
+/**
+ * The body of `POST /v1/generate`: which real provider the gateway should call
+ * on the agent's behalf, and the generation request. Strict at every level.
+ */
+export const GatewayGenerateBodySchema = z.strictObject({
+  target: ProviderNameSchema,
+  request: GenerateRequestSchema,
+  context: BodyContextSchema,
+});
+
+/** The request envelope (derived from {@link GatewayGenerateBodySchema}). */
+export type GatewayGenerateBody = z.infer<typeof GatewayGenerateBodySchema>;
+
+/**
+ * The body of `POST /v1/review`: an agent reporting it could not converge.
+ * `maxTurns` is the enforced turn bound the agent hit; `lastIssues` are the
+ * validator issues from the last attempt, if any.
+ */
+export const GatewayReviewBodySchema = z.strictObject({
+  trigger: z.literal("max-turns"),
+  maxTurns: z.number().int().nonnegative(),
+  lastIssues: z.array(z.string().max(MAX_REQUEST_TEXT_CHARS)).max(200).optional(),
+  context: BodyContextSchema,
+});
+
+/** A review report (derived from {@link GatewayReviewBodySchema}). */
+export type GatewayReviewBody = z.infer<typeof GatewayReviewBodySchema>;
 
 /** A guardrail decision the gateway refused to forward or return. */
 export interface GatewayViolation {
