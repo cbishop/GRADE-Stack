@@ -1,7 +1,7 @@
 # Security fixes: plan of work
 
 **Written:** 2026-11-01 at `7b6e92b`. **Source:** `docs/security-review-2026-10-29.md`
-(review at `d98d0b2`, 2026-10-29). **Status:** finding 1 done on branch, awaiting PR; finding 2 done on branch, awaiting PR.
+(review at `d98d0b2`, 2026-10-29). **Status:** finding 1 merged (PR #28, 2026-11-01); finding 2 in PR.
 
 Each finding was re-checked against the current tree before this plan was
 written. Phase 4E (ADR 0020) shipped between the review and now, which
@@ -24,8 +24,8 @@ from the review's suggested fix and why).
 
 | # | Branch | Severity | Status vs review | Size |
 |---|--------|----------|------------------|------|
-| 1 | `sec-1-request-schema` | High | done on branch, awaiting PR | half day |
-| 2 | `sec-2-loopback-bind` | High | done on branch, awaiting PR | quarter day |
+| 1 | `sec-1-request-schema` | High | merged, PR #28 | half day |
+| 2 | `sec-2-loopback-bind` | High | in PR | quarter day |
 | 3 | `sec-3-upstream-error-body` | Medium | open, unchanged | hour |
 | 4 | `sec-4-capture-after-log` | Medium | open, unchanged | half day |
 | 5 | `sec-5-dependency-audit` | Medium | open, worse (171 advisories now) | half day plus CI iteration |
