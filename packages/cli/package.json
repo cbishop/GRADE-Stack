@@ -16,6 +16,6 @@
     "reference-agent": "workspace:*"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.32.2"
   }
 }

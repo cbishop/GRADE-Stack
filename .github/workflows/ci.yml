@@ -20,6 +20,12 @@ jobs:
           bun-version: "1.3.12"
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      # Dependency audit (security finding 5, ADR 0022). Fails on any high or
+      # critical advisory reachable from a workspace's runtime dependencies. Not
+      # `bun audit --prod`: Bun 1.3.12 ignores unknown audit flags, so `--prod`
+      # silently audits the dev-only eval harness tree too.
+      - name: Dependency audit (runtime deps)
+        run: bun run audit:runtime
       - name: Typecheck
         run: bun run typecheck
       - name: Lint + format check
