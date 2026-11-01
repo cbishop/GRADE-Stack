@@ -98,7 +98,8 @@ export async function loadTraceCases(dir: string): Promise<LoadedTraces> {
       throw new Error(`${path}: malformed capture record: ${issues}`);
     }
     const record = check.data;
-    if (record.output === null) {
+    // An input-blocked request is captured with `request: null` and no output.
+    if (record.output === null || record.request === null) {
       skipped.push({
         file,
         requestId: record.requestId,

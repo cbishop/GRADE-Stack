@@ -1,7 +1,7 @@
 # Security fixes: plan of work
 
 **Written:** 2026-11-01 at `7b6e92b`. **Source:** `docs/security-review-2026-10-29.md`
-(review at `d98d0b2`, 2026-10-29). **Status:** finding 1 merged (PR #28, 2026-11-01); finding 2 in PR; finding 5 in PR.
+(review at `d98d0b2`, 2026-10-29). **Status:** findings 1 to 4 merged (PRs #28 to #31, 2026-11-01); finding 5 in PR.
 
 Each finding was re-checked against the current tree before this plan was
 written. Phase 4E (ADR 0020) shipped between the review and now, which
@@ -25,9 +25,9 @@ from the review's suggested fix and why).
 | # | Branch | Severity | Status vs review | Size |
 |---|--------|----------|------------------|------|
 | 1 | `sec-1-request-schema` | High | merged, PR #28 | half day |
-| 2 | `sec-2-loopback-bind` | High | in PR | quarter day |
-| 3 | `sec-3-upstream-error-body` | Medium | open, unchanged | hour |
-| 4 | `sec-4-capture-after-log` | Medium | open, unchanged | half day |
+| 2 | `sec-2-loopback-bind` | High | merged, PR #29 | quarter day |
+| 3 | `sec-3-upstream-error-body` | Medium | merged, PR #30 | hour |
+| 4 | `sec-4-capture-after-log` | Medium | merged, PR #31 | half day |
 | 5 | `sec-5-dependency-audit` | Medium | in PR | half day plus CI iteration |
 | 6 | `sec-6-guardrail-normalise` | Low | open | half day |
 | 7 | `sec-7-mcp-loopback-rebinding` | Low | open; auth half shipped by 4E; needs 5 first | quarter day |
@@ -197,6 +197,8 @@ caller quote something the operator can look up. The `x-request-id` header is
 already set. `GatewayService.generate` keeps throwing as it does now, because
 in-process callers are trusted and need the detail.
 
+**As built:** `POST /v1/review` echoed its review-queue error text the same way, so it now returns `Gateway review queue error (request <requestId>)`; that path writes no decision-log line, so the full text goes to the gateway's stderr instead.
+
 ---
 
 ## 4. Content capture can suppress the log line and persists blocked secrets (Medium)
@@ -244,6 +246,14 @@ output does not protect the capture of the input.
 2. Reorder `record`: append the log line first, then write the capture inside its own `try`. On capture failure write one stderr line and set a `capture.error` attribute on the span. The rule the code must satisfy: no path from a model call to return skips the append. The log is the record; the capture is a convenience.
 3. When the input stage blocked, write `request: null` in the capture. Widen `CaptureRecordSchema.request` to nullable; the `v: 1` record stays readable by existing tooling.
 4. `mkdir(dir, { recursive: true, mode: 0o700 })` and `writeFile(path, body, { flag: "wx", mode: 0o600 })`. Capture files hold prompts and model output; only the operator should read them.
+
+As built (branch `sec-4-capture-after-log`):
+
+- `CaptureRecordSchema.request` is now `GenerateRequestSchema.nullable()` from `@grade-stack/core` instead of a restated shape. This also fixes a pre-existing bug found during finding 1: the restated shape lacked `requiresReview` (Phase 4D), so with capture on every L1 or review-flagged request failed the capture write and, before the reorder, the whole call. A test covers it.
+- `request: null` applies to every input-stage block (secret, injection, kill switch, turn cap, model allowlist, token cap), not only `secret-exfiltration`. The rule is simpler and none of those requests was sent to a model.
+- A failed capture write logs `gateway: capture write failed (request <id>): <message>` to stderr and sets `capture.error` (truncated to 300 characters) on the `gateway.generate` span. The test asserts both the single log line and the span attribute.
+- The `mkdir` mode applies only when the directory is created; an existing capture directory keeps the mode the operator gave it.
+- Residual: the log line's `contentCaptured` still means "capture was on", because the line is now written before the capture. A line can say `true` when the capture write failed or holds `request: null`, so *reconstructable* can read slightly high. Making it exact would need a second record after the capture, which ADR 0017's one-line-per-call rule does not allow; left as is.
 
 ---
 
