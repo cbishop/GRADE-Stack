@@ -59,6 +59,8 @@ export {
   writeCapture,
 } from "./capture.ts";
 export {
+  DEFAULT_GATEWAY_HOST,
+  GATEWAY_HOST_ENV,
   type GatewayHandle,
   type GatewayServeOptions,
   serveGateway,

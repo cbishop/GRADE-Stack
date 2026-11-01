@@ -159,3 +159,22 @@ No environment variable disables a safety mechanism (the 4C and 4D approach):
   `bin.ts` does not exist (found while writing this phase; it predates 4E).
   With `RELIABILITY_MCP_URL` the agent reaches an HTTP server instead, which the
   smoke test exercises. Fixing the stdio spawn from the bundle is a follow-up.
+
+## Bind address (2026-11-01, security finding 2)
+
+The gateway used to bind every interface (`0.0.0.0`) while printing a
+`localhost` URL, and with no manifests it is anonymous: together, a proxy for
+its provider credentials reachable from the network.
+
+- **Default:** `127.0.0.1`. The returned and printed URL names the address
+  actually bound (IPv6 in brackets).
+- **Override:** the `hostname` option, else `RELIABILITY_GATEWAY_HOST`, else
+  the default; `reliability gateway serve --host <name>` sets the option.
+- **Refuse to start:** a non-loopback address (per `isLoopbackHost` in core)
+  with no agent manifests throws before anything listens. The message names
+  the two ways out: bind loopback, or configure agents. With manifests every
+  request needs a bearer token, so a public bind is authenticated.
+- **No second token mechanism.** The review proposed
+  `RELIABILITY_GATEWAY_TOKENS`. The manifest tokens above already authenticate
+  every request; a parallel gateway-only token would be one more path to keep
+  in sync and one more place for a secret to leak.

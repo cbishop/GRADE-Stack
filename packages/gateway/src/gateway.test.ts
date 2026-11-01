@@ -16,11 +16,21 @@
  *     line on the allow, input-block, output-redact, router-escalate and upstream
  *     error paths, carrying who/what/why/when plus hashes, never raw text; the
  *     HTTP adapter reads `x-request-id` / `x-caller-id`; the log line and the
- *     trace join on request id; content capture is opt-in and off by default.
+ *     trace join on request id; content capture is opt-in and off by default;
+ *   - security finding 2: the gateway binds loopback by default, its URL names
+ *     the real address, and a non-loopback bind with no agent manifests refuses
+ *     to start (no server is left listening).
  */
 
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -36,6 +46,7 @@ import {
   REQUEST_ID_HEADER,
   withInMemoryTracing,
 } from "@grade-stack/core";
+import { type AgentRegistry, loadAgentRegistry } from "./agent-manifest.ts";
 import { readCapture } from "./capture.ts";
 import { serveGateway } from "./connect.ts";
 import {
@@ -787,5 +798,108 @@ describe("request schema at the HTTP boundary", () => {
     expect(records[0]?.action).toBe("block");
     expect(records[0]?.policy).toBe("request-schema");
     expect(records[0]?.stage).toBe("input");
+  });
+});
+
+describe("bind address", () => {
+  /** A registry with one agent and its token, as 4E configures it. */
+  function oneAgentRegistry(): AgentRegistry {
+    const dir = join(tmp(), "agents");
+    mkdirSync(dir);
+    writeFileSync(
+      join(dir, "triage.json"),
+      JSON.stringify({
+        id: "triage",
+        owner: "support-lead@example.com",
+        autonomyLevel: "L1",
+        allowedTools: [],
+        allowedModels: ["scripted-test-model"],
+        maxTurns: 4,
+        tokenCap: 800,
+        reviewRequired: true,
+      }),
+    );
+    return loadAgentRegistry(dir, {
+      RELIABILITY_AGENT_TOKENS: "triage:tok-triage-0123456789abcdef",
+    });
+  }
+
+  /** A port that was free a moment ago: bind it, note it, release it. */
+  function freePort(): number {
+    const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("") });
+    const port = probe.port ?? 0;
+    probe.stop(true);
+    return port;
+  }
+
+  test("by default it binds 127.0.0.1 and its URL says so", async () => {
+    const handle = serveGateway({
+      port: 0,
+      decisionLog: tmpLog(),
+      resolveProvider: () => scriptedProvider("bound."),
+    });
+    try {
+      expect(handle.url).toContain("127.0.0.1");
+      const res = await fetch(`${handle.url}/v1/generate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target: "stub", request: BENIGN }),
+      });
+      expect(res.status).toBe(200);
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  test("a public bind with no agents refuses to start, names both ways out, and leaves nothing listening", async () => {
+    const port = freePort();
+    expect(() =>
+      serveGateway({ hostname: "0.0.0.0", port, agents: null, decisionLog: tmpLog() }),
+    ).toThrow(
+      /127\.0\.0\.1[\s\S]*RELIABILITY_AGENTS_DIR|RELIABILITY_AGENTS_DIR[\s\S]*127\.0\.0\.1/,
+    );
+    // Nothing took the port: we can bind it ourselves.
+    const again = Bun.serve({ port, hostname: "0.0.0.0", fetch: () => new Response("") });
+    again.stop(true);
+  });
+
+  test("a public bind with an agent registry starts", async () => {
+    const handle = serveGateway({
+      hostname: "0.0.0.0",
+      agents: oneAgentRegistry(),
+      decisionLog: tmpLog(),
+    });
+    try {
+      expect(handle.url).toContain("0.0.0.0");
+      expect(handle.agents?.manifests).toHaveLength(1);
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  for (const hostname of ["localhost", "::1"]) {
+    test(`a loopback bind (${hostname}) with no agents starts`, async () => {
+      const handle = serveGateway({ hostname, agents: null, decisionLog: tmpLog() });
+      try {
+        expect(handle.url).toContain(hostname === "::1" ? "[::1]" : hostname);
+        const res = await fetch(`${handle.url}/nope`);
+        expect(res.status).toBe(404);
+      } finally {
+        await handle.stop();
+      }
+    });
+  }
+
+  test("RELIABILITY_GATEWAY_HOST=0.0.0.0 with no agents refuses to start the same way", () => {
+    const saved = process.env.RELIABILITY_GATEWAY_HOST;
+    process.env.RELIABILITY_GATEWAY_HOST = "0.0.0.0";
+    try {
+      expect(() => serveGateway({ agents: null, decisionLog: tmpLog() })).toThrow(
+        /127\.0\.0\.1[\s\S]*RELIABILITY_AGENTS_DIR|RELIABILITY_AGENTS_DIR[\s\S]*127\.0\.0\.1/,
+      );
+    } finally {
+      if (saved === undefined) delete process.env.RELIABILITY_GATEWAY_HOST;
+      else process.env.RELIABILITY_GATEWAY_HOST = saved;
+    }
   });
 });

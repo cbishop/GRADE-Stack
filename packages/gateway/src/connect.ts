@@ -39,6 +39,12 @@
  * no schema detail, and never reaches the guardrails or a model. Outside
  * development (`NODE_ENV=production`) `target: "stub"` is refused the same way
  * unless `allowStubTarget` says otherwise.
+ *
+ * Security finding 2 (ADR 0020, "Bind address"): the server binds `127.0.0.1`
+ * unless the `hostname` option or `RELIABILITY_GATEWAY_HOST` says otherwise,
+ * and the returned `url` names the address it actually bound. A non-loopback
+ * bind with no agent manifests throws before anything listens: an anonymous
+ * gateway reachable from the network is a proxy for its credentials.
  */
 
 import { randomUUID } from "node:crypto";
@@ -52,6 +58,7 @@ import {
   GatewayReviewBodySchema,
   type GatewayReviewResponse,
   IDENTITY_ID_PATTERN,
+  isLoopbackHost,
   REQUEST_ID_HEADER,
   type RequestContext,
   SESSION_ID_HEADER,
@@ -67,9 +74,21 @@ import { DEFAULT_POLICY, type ReviewPolicy } from "./policy.ts";
 import { resolveReviewPolicyFromEnv } from "./review-queue.ts";
 import { resolveRouterFromEnv } from "./router.ts";
 
+/** Overrides the bind address when the `hostname` option is not given. */
+export const GATEWAY_HOST_ENV = "RELIABILITY_GATEWAY_HOST";
+
+/** The bind address when neither the option nor the env names one. */
+export const DEFAULT_GATEWAY_HOST = "127.0.0.1";
+
 export interface GatewayServeOptions extends GatewayServiceOptions {
   /** Port to bind; 0 (default) picks a free port — handy for tests. */
   port?: number;
+  /**
+   * Address to bind (security finding 2). Defaults to `RELIABILITY_GATEWAY_HOST`,
+   * else `127.0.0.1`. A non-loopback address needs an agent registry with at
+   * least one agent, or the gateway refuses to start.
+   */
+  hostname?: string;
   /**
    * The agents this gateway enforces (Phase 4E). Defaults to the registry
    * `RELIABILITY_AGENTS_DIR` configures; `null` forces v2 behaviour (no
@@ -195,6 +214,27 @@ async function authenticate(
 }
 
 /**
+ * Refuse a bind that would expose an anonymous gateway (finding 2). Loopback
+ * is always allowed; anything else needs at least one agent manifest, so every
+ * request from the network must carry a bearer token (ADR 0020).
+ */
+function assertSafeBind(hostname: string, agents: AgentRegistry | null): void {
+  if (isLoopbackHost(hostname)) return;
+  if (agents && agents.manifests.length > 0) return;
+  throw new Error(
+    `Refusing to bind the gateway to "${hostname}" with no agent manifests: anyone who can reach that address could spend this process's provider credentials anonymously. ` +
+      `Either bind loopback (omit --host / ${GATEWAY_HOST_ENV}, or use ${DEFAULT_GATEWAY_HOST}), ` +
+      "or configure agents (RELIABILITY_AGENTS_DIR plus RELIABILITY_AGENT_TOKENS) so every request needs a bearer token.",
+  );
+}
+
+/** The URL for a bound address; IPv6 literals go in brackets. */
+function urlFor(hostname: string, port: number): string {
+  const host = hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
+  return `http://${host}:${port}`;
+}
+
+/**
  * Serve the gateway over HTTP. Returns once it is listening. The service (and
  * thus the provider credentials) lives for the server's lifetime; each request
  * runs the full guardrail pipeline before any model call.
@@ -208,10 +248,15 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
   // And the agents (4E): injected wins (null forces none), else RELIABILITY_AGENTS_DIR.
   const agents = opts.agents === undefined ? resolveAgentRegistryFromEnv() : opts.agents;
   const allowStubTarget = opts.allowStubTarget ?? process.env.NODE_ENV !== "production";
+  // Finding 2: loopback unless told otherwise, and never public and anonymous.
+  // Checked before the service or the socket exists, so a refusal leaves nothing behind.
+  const hostname = opts.hostname ?? (process.env[GATEWAY_HOST_ENV] || DEFAULT_GATEWAY_HOST);
+  assertSafeBind(hostname, agents);
   const service = new GatewayService({ ...opts, router, policy });
 
   const server = Bun.serve({
     port: opts.port ?? 0,
+    hostname,
     async fetch(req) {
       const url = new URL(req.url);
       if (req.method === "POST" && url.pathname === GATEWAY_REVIEW_PATH) {
@@ -266,7 +311,7 @@ export function serveGateway(opts: GatewayServeOptions = {}): GatewayHandle {
 
   const port = server.port ?? opts.port ?? 0;
   return {
-    url: `http://localhost:${port}`,
+    url: urlFor(hostname, port),
     port,
     decisionLogPath: service.decisionLog.path,
     haltFile: service.haltFile,

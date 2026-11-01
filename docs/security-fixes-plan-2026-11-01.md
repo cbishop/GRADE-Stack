@@ -1,7 +1,7 @@
 # Security fixes: plan of work
 
 **Written:** 2026-11-01 at `7b6e92b`. **Source:** `docs/security-review-2026-10-29.md`
-(review at `d98d0b2`, 2026-10-29). **Status:** finding 1 done on branch, awaiting PR.
+(review at `d98d0b2`, 2026-10-29). **Status:** finding 1 merged (PR #28, 2026-11-01); finding 2 in PR.
 
 Each finding was re-checked against the current tree before this plan was
 written. Phase 4E (ADR 0020) shipped between the review and now, which
@@ -24,8 +24,8 @@ from the review's suggested fix and why).
 
 | # | Branch | Severity | Status vs review | Size |
 |---|--------|----------|------------------|------|
-| 1 | `sec-1-request-schema` | High | done on branch, awaiting PR | half day |
-| 2 | `sec-2-loopback-bind` | High | **half done** by 4E; bind address still open | quarter day |
+| 1 | `sec-1-request-schema` | High | merged, PR #28 | half day |
+| 2 | `sec-2-loopback-bind` | High | in PR | quarter day |
 | 3 | `sec-3-upstream-error-body` | Medium | open, unchanged | hour |
 | 4 | `sec-4-capture-after-log` | Medium | open, unchanged | half day |
 | 5 | `sec-5-dependency-audit` | Medium | open, worse (171 advisories now) | half day plus CI iteration |
@@ -151,6 +151,14 @@ bind address is wider than the stated intent.
 ### Deviation
 
 The review's steps 2 and 4 (build a bearer check, have the client send it) are already done differently by 4E and are not redone.
+
+As built (branch `sec-2-loopback-bind`):
+
+- Loopback is decided by the existing `isLoopbackHost` in `@grade-stack/core` (the air-gap guard), not a second helper. It accepts the plan's three forms plus the rest of `127.0.0.0/8` and `*.localhost`, all of which stay on the machine.
+- "Agent registry is empty" means null or zero manifests. A registry with manifests but no tokens already refuses to start (ADR 0020).
+- The check runs before the service or the socket exists, so a refusal leaves nothing listening; a test proves the port is still free afterwards.
+- An empty `RELIABILITY_GATEWAY_HOST` counts as unset.
+- `reliability gateway serve` prints a refused bind as one line (`gateway not started: ...`) and exits 1, rather than a stack trace. `--host` is on both the CLI and `packages/gateway/src/bin.ts`.
 
 ---
 
