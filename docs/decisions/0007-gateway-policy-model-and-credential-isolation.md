@@ -103,3 +103,13 @@ sandboxed). The hermetic **`stub`** provider is always direct, so the CI eval ga
   without touching the seam.
 - PII is **redacted** while secrets are **blocked** — a deliberate asymmetry: a
   redacted reply is still useful, whereas a leaked credential is a breach.
+
+## Note, 2026-11-01 (security finding 6)
+
+The guardrails now scan a normalised copy of the text (NFKC, zero-width and
+format characters stripped, whitespace collapsed), which closes the full-width
+and zero-width evasions; the forwarded request is unchanged. Paraphrase is still
+the recall limit above. The OWASP mapping marks regex injection denial as a
+`heuristic` mechanism, and the parser refuses to score a threat that leans on one
+as covered, so regex denial counts as partial mitigation by construction. The
+model allowlist is now exact or `prefix:` and non-empty by default.
