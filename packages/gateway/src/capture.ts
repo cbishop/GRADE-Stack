@@ -10,11 +10,16 @@
  * holds only hashes) can be reconstructed. It holds what the caller sent and what
  * the gateway returned, after output redaction, never the raw pre-redaction model
  * text. Capture is local only and off by default. Phase 4F re-scores it.
+ *
+ * Security finding 4: a request the input stage blocked is captured with
+ * `request: null` (the gateway judged it too sensitive to forward, so it is not
+ * written to disk either), and capture files are created `0600` in a `0700`
+ * directory, so only the operator's user can read them.
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { IDENTITY_ID_PATTERN } from "@grade-stack/core";
+import { GenerateRequestSchema, IDENTITY_ID_PATTERN } from "@grade-stack/core";
 import { z } from "zod";
 
 /** Env naming the capture directory. */
@@ -29,12 +34,12 @@ export const CaptureRecordSchema = z.strictObject({
   callerId: z.string().nullable(),
   at: z.iso.datetime(),
   target: z.string(),
-  request: z.strictObject({
-    system: z.string().optional(),
-    messages: z.array(z.strictObject({ role: z.string(), content: z.string() })),
-    maxTokens: z.number().optional(),
-    temperature: z.number().optional(),
-  }),
+  /**
+   * The request as the gateway received it, reusing the core wire schema so a
+   * new request field (such as `requiresReview`) cannot break capture. Null when
+   * the input stage blocked it: blocked input is never stored.
+   */
+  request: GenerateRequestSchema.nullable(),
   /** What the caller received (post-redaction), or null when nothing was returned. */
   output: z.string().nullable(),
 });
@@ -54,12 +59,14 @@ export function resolveCaptureDir(env: Record<string, string | undefined> = proc
  */
 export async function writeCapture(dir: string, record: CaptureRecord): Promise<string> {
   const valid = CaptureRecordSchema.parse(record);
-  await mkdir(dir, { recursive: true });
+  // `mode` applies only when the directory is created; an existing directory
+  // keeps its mode. Acceptable: the operator who made it chose its permissions.
+  await mkdir(dir, { recursive: true, mode: 0o700 });
   const body = `${JSON.stringify(valid, null, 2)}\n`;
   for (let n = 1; ; n++) {
     const path = join(dir, n === 1 ? `${valid.requestId}.json` : `${valid.requestId}.${n}.json`);
     try {
-      await writeFile(path, body, { flag: "wx", encoding: "utf8" });
+      await writeFile(path, body, { flag: "wx", mode: 0o600, encoding: "utf8" });
       return path;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
