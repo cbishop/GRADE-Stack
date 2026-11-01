@@ -229,3 +229,118 @@ describe("tool scope at the MCP server (4E)", () => {
     expect(existsSync(join(dir, "gateway-decisions.jsonl"))).toBe(false);
   });
 });
+
+/**
+ * Security finding 7 (ADR 0020, "Bind address"): the HTTP server binds loopback
+ * unless told otherwise, refuses a public bind with no agents, and refuses a
+ * request whose Host or Origin names a site other than this server, which is
+ * what a DNS-rebinding page in the operator's browser would send.
+ */
+describe("bind address and host check", () => {
+  /** A port that was free a moment ago: bind it, note it, release it. */
+  function freePort(): number {
+    const probe = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("") });
+    const port = probe.port ?? 0;
+    probe.stop(true);
+    return port;
+  }
+
+  /** A raw MCP initialize request, with any extra headers. */
+  function initialize(url: string, headers: Record<string, string> = {}) {
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...headers,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "bind-test", version: "0.0.0" },
+        },
+      }),
+    });
+  }
+
+  const BOTH_WAYS_OUT =
+    /127\.0\.0\.1[\s\S]*RELIABILITY_AGENTS_DIR|RELIABILITY_AGENTS_DIR[\s\S]*127\.0\.0\.1/;
+
+  test("by default it binds 127.0.0.1, its URL says so, and a client can list tools", async () => {
+    const handle = serveHttp({ port: 0, agents: null });
+    try {
+      expect(handle.url).toContain("127.0.0.1");
+      const res = await initialize(handle.url);
+      expect(res.status).toBe(200);
+      const client = new Client({ name: "loopback", version: "0.0.0" });
+      await client.connect(new StreamableHTTPClientTransport(new URL(handle.url)));
+      const tools = await client.listTools();
+      expect(tools.tools.map((t) => t.name)).toContain("lookup_account");
+      await client.close();
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  test("a public bind with no agents refuses to start, names both ways out, and leaves nothing listening", () => {
+    const port = freePort();
+    expect(() => serveHttp({ hostname: "0.0.0.0", port, agents: null })).toThrow(BOTH_WAYS_OUT);
+    // Nothing took the port: we can bind it ourselves.
+    const again = Bun.serve({ port, hostname: "0.0.0.0", fetch: () => new Response("") });
+    again.stop(true);
+  });
+
+  test("a public bind with an agent registry starts", async () => {
+    const { agents, log } = setup();
+    const handle = serveHttp({ hostname: "0.0.0.0", agents, decisionLog: log });
+    try {
+      expect(handle.url).toContain("0.0.0.0");
+      expect(handle.agents?.manifests).toHaveLength(2);
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  test("a request whose Host is not this server is refused before any tool data", async () => {
+    const handle = serveHttp({ port: 0, agents: null });
+    try {
+      const res = await initialize(handle.url, { host: `evil.example:${handle.port}` });
+      expect(res.status).toBe(403);
+      const body = await res.text();
+      expect(body).toContain("Host");
+      expect(body).not.toContain("grade-stack-support");
+      expect(body).not.toContain("lookup_account");
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  test("a request whose Origin is a foreign page is refused", async () => {
+    const handle = serveHttp({ port: 0, agents: null });
+    try {
+      const res = await initialize(handle.url, { origin: "http://evil.example" });
+      expect(res.status).toBe(403);
+      expect(await res.text()).toContain("Origin");
+      // The server's own origin is accepted.
+      const own = await initialize(handle.url, { origin: `http://localhost:${handle.port}` });
+      expect(own.status).toBe(200);
+    } finally {
+      await handle.stop();
+    }
+  });
+
+  test("RELIABILITY_MCP_HOST=0.0.0.0 with no agents refuses to start the same way", () => {
+    const saved = process.env.RELIABILITY_MCP_HOST;
+    process.env.RELIABILITY_MCP_HOST = "0.0.0.0";
+    try {
+      expect(() => serveHttp({ agents: null })).toThrow(BOTH_WAYS_OUT);
+    } finally {
+      if (saved === undefined) delete process.env.RELIABILITY_MCP_HOST;
+      else process.env.RELIABILITY_MCP_HOST = saved;
+    }
+  });
+});
