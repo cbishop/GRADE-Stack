@@ -1,7 +1,7 @@
 # Security fixes: plan of work
 
 **Written:** 2026-11-01 at `7b6e92b`. **Source:** `docs/security-review-2026-10-29.md`
-(review at `d98d0b2`, 2026-10-29). **Status:** findings 1 to 7 merged (PRs #28 to #34, 2026-11-01); finding 8 in PR (#35).
+(review at `d98d0b2`, 2026-10-29). **Status:** complete. All eight findings merged 2026-11-01 (PRs #28 to #35).
 
 Each finding was re-checked against the current tree before this plan was
 written. Phase 4E (ADR 0020) shipped between the review and now, which
@@ -31,7 +31,7 @@ from the review's suggested fix and why).
 | 5 | `sec-5-dependency-audit` | Medium | merged, PR #32 | half day plus CI iteration |
 | 6 | `sec-6-guardrail-normalise` | Low | in PR | half day |
 | 7 | `sec-7-mcp-loopback-rebinding` | Low | merged, PR #34 | quarter day |
-| 8 | `sec-8-hygiene` | Info | in PR | hour |
+| 8 | `sec-8-hygiene` | Info | merged, PR #35 | hour |
 
 Order: 1, 2, 3, 4, 5, 7, 6, 8. Finding 7 moves ahead of 6 because it
 depends on the SDK bump in 5 and shares the bind-address pattern from 2.
@@ -441,6 +441,28 @@ No secrets in the tree or history. Spawns use fixed argument arrays. HTML
 reports escape dynamic text. CI uses read-only `pull_request` permissions.
 Request ids are pattern-checked before use as file names. The air-gap host
 check handles loopback forms.
+
+## Close-out (2026-11-01)
+
+All eight findings were fixed in eight branches and merged the same day, in
+the order 1, 2, 3, 4, 5, 6, 7, 8, each test-first with the full local gate
+green. Three new mechanisms came out of it, all listed in `CLAUDE.md`: the
+runtime dependency audit gate (ADR 0022), the pinned-Actions check, and a
+branch ruleset on `main` that requires the three CI checks and blocks
+force-push and deletion. The gateway and MCP server both bind loopback by
+default and refuse a public bind without agent manifests (ADR 0020 amended).
+
+Two things the review did not anticipate, now recorded in the "As built"
+notes: `bun audit --prod` is a no-op in Bun 1.3, so the audit gate is a script
+that walks the lockfile; and the model allowlist fails closed, so manifests
+outside this repo with short-form model entries must switch to exact ids or
+`prefix:` entries.
+
+Left open and recorded where found: output PII redaction runs on raw text
+(finding 6 As-built), `contentCaptured` means "capture was on" rather than
+"capture succeeded" (finding 4 As-built), and the 40 remaining dev-only
+advisories under promptfoo (ADR 0022). A promptfoo major upgrade or a
+lockfile-wide refresh is its own change.
 
 ## Execution
 
