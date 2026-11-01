@@ -257,7 +257,7 @@ The gap analysis found two pillars with no code at all (rollback, human review),
 
 ## ADR candidates
 
-0016 GRADE-letter dimension realignment · 0017 decision log format, identity attributes, hashes-by-default · 0018 kill switch triggers and release manifest · 0019 review queue as an event log and the three-route order · 0020 per-agent manifest, bearer tokens, two-chokepoint enforcement · 0021 nightly real-model job, judge calibration, trace re-scoring.
+0016 GRADE-letter dimension realignment · 0017 decision log format, identity attributes, hashes-by-default · 0018 kill switch triggers and release manifest · 0019 review queue as an event log and the three-route order · 0020 per-agent manifest, bearer tokens, two-chokepoint enforcement · 0021 nightly real-model job, judge calibration, trace re-scoring · 0022 dependency audit as a CI gate, runtime deps only.
 
 ## Verification (from a clean clone, at each sub-phase boundary)
 

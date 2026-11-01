@@ -30,6 +30,11 @@ Current enforcement mechanisms:
   closed `Criterion` union and `packages/scorecard/src/scorecard.test.ts` fail on
   a third state, and the built-binary smoke test checks the five letters render
   (ADR 0016).
+- **Dependency audit** (ADR 0022): CI's `build` job runs `bun run
+  audit:runtime` (`scripts/check-dependency-audit.ts`), which fails on any high
+  or critical advisory reachable from runtime dependencies. Not `bun audit
+  --prod`: Bun ignores that flag. The nightly job prints the full-tree count
+  without gating.
 
 ## Stack & conventions
 
