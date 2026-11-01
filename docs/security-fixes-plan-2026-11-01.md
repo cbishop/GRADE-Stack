@@ -1,7 +1,7 @@
 # Security fixes: plan of work
 
 **Written:** 2026-11-01 at `7b6e92b`. **Source:** `docs/security-review-2026-10-29.md`
-(review at `d98d0b2`, 2026-10-29). **Status:** finding 1 merged (PR #28, 2026-11-01); finding 2 in PR.
+(review at `d98d0b2`, 2026-10-29). **Status:** finding 1 merged (PR #28, 2026-11-01); finding 2 merged (PR #29); finding 3 in PR.
 
 Each finding was re-checked against the current tree before this plan was
 written. Phase 4E (ADR 0020) shipped between the review and now, which
@@ -25,8 +25,8 @@ from the review's suggested fix and why).
 | # | Branch | Severity | Status vs review | Size |
 |---|--------|----------|------------------|------|
 | 1 | `sec-1-request-schema` | High | merged, PR #28 | half day |
-| 2 | `sec-2-loopback-bind` | High | in PR | quarter day |
-| 3 | `sec-3-upstream-error-body` | Medium | open, unchanged | hour |
+| 2 | `sec-2-loopback-bind` | High | merged, PR #29 | quarter day |
+| 3 | `sec-3-upstream-error-body` | Medium | in PR | hour |
 | 4 | `sec-4-capture-after-log` | Medium | open, unchanged | half day |
 | 5 | `sec-5-dependency-audit` | Medium | open, worse (171 advisories now) | half day plus CI iteration |
 | 6 | `sec-6-guardrail-normalise` | Low | open | half day |
@@ -196,6 +196,8 @@ string `Gateway upstream error (request <requestId>)`. The request id lets the
 caller quote something the operator can look up. The `x-request-id` header is
 already set. `GatewayService.generate` keeps throwing as it does now, because
 in-process callers are trusted and need the detail.
+
+**As built:** `POST /v1/review` echoed its review-queue error text the same way, so it now returns `Gateway review queue error (request <requestId>)`; that path writes no decision-log line, so the full text goes to the gateway's stderr instead.
 
 ---
 
