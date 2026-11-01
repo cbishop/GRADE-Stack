@@ -167,13 +167,13 @@ describe("Phase 4E sentences: authentication, tool scope and agents", () => {
       owner: "support-lead@example.com",
       autonomyLevel: "L1" as const,
       allowedTools: ["lookup_account"],
-      allowedModels: ["stub-deterministic"],
+      allowedModels: ["stub-deterministic-v1"],
       maxTurns: 4,
       tokenCap: 800,
       reviewRequired: true,
     };
     expect(describeAgent({ manifest: m, file: "agents/triage.json" })).toBe(
-      "triage: L1 (act with approval), owned by support-lead@example.com; tools: lookup_account; models: stub-deterministic; 4 turns per session, 800 tokens per request; every response held for review.",
+      "triage: L1 (act with approval), owned by support-lead@example.com; tools: lookup_account; models: stub-deterministic-v1; 4 turns per session, 800 tokens per request; every response held for review.",
     );
     const lines = explainAgent({ manifest: m, file: "agents/triage.json" }).join("\n");
     expect(lines).toContain("Agent triage (agents/triage.json)");

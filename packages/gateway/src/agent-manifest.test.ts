@@ -40,7 +40,7 @@ const TRIAGE = {
   owner: "support-lead@example.com",
   autonomyLevel: "L1",
   allowedTools: ["lookup_account", "search_help_articles"],
-  allowedModels: ["stub-deterministic"],
+  allowedModels: ["stub-deterministic-v1"],
   maxTurns: 4,
   tokenCap: 800,
   reviewRequired: true,
@@ -80,6 +80,7 @@ describe("AgentManifestSchema (4E)", () => {
       [{ ...TRIAGE, maxTurns: 0 }, "maxTurns"],
       [{ ...TRIAGE, tokenCap: -1 }, "tokenCap"],
       [{ ...TRIAGE, allowedModels: [] }, "allowedModels"],
+      [{ ...TRIAGE, allowedModels: ["prefix:"] }, "allowedModels"],
       [{ ...TRIAGE, owner: "" }, "owner"],
       [{ ...TRIAGE, extra: true }, "extra"],
       [{ ...TRIAGE, id: "has space" }, "id"],
@@ -224,7 +225,7 @@ describe("per-agent policy and tool scope (4E)", () => {
   test("the per-request policy is the manifest on top of DEFAULT_POLICY", () => {
     const m = AgentManifestSchema.parse(TRIAGE);
     const p = manifestPolicy(DEFAULT_POLICY, m);
-    expect(p.allowedModels).toEqual(["stub-deterministic"]);
+    expect(p.allowedModels).toEqual(["stub-deterministic-v1"]);
     expect(p.maxTokens).toBe(800);
     // A manifest cannot raise the gateway-wide cap.
     expect(manifestPolicy(DEFAULT_POLICY, { ...m, tokenCap: 100_000 }).maxTokens).toBe(

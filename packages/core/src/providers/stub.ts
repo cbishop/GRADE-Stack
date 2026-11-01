@@ -127,7 +127,8 @@ export interface StubOptions {
   model?: string;
 }
 
-const DEFAULT_MODEL = "stub-deterministic-v1";
+/** The model id a provider uses when none is configured; the gateway allowlists it by default. */
+export const STUB_DEFAULT_MODEL = "stub-deterministic-v1";
 
 /** Deterministic, network-free provider for the CI eval gate. See ADR 0003. */
 export class StubProvider implements ModelProvider {
@@ -135,7 +136,7 @@ export class StubProvider implements ModelProvider {
   readonly model: string;
 
   constructor(opts: StubOptions = {}) {
-    this.model = opts.model ?? DEFAULT_MODEL;
+    this.model = opts.model ?? STUB_DEFAULT_MODEL;
   }
 
   async generate(request: GenerateRequest): Promise<GenerateResult> {

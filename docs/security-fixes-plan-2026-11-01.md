@@ -1,7 +1,7 @@
 # Security fixes: plan of work
 
 **Written:** 2026-11-01 at `7b6e92b`. **Source:** `docs/security-review-2026-10-29.md`
-(review at `d98d0b2`, 2026-10-29). **Status:** findings 1 to 4 merged (PRs #28 to #31, 2026-11-01); finding 5 in PR.
+(review at `d98d0b2`, 2026-10-29). **Status:** findings 1 to 5 merged (PRs #28 to #32, 2026-11-01); finding 6 in PR.
 
 Each finding was re-checked against the current tree before this plan was
 written. Phase 4E (ADR 0020) shipped between the review and now, which
@@ -28,8 +28,8 @@ from the review's suggested fix and why).
 | 2 | `sec-2-loopback-bind` | High | merged, PR #29 | quarter day |
 | 3 | `sec-3-upstream-error-body` | Medium | merged, PR #30 | hour |
 | 4 | `sec-4-capture-after-log` | Medium | merged, PR #31 | half day |
-| 5 | `sec-5-dependency-audit` | Medium | in PR | half day plus CI iteration |
-| 6 | `sec-6-guardrail-normalise` | Low | open | half day |
+| 5 | `sec-5-dependency-audit` | Medium | merged, PR #32 | half day plus CI iteration |
+| 6 | `sec-6-guardrail-normalise` | Low | in PR | half day |
 | 7 | `sec-7-mcp-loopback-rebinding` | Low | open; auth half shipped by 4E; needs 5 first | quarter day |
 | 8 | `sec-8-cleanups` | Info | all four items open | hour |
 
@@ -356,6 +356,15 @@ function, so the agent boundary inherits the weakness.
 2. `inputText`: `normalize("NFKC")` (folds full-width and compatibility forms to their base), strip `​-‏`, `⁠-⁤`, `﻿` (zero-width and format characters), collapse runs of whitespace. Normalise only the copy that is scanned; the request forwarded to the model is unchanged, so the gateway never alters what the caller asked.
 3. `checkModel`: exact match, or `prefix:` entries for an explicit prefix match. Default allowlist becomes the default model ids from `bedrock.ts` and `ollama.ts` plus the stub's. Check `agent-boundary.test.ts`, since manifests layer on `DEFAULT_POLICY.allowedModels`.
 4. In `packages/scorecard/src/owasp.ts` and `governance/owasp/`, mark regex injection denial as partial mitigation. Scorecard tests reflect partial credit. This changes the A letter's inputs, so note it in the governance mapping's change log.
+
+As built (branch `sec-6-guardrail-normalise`):
+
+- `normaliseForScan` (exported from `policy.ts`) feeds the input scan and the output-stage secret scan. Output PII redaction still runs on the real text, so a full-width SSN in model output is not redacted; that is out of this finding's scope.
+- The empty-list-allows-all branch is gone: an empty allowlist now allows nothing. Manifests could never be empty (schema `min(1)`), and the schema now also refuses a bare `prefix:` entry.
+- Exact matching broke the substring entries in `agents/triage.json`, `content/cycle-17/agents/*.json` and the gateway README (`stub-deterministic`, `gemma4`, `claude-haiku-4-5`). They now name the exact default ids.
+- Not in the plan: `serveGateway` adds `RELIABILITY_BEDROCK_MODEL` / `RELIABILITY_OLLAMA_MODEL` from the gateway's own environment to the default allowlist (`resolveAllowedModelsFromEnv`). Without it, a deployment that overrides the model would be refused. The agent process cannot set the gateway's environment.
+- The premise that the scorecard credited regex denial as full was wrong: ASI01 was already `partial`. The fix makes it a mechanism instead. Mechanisms take an optional `heuristic` flag, the regex mechanism carries it, and the parser refuses a `covered` item that leans on a heuristic mechanism. The guardrail score (0.625) and the A letter are unchanged. There is no governance change log, so the dated note went in `governance/owasp/README.md`.
+- The default model ids are now exported from `@grade-stack/core` (`BEDROCK_DEFAULT_MODEL`, `OLLAMA_DEFAULT_MODEL`, `STUB_DEFAULT_MODEL`). Gateway test fixtures report those ids instead of made-up names; the review drill allowlists its two stand-in models explicitly.
 
 ---
 

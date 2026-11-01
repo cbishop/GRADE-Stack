@@ -30,11 +30,13 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  BEDROCK_DEFAULT_MODEL,
   GatewayProvider,
   type GenerateRequest,
   type GenerateResult,
   MaxTurnsError,
   type ModelProvider,
+  OLLAMA_DEFAULT_MODEL,
   type ProviderName,
 } from "@grade-stack/core";
 import { serveGateway } from "./connect.ts";
@@ -76,14 +78,14 @@ function splitLocal(name: ProviderName = "ollama"): ModelProvider {
   let i = 0;
   return {
     name,
-    model: "local-test-model",
+    model: OLLAMA_DEFAULT_MODEL,
     generate(_req: GenerateRequest): Promise<GenerateResult> {
       const category = cycle[i++ % cycle.length] ?? "other";
       return Promise.resolve({
         text: TRIAGE(category),
         usage: { inputTokens: 1, outputTokens: 1 },
         provider: name,
-        model: "local-test-model",
+        model: OLLAMA_DEFAULT_MODEL,
       });
     },
   };
@@ -93,13 +95,13 @@ function splitLocal(name: ProviderName = "ollama"): ModelProvider {
 function fixed(text: string, name: ProviderName = "bedrock"): ModelProvider {
   return {
     name,
-    model: "fixed-test-model",
+    model: BEDROCK_DEFAULT_MODEL,
     generate(_req: GenerateRequest): Promise<GenerateResult> {
       return Promise.resolve({
         text,
         usage: { inputTokens: 1, outputTokens: 1 },
         provider: name,
-        model: "fixed-test-model",
+        model: BEDROCK_DEFAULT_MODEL,
       });
     },
   };

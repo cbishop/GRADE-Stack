@@ -31,7 +31,8 @@ interface AnthropicResponse {
 // US cross-region inference profile — newer Claude models on Bedrock require an
 // inference profile rather than a raw on-demand model ID. Override per-call via
 // RELIABILITY_BEDROCK_MODEL. (us-east-1 has Claude; see pre-flight notes.)
-const DEFAULT_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0";
+/** The model id a provider uses when none is configured; the gateway allowlists it by default. */
+export const BEDROCK_DEFAULT_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0";
 const DEFAULT_REGION = "us-east-1";
 
 /** Cloud model provider backed by Amazon Bedrock (Anthropic Messages API). */
@@ -41,7 +42,7 @@ export class BedrockProvider implements ModelProvider {
   private readonly client: BedrockRuntimeClient;
 
   constructor(opts: BedrockOptions = {}) {
-    this.model = opts.model ?? process.env.RELIABILITY_BEDROCK_MODEL ?? DEFAULT_MODEL;
+    this.model = opts.model ?? process.env.RELIABILITY_BEDROCK_MODEL ?? BEDROCK_DEFAULT_MODEL;
     const region =
       opts.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? DEFAULT_REGION;
     this.client = opts.client ?? new BedrockRuntimeClient({ region });

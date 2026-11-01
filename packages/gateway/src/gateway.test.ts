@@ -39,6 +39,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  BEDROCK_DEFAULT_MODEL,
   CALLER_ID_HEADER,
   GatewayProvider,
   GENAI_CONTENT,
@@ -49,6 +50,7 @@ import {
   type ModelProvider,
   type ProviderName,
   REQUEST_ID_HEADER,
+  STUB_DEFAULT_MODEL,
   withInMemoryTracing,
 } from "@grade-stack/core";
 import { type AgentRegistry, loadAgentRegistry } from "./agent-manifest.ts";
@@ -88,13 +90,13 @@ function tmpLog(): DecisionLog {
 function scriptedProvider(text: string, name: ProviderName = "stub"): ModelProvider {
   return {
     name,
-    model: "scripted-test-model",
+    model: STUB_DEFAULT_MODEL,
     generate(_req: GenerateRequest): Promise<GenerateResult> {
       return Promise.resolve({
         text,
         usage: { inputTokens: 1, outputTokens: 1 },
         provider: name,
-        model: "scripted-test-model",
+        model: STUB_DEFAULT_MODEL,
       });
     },
   };
@@ -105,6 +107,36 @@ const BENIGN: GenerateRequest = {
   system: TRIAGE_SYSTEM,
   messages: [{ role: "user", content: "My invoice looks wrong — can you check it?" }],
 };
+
+describe("input normalisation", () => {
+  test("the request forwarded to the provider is byte-for-byte what the caller sent", async () => {
+    const seen: GenerateRequest[] = [];
+    const recording: ModelProvider = {
+      name: "stub",
+      model: STUB_DEFAULT_MODEL,
+      generate(req: GenerateRequest): Promise<GenerateResult> {
+        seen.push(req);
+        return Promise.resolve({
+          text: "ok",
+          usage: { inputTokens: 1, outputTokens: 1 },
+          provider: "stub",
+          model: STUB_DEFAULT_MODEL,
+        });
+      },
+    };
+    const content = "My invoice\u200B  looks \uFF57rong —\tcan you check it?";
+    const request: GenerateRequest = {
+      system: TRIAGE_SYSTEM,
+      messages: [{ role: "user", content }],
+    };
+    const svc = new GatewayService({ decisionLog: tmpLog(), resolveProvider: () => recording });
+    const res = await svc.generate("bedrock", request);
+    expect(res.ok).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.messages[0]?.content).toBe(content);
+    expect(seen[0]?.system).toBe(TRIAGE_SYSTEM);
+  });
+});
 
 describe("GatewayService — enforcement pipeline", () => {
   test("blocks a bypass-attempt prompt on input, before any provider call", async () => {
@@ -379,7 +411,7 @@ describe("decision log: exactly one line per generate call (4B bite test)", () =
     const log = tmpLog();
     const broken: ModelProvider = {
       name: "bedrock",
-      model: "broken",
+      model: BEDROCK_DEFAULT_MODEL,
       generate: () => Promise.reject(new Error("model unavailable")),
     };
     const svc = new GatewayService({ decisionLog: log, resolveProvider: () => broken });
@@ -740,14 +772,14 @@ describe("request schema at the HTTP boundary", () => {
   function recordingProvider(calls: unknown[]): ModelProvider {
     return {
       name: "bedrock",
-      model: "test-model",
+      model: BEDROCK_DEFAULT_MODEL,
       async generate(req) {
         calls.push(req);
         return {
           text: "ok",
           usage: { inputTokens: 1, outputTokens: 1 },
           provider: "bedrock",
-          model: "test-model",
+          model: BEDROCK_DEFAULT_MODEL,
         };
       },
     };
@@ -913,7 +945,7 @@ describe("bind address", () => {
         owner: "support-lead@example.com",
         autonomyLevel: "L1",
         allowedTools: [],
-        allowedModels: ["scripted-test-model"],
+        allowedModels: [STUB_DEFAULT_MODEL],
         maxTurns: 4,
         tokenCap: 800,
         reviewRequired: true,
@@ -1011,7 +1043,7 @@ describe("upstream error body", () => {
   function iamDeniedProvider(): ModelProvider {
     return {
       name: "bedrock",
-      model: "denied",
+      model: BEDROCK_DEFAULT_MODEL,
       generate: () => Promise.reject(new Error(IAM_ERROR)),
     };
   }

@@ -18,14 +18,25 @@
  * queue itself lives in `./review-queue`.
  */
 
-import type { GatewayViolation, GenerateRequest } from "@grade-stack/core";
+import {
+  BEDROCK_DEFAULT_MODEL,
+  type GatewayViolation,
+  type GenerateRequest,
+  OLLAMA_DEFAULT_MODEL,
+  STUB_DEFAULT_MODEL,
+} from "@grade-stack/core";
 
 /** Tunable limits enforced on every request. */
 export interface GatewayPolicy {
   /**
-   * Allowed model ids (substring match against the resolved provider model).
-   * Empty means "allow any" — the cap is opt-in so the default wiring stays
-   * usable, but a deployment can pin an allowlist.
+   * Allowed model ids, checked against the resolved provider model (finding 6).
+   * Each entry is either an exact id (`"gemma4:12b-mlx"`) or an explicit prefix
+   * (`"prefix:us.anthropic.claude-haiku"`), which allows ids that start with
+   * the text after `prefix:`. There is no substring matching, and an empty
+   * prefix allows nothing. An empty list allows no model at all: the boundary
+   * fails closed. The default ({@link DEFAULT_POLICY}) is the three providers'
+   * default ids; `serveGateway` adds the models the gateway's own environment
+   * configures. A 4E manifest replaces this list with its own for its agent.
    */
   allowedModels: string[];
   /** Hard upper bound on a request's `maxTokens`; over-cap requests are blocked. */
@@ -69,11 +80,33 @@ export const DEFAULT_REVIEW_POLICY: ReviewPolicy = {
   onRequest: true,
 };
 
-/** Conservative defaults: allow any model, cap tokens to a sane ceiling. */
+/**
+ * Conservative defaults: allow only the providers' default models (exactly),
+ * cap tokens to a sane ceiling.
+ */
 export const DEFAULT_POLICY: GatewayPolicy = {
-  allowedModels: [],
+  allowedModels: [BEDROCK_DEFAULT_MODEL, OLLAMA_DEFAULT_MODEL, STUB_DEFAULT_MODEL],
   maxTokens: 4096,
 };
+
+/** The provider env vars that pick a model in the gateway's own process. */
+const MODEL_ENV_VARS = ["RELIABILITY_BEDROCK_MODEL", "RELIABILITY_OLLAMA_MODEL"] as const;
+
+/**
+ * The gateway-wide allowlist for a served gateway: the default ids plus any
+ * model the gateway's own environment selects (`RELIABILITY_BEDROCK_MODEL`,
+ * `RELIABILITY_OLLAMA_MODEL`), each as an exact id. The operator who sets those
+ * in the gateway process has chosen the model; the agent cannot set them, as it
+ * runs in a separate process with no provider configuration.
+ */
+export function resolveAllowedModelsFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  const configured = MODEL_ENV_VARS.map((k) => env[k]?.trim()).filter(
+    (m): m is string => m !== undefined && m.length > 0,
+  );
+  return [...new Set([...DEFAULT_POLICY.allowedModels, ...configured])];
+}
 
 /** An input-stage decision: forward as-is, or refuse with a violation. */
 export type InputDecision = { action: "allow" } | { action: "block"; violation: GatewayViolation };
@@ -139,9 +172,27 @@ function luhnValid(candidate: string): boolean {
   return sum % 10 === 0;
 }
 
-/** Concatenate everything the caller sent (system + turns) for input scanning. */
+// Zero-width and invisible format characters: U+200B–U+200F (zero-width
+// space/joiners, LRM/RLM), U+2060–U+2064 (word joiner, invisible operators) and
+// U+FEFF (BOM / zero-width no-break space). Written as escapes so the source
+// itself carries no invisible characters.
+const FORMAT_CHARS_RE = /[\u200B-\u200F\u2060-\u2064\uFEFF]/g;
+
+/**
+ * The copy of a text the guardrails scan (finding 6): NFKC folds full-width and
+ * other compatibility forms to their base letters, zero-width and format
+ * characters are stripped, and whitespace runs collapse to one space. Only the
+ * scanned copy is normalised; the request forwarded to the model is unchanged.
+ */
+export function normaliseForScan(text: string): string {
+  return text.normalize("NFKC").replace(FORMAT_CHARS_RE, "").replace(/\s+/g, " ");
+}
+
+/** Everything the caller sent (system + turns), normalised for input scanning. */
 function inputText(request: GenerateRequest): string {
-  return [request.system ?? "", ...request.messages.map((m) => m.content)].join("\n");
+  return normaliseForScan(
+    [request.system ?? "", ...request.messages.map((m) => m.content)].join("\n"),
+  );
 }
 
 function findSecret(text: string): string | null {
@@ -198,10 +249,22 @@ export function applyInputPolicy(request: GenerateRequest, policy: GatewayPolicy
   return { action: "allow" };
 }
 
-/** Validate the resolved model against the allowlist (empty allowlist = allow). */
+/** The allowlist entry form for an explicit prefix match. */
+export const MODEL_PREFIX = "prefix:";
+
+/** Whether one allowlist entry admits a model id: exact, or an explicit non-empty prefix. */
+function modelMatches(entry: string, model: string): boolean {
+  if (!entry.startsWith(MODEL_PREFIX)) return entry === model;
+  const prefix = entry.slice(MODEL_PREFIX.length);
+  return prefix.length > 0 && model.startsWith(prefix);
+}
+
+/**
+ * Validate the resolved model against the allowlist: an exact id, or a
+ * `prefix:` entry. An empty allowlist admits nothing (fails closed).
+ */
 export function checkModel(model: string, policy: GatewayPolicy): GatewayViolation | null {
-  if (policy.allowedModels.length === 0) return null;
-  if (policy.allowedModels.some((allowed) => model.includes(allowed))) return null;
+  if (policy.allowedModels.some((entry) => modelMatches(entry, model))) return null;
   return {
     policy: "model-allowlist",
     stage: "input",
@@ -216,7 +279,8 @@ export function checkModel(model: string, policy: GatewayPolicy): GatewayViolati
  * the sensitive spans — while secrets are refused outright.
  */
 export function applyOutputPolicy(text: string, _policy: GatewayPolicy): OutputDecision {
-  const secret = findSecret(text);
+  // Scan the normalised copy, as on input; redaction below edits the real text.
+  const secret = findSecret(normaliseForScan(text));
   if (secret) {
     return {
       action: "block",

@@ -10,8 +10,9 @@
  * is computed from (Phase 3A; scoring revised post-mortem — see ADR 0013). Pure:
  * no I/O — callers read the JSON and hand the parsed object in. The parse is
  * strict on purpose: it is the "no silent omissions" mechanism — every threat
- * must be classified, every covered/partial item must name a mechanism, and every
- * partial/gap must state its residual gap.
+ * must be classified, every covered/partial item must name a mechanism, every
+ * partial/gap must state its residual gap, and an item that leans on a heuristic
+ * (pattern-matching) mechanism can be partial at most.
  *
  * Each threat also carries a `scored` flag (the model shared with the EU AI Act
  * module's `scored`, ADR 0014). A threat is `scored: false` only when it targets
@@ -46,6 +47,13 @@ const MechanismSchema = z.object({
   name: z.string().min(1),
   ref: z.string().min(1),
   note: z.string().min(1),
+  /**
+   * The mechanism is heuristic (pattern-matching such as the gateway's regex
+   * injection denial): it lowers a threat's likelihood but a paraphrase can
+   * evade it. A threat that leans on a heuristic mechanism scores as partial at
+   * most (finding 6).
+   */
+  heuristic: z.boolean().optional(),
 });
 
 const ItemSchema = z
@@ -67,6 +75,12 @@ const ItemSchema = z
     // No silent omissions: a "covered" or "partial" claim must name a mechanism.
     message: "covered/partial items must name at least one mechanism",
     path: ["mechanisms"],
+  })
+  .refine((it) => it.status !== "covered" || !it.mechanisms.some((m) => m.heuristic), {
+    // Pattern matching has a recall limit (ADR 0007): it is partial mitigation,
+    // never full, so a heuristic mechanism caps its threat at partial.
+    message: "an item with a heuristic mechanism cannot be covered; mark it partial",
+    path: ["status"],
   })
   .refine((it) => it.status === "covered" || (it.residualGap?.length ?? 0) > 0, {
     // A partial or a gap is only honest if it states what is left uncovered.

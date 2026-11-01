@@ -27,8 +27,9 @@
       "mechanisms": [
         {
           "name": "Gateway server-side prompt-injection / override denial",
-          "ref": "packages/gateway/src/policy.ts (applyInputPolicy, INJECTION_PATTERNS); ADR 0007",
-          "note": "Override/jailbreak attempts are refused at the gateway regardless of the agent's own system prompt — proven in Phase 2C (the bypass prompt is blocked even when the agent is told to comply)."
+          "ref": "packages/gateway/src/policy.ts (applyInputPolicy, INJECTION_PATTERNS, normaliseForScan); ADR 0007",
+          "note": "Override/jailbreak attempts are refused at the gateway regardless of the agent's own system prompt — proven in Phase 2C (the bypass prompt is blocked even when the agent is told to comply). The scanned copy is Unicode-normalised (NFKC, zero-width characters stripped), so full-width and zero-width spellings are caught. Regex matching is heuristic: partial mitigation, never full.",
+          "heuristic": true
         },
         {
           "name": "Gateway is the sole model path",
@@ -36,7 +37,7 @@
           "note": "The agent holds no provider credentials, so injected instructions cannot route around the guardrail to reach a model directly."
         }
       ],
-      "residualGap": "Injection detection is heuristic (pattern-based); a novel obfuscated injection can evade it. This is defense-in-depth, not a guarantee — pair with least-privilege tool scoping for high-risk deployments."
+      "residualGap": "Injection detection is heuristic (pattern-based); a paraphrase (\"ignore every one of the earlier instructions\") or a novel obfuscated injection can evade it. This is defense-in-depth, not a guarantee — pair with least-privilege tool scoping for high-risk deployments."
     },
     {
       "id": "ASI02:2026",
@@ -173,7 +174,7 @@
         {
           "name": "Enforced turn bound + gateway token/model caps",
           "ref": "@grade-stack/core (MaxTurnsError); packages/gateway/src/policy.ts (token-cap, model-allowlist)",
-          "note": "Bounds runaway loops and per-request resource consumption, limiting blast radius."
+          "note": "Bounds runaway loops and per-request resource consumption, limiting blast radius. The model allowlist is exact or explicit-prefix and non-empty by default."
         },
         {
           "name": "Eval gate + permanent degraded-mode canary",

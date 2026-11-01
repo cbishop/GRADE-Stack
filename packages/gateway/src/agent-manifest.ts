@@ -28,7 +28,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { IDENTITY_ID_PATTERN } from "@grade-stack/core";
 import { z } from "zod";
-import type { GatewayPolicy } from "./policy.ts";
+import { type GatewayPolicy, MODEL_PREFIX } from "./policy.ts";
 
 /** Env naming the manifests directory; unset means no manifests (v2 behaviour). */
 export const AGENTS_DIR_ENV = "RELIABILITY_AGENTS_DIR";
@@ -59,6 +59,14 @@ export const AUTONOMY_LEVEL_LABEL: Record<AutonomyLevel, string> = {
 
 const Id = z.string().regex(IDENTITY_ID_PATTERN);
 const ToolName = z.string().regex(/^[A-Za-z0-9_.-]{1,64}$/);
+/** A model allowlist entry: an exact id, or `prefix:<id-prefix>` with a non-empty prefix. */
+const ModelEntry = z
+  .string()
+  .trim()
+  .min(1)
+  .refine((v) => v !== MODEL_PREFIX, {
+    message: `"${MODEL_PREFIX}" needs a prefix after it; an empty prefix would allow every model`,
+  });
 
 /** One agent's declared boundary. Strict: an unknown key is a typo, not a setting. */
 export const AgentManifestSchema = z
@@ -69,7 +77,7 @@ export const AgentManifestSchema = z
     owner: z.string().trim().min(1).max(200),
     autonomyLevel: z.enum(AUTONOMY_LEVELS),
     allowedTools: z.array(ToolName),
-    allowedModels: z.array(z.string().trim().min(1)).min(1),
+    allowedModels: z.array(ModelEntry).min(1),
     maxTurns: z.number().int().min(1).max(1000),
     tokenCap: z.number().int().min(1),
     reviewRequired: z.boolean(),

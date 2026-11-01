@@ -54,7 +54,7 @@ function setup() {
       owner: "support-lead@example.com",
       autonomyLevel: "L1",
       allowedTools: ["lookup_account"],
-      allowedModels: ["stub-deterministic"],
+      allowedModels: ["stub-deterministic-v1"],
       maxTurns: 4,
       tokenCap: 800,
       reviewRequired: true,

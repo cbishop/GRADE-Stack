@@ -31,6 +31,7 @@ import {
   GuardrailError,
   type ModelProvider,
   type ProviderName,
+  STUB_DEFAULT_MODEL,
 } from "@grade-stack/core";
 import { serveGateway } from "./connect.ts";
 import { type ControlRecord, DecisionLog, readDecisionLog } from "./decision-log.ts";
@@ -52,14 +53,14 @@ function spy() {
   const counts = { resolved: 0, calls: 0 };
   const provider = (name: ProviderName): ModelProvider => ({
     name,
-    model: "spy-model",
+    model: STUB_DEFAULT_MODEL,
     generate(_req: GenerateRequest): Promise<GenerateResult> {
       counts.calls += 1;
       return Promise.resolve({
         text: '{"category":"billing","priority":"high","sentiment":"negative"}',
         usage: { inputTokens: 3, outputTokens: 5 },
         provider: name,
-        model: "spy-model",
+        model: STUB_DEFAULT_MODEL,
       });
     },
   });
