@@ -9,7 +9,7 @@
  * `num_predict` (Phase 4F), so a manifest token cap bounds real output.
  */
 
-import type { ChatMessage, GenerateRequest, GenerateResult, ModelProvider } from "../types.ts";
+import type { GenerateRequest, GenerateResult, ModelProvider, Role } from "../types.ts";
 
 export interface OllamaOptions {
   model?: string;
@@ -27,8 +27,14 @@ interface OllamaChatResponse {
 const DEFAULT_MODEL = "gemma4:12b-mlx";
 const DEFAULT_HOST = "http://localhost:11434";
 
-function toOllamaMessages(request: GenerateRequest): ChatMessage[] {
-  const messages: ChatMessage[] = [];
+/** One message in Ollama's `/api/chat` list, which carries the system prompt as a turn. */
+interface OllamaMessage {
+  role: Role;
+  content: string;
+}
+
+function toOllamaMessages(request: GenerateRequest): OllamaMessage[] {
+  const messages: OllamaMessage[] = [];
   if (request.system) {
     messages.push({ role: "system", content: request.system });
   }

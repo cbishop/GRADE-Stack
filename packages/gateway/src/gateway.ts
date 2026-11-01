@@ -35,6 +35,13 @@
  * held, whatever the request says. The record names the agent as a verified
  * caller. Without an agent the caller is the self-asserted header (unverified)
  * or `anonymous`.
+ *
+ * Security finding 1: `generate` parses the request against the strict core
+ * schema before anything else, so a caller that skips the HTTP adapter (tests,
+ * the CLI, a future transport) gets the same guarantee. A malformed request is
+ * blocked with `request-schema` at the input stage, writes its one decision-log
+ * line, and reaches no provider. Its content is not captured: it has no shape
+ * the capture record can hold, and nothing was served.
  */
 
 import { randomUUID } from "node:crypto";
@@ -45,6 +52,7 @@ import {
   type GatewayRouting,
   type GatewayViolation,
   type GenerateRequest,
+  GenerateRequestSchema,
   type GenerateResult,
   IDENTITY_ID_PATTERN,
   isContentCaptureEnabled,
@@ -107,6 +115,8 @@ interface Outcome {
   served?: GenerateResult;
   routing?: GatewayRouting;
   hold?: Hold;
+  /** The request failed the schema (finding 1): not captured, and hashed defensively. */
+  malformed?: boolean;
 }
 
 export interface GatewayServiceOptions {
@@ -163,6 +173,20 @@ function envDegraded(): boolean {
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 /**
+ * JSON for hashing a request that failed the schema (finding 1). It may be
+ * anything a caller cast through `unknown`, so a value JSON cannot hold
+ * (undefined, a cycle, a BigInt) hashes as a fixed marker rather than throwing
+ * before the decision-log line is written.
+ */
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? "undefined";
+  } catch {
+    return "unserializable";
+  }
+}
+
+/**
  * The credential-holding policy-enforcement core. `generate` always runs the
  * input policy → provider → output policy pipeline; there is no path through it
  * that reaches the model without the guardrails, which is what makes the
@@ -212,6 +236,27 @@ export class GatewayService {
     const at = new Date().toISOString();
     const started = performance.now();
     return withRequestSpan("gateway.generate", ctx, async (span) => {
+      // Finding 1: check the shape before anything reads the request. A cast
+      // through `unknown` (or a JS caller) must not slip a content-block array
+      // past the text guardrails.
+      const parsed = GenerateRequestSchema.safeParse(request);
+      if (!parsed.success) {
+        const outcome: Outcome = {
+          response: {
+            ok: false,
+            violation: {
+              policy: "request-schema",
+              stage: "input",
+              reason:
+                "the request does not match the generate request schema (string system and content, user or assistant roles, size limits, no unknown keys)",
+            },
+          },
+          malformed: true,
+        };
+        await this.record(span, ctx, target, request, at, started, outcome, agent);
+        return outcome.response;
+      }
+      request = parsed.data;
       let outcome: Outcome;
       try {
         // 0. Kill switch (4C): checked per request, before any provider is resolved.
@@ -561,7 +606,8 @@ export class GatewayService {
     const routing = "error" in outcome ? undefined : outcome.routing;
     const returned =
       "error" in outcome || !outcome.response.ok ? null : outcome.response.result.text;
-    if (this.captureContent) {
+    const malformed = !("error" in outcome) && outcome.malformed === true;
+    if (this.captureContent && !malformed) {
       if (returned !== null) recordRequestOutput(span, returned);
       await writeCapture(this.captureDir, {
         v: 1,
@@ -588,7 +634,7 @@ export class GatewayService {
       model: served?.model ?? null,
       escalated: routing?.escalated ?? false,
       confidence: routing?.confidence ?? null,
-      inputSha256: sha256Hex(JSON.stringify(request)),
+      inputSha256: sha256Hex(malformed ? safeStringify(request) : JSON.stringify(request)),
       outputSha256: returned === null ? null : sha256Hex(returned),
       tokens: {
         input: served?.usage.inputTokens ?? 0,
